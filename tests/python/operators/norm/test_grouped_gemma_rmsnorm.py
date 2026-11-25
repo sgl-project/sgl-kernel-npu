@@ -1,4 +1,4 @@
-"""Public grouped_gemma_rmsnorm operator: weight layouts, group widths and guards.
+"""Public grouped_gemma_rmsnorm operator: weight layouts, group widths, graphs and guards.
 
 Model dimensions follow Qwen3.8-Flash-Next (hidden_size=2048, hc_count=4;
 https://huggingface.co/Qwen/Qwen3.8-Flash-Next/blob/main/config.json) and its
@@ -12,7 +12,7 @@ import pytest
 torch = pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
-from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.accuracy import assert_accuracy, check_accuracy
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
@@ -20,6 +20,7 @@ from tests.python.utils.standards import AccuracyStandard
 # to catch accidental intermediate BF16 rounding (~0.01-0.02) while leaving room
 # for fp32 transcendental and tree-reduction rounding differences.
 BF16_TIGHT = {"torch.bfloat16": AccuracyStandard(atol=0.0, rtol=8e-3)}
+STANDARD = {"torch.bfloat16": AccuracyStandard(atol=0.005, rtol=0.01)}
 
 # Production decode and prefill shapes selected for performance collection.
 perf_shape = [
@@ -27,6 +28,7 @@ perf_shape = [
     (2048, 4, 2048),
 ]
 perf_weight = "per_branch"
+perf_2560_rows = [1, 32, 4096]
 
 # How long the weight is relative to one group.
 WEIGHT_LAYOUTS = [
@@ -45,9 +47,15 @@ def _native_available():
         return False
 
 
+def _supported_generation():
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    return get_hardware().generation in {Generation.ARCH22, Generation.ARCH35}
+
+
 requires_native = pytest.mark.skipif(
     not _native_available(),
-    reason="grouped_gemma_rmsnorm needs an arch22 A3-family native build",
+    reason="general grouped_gemma_rmsnorm cases need an arch22 A3-family native build",
 )
 
 
@@ -69,6 +77,20 @@ def generate_data(shape, weight_layout, seed=11042026):
     # one; keep that scale so the test exercises realistic magnitudes.
     weight = (torch.randn(length, dtype=torch.float32) * 0.02).to(torch.bfloat16)
     return x, weight
+
+
+def _generate_2560_data(rows, row_offset=0):
+    generator = torch.Generator(device="cpu").manual_seed(73)
+    x = torch.randn(rows + row_offset, 10240, generator=generator, device="cpu").to(
+        torch.bfloat16
+    )
+    weight = (torch.randn(10240, generator=generator, device="cpu") * 0.1).to(
+        torch.bfloat16
+    )
+    # Slice after transfer: SP rank 1 keeps a nonzero offset on the device.
+    x = x.to("npu")[row_offset:]
+    assert x.is_contiguous() and x.storage_offset() == row_offset * 10240
+    return x, weight.to("npu"), 2560, 1e-6
 
 
 @requires_native
@@ -104,6 +126,53 @@ def test_grouped_gemma_rmsnorm(shape, weight_layout, eps):
         enable_perf=(
             shape in perf_shape and weight_layout == perf_weight and eps == 1e-6
         ),
+    )
+
+
+@pytest.mark.parametrize(
+    "rows,row_offset",
+    [
+        pytest.param(1, 0, id="qwen3-8-flash-next-decode-b1-h10240"),
+        pytest.param(8, 0, id="qwen3-8-flash-next-decode-b8-h10240"),
+        pytest.param(4, 0, id="qwen3-8-flash-next-verify-b1-w4-t4-h10240"),
+        pytest.param(32, 0, id="qwen3-8-flash-next-verify-b8-w4-t32-h10240"),
+        pytest.param(4096, 0, id="qwen3-8-flash-next-prefill-t4096-h10240"),
+        pytest.param(
+            512, 512, id="qwen3-8-flash-next-sp8-prefill-local-t512-offset512"
+        ),
+        pytest.param(0, 0, id="edge-empty"),
+        pytest.param(33, 0, id="edge-row-tail-r33"),
+        pytest.param(8193, 0, id="edge-large-row-tail-r8193"),
+    ],
+)
+def test_grouped_gemma_rmsnorm_accuracy(rows, row_offset):
+    if not _supported_generation():
+        pytest.skip("These model operators target arch22 and arch35")
+    from sgl_kernel_npu.operators.norm import grouped_gemma_rmsnorm
+
+    # Each row contains four groups; an odd row count also checks the last tile.
+    args = _generate_2560_data(rows, row_offset)
+    saved = [x.clone() for x in args[:2]]
+    executor = check_accuracy(grouped_gemma_rmsnorm, args=args, standard=STANDARD)
+    assert executor().is_contiguous()
+    _assert_unchanged(args, saved)
+    check_performance(executor, enable_perf=rows in perf_2560_rows)
+
+
+@pytest.mark.parametrize(
+    "rows", [pytest.param(8, id="qwen3-8-flash-next-decode-r8-h10240")]
+)
+def test_grouped_gemma_rmsnorm_graph_updates(rows):
+    if not _supported_generation():
+        pytest.skip("These model operators target arch22 and arch35")
+    from sgl_kernel_npu.operators.norm import grouped_gemma_rmsnorm
+
+    args = _generate_2560_data(rows)
+    _check_graph_updates(
+        grouped_gemma_rmsnorm,
+        args,
+        [lambda: args[0].mul_(-0.5), lambda: args[1].add_(0.125)],
+        standard=STANDARD,
     )
 
 
@@ -351,3 +420,59 @@ def test_grouped_gemma_rmsnorm_rejects_inputs(case, message):
         x = x.requires_grad_()
     with pytest.raises(ValueError, match=message):
         grouped_gemma_rmsnorm(x, weight, group_size, eps)
+
+
+@pytest.mark.extra_checks
+@pytest.mark.parametrize(
+    "eps",
+    [0, -1, float("nan"), float("inf"), True],
+    ids=["zero", "negative", "nan", "infinite", "boolean"],
+)
+def test_grouped_gemma_rmsnorm_rejects_epsilon(eps):
+    from sgl_kernel_npu.operators.norm import grouped_gemma_rmsnorm
+
+    x, weight, group, _ = _generate_2560_data(0)
+    with pytest.raises(ValueError):
+        grouped_gemma_rmsnorm(x, weight, group, eps)
+
+
+def _tensors(args):
+    return [value for value in args if isinstance(value, torch.Tensor)]
+
+
+def _assert_unchanged(args, saved):
+    for value, before in zip(_tensors(args), saved):
+        torch.testing.assert_close(value, before, atol=0, rtol=0, equal_nan=True)
+
+
+def _check_graph_updates(
+    operator, args, updates, *, standard=None, kwargs=None, compare=None
+):
+    """Capture the public default; compare each replay to an independent reference.
+
+    updates mutate contents at stable addresses. References run outside capture.
+    compare can supply a semantic comparator for nonunique TopK outputs.
+    """
+    kwargs = dict(kwargs or {})
+    inputs = _tensors(args)
+    pointers = [x.data_ptr() for x in inputs]
+    for _ in range(3):
+        operator(*args, **kwargs)
+    torch.npu.synchronize()
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        output = operator(*args, **kwargs)
+    for change in [None, *updates]:
+        if change is not None:
+            change()
+        saved = [x.clone() for x in inputs]
+        graph.replay()
+        torch.npu.synchronize()
+        if compare is None:
+            reference = operator(*args, **kwargs, impl="torch_native")
+            assert_accuracy(output, reference, standard)
+        else:
+            compare(output)
+        assert [x.data_ptr() for x in inputs] == pointers
+        _assert_unchanged(args, saved)
+    return graph, output

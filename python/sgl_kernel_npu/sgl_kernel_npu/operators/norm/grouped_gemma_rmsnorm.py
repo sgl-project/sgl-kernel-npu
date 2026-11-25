@@ -8,6 +8,7 @@ import torch
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+_triton_fn = None
 _torch_native_fn = None
 
 # Unified Buffer sizing caps the group width, which must also fill whole
@@ -45,7 +46,7 @@ def _tensors_overlap(a: torch.Tensor, b: torch.Tensor) -> bool:
 def _check_inputs(x, weight, group_size, eps, out=None):
     """Reject inputs outside the operator contract before any kernel launch.
 
-    Both backends share this contract, so it is checked once here instead of
+    All backends share this contract, so it is checked once here instead of
     being duplicated per backend. Only metadata is inspected; no
     device-to-host data read happens.
     """
@@ -107,7 +108,7 @@ def _check_inputs(x, weight, group_size, eps, out=None):
 
 
 # The native entry point is compiled by the A3-only operator set of an arch22
-# build, so this implementation is not declared for arch35.
+# build, while arch35 defaults to the Triton implementation.
 @register_impl(
     "norm.grouped_gemma_rmsnorm", "auto", supported_generations={Generation.ARCH22}
 )
@@ -120,7 +121,35 @@ def _ascendc_impl(x, weight, group_size, eps, out=None):
     return torch.ops.npu.hyper_conn_grouped_norm(x, weight, group_size, eps, out)
 
 
-@register_impl("norm.grouped_gemma_rmsnorm", "torch_native")
+@register_impl(
+    "norm.grouped_gemma_rmsnorm", "auto", supported_generations={Generation.ARCH35}
+)
+@register_impl(
+    "norm.grouped_gemma_rmsnorm",
+    "triton",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
+)
+def _triton_impl(x, weight, group_size, eps, out=None):
+    global _triton_fn
+    if _triton_fn is None:
+        from ...implementation.triton.norm.grouped_gemma_rmsnorm import (
+            grouped_gemma_rmsnorm,
+        )
+
+        _triton_fn = grouped_gemma_rmsnorm
+    effective_group_size = x.shape[-1] if group_size is None else group_size
+    result = _triton_fn(x, weight, effective_group_size, eps)
+    if out is not None:
+        out.copy_(result)
+        return out
+    return result
+
+
+@register_impl(
+    "norm.grouped_gemma_rmsnorm",
+    "torch_native",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
+)
 def _torch_native_impl(x, weight, group_size, eps, out=None):
     global _torch_native_fn
     if _torch_native_fn is None:
@@ -150,13 +179,14 @@ def grouped_gemma_rmsnorm(
 ) -> torch.Tensor:
     """RMS-normalize fixed-width groups and scale by ``1 + weight``.
 
-    The default ``impl="auto"`` selects Ascend C. Groups are the consecutive
-    ``group_size``-long spans of ``x`` in row-major order, so a hyper-connection
-    residual of shape ``[rows, branches * width]`` with ``group_size=width``
-    normalizes each branch of each row separately. Group ``g`` scales by
-    ``1 + weight[(g * group_size) % weight.numel() + j]``, so a weight holding
-    one slice per branch gives every branch its own slice, and a weight of
-    exactly one group is shared by all groups.
+    The default ``impl="auto"`` selects Ascend C on ``arch22`` and Triton on
+    ``arch35`` (fixed ``x[R, 10240], weight[10240], group_size=2560``). Groups
+    are the consecutive ``group_size``-long spans of ``x`` in row-major order,
+    so a hyper-connection residual of shape ``[rows, branches * width]`` with
+    ``group_size=width`` normalizes each branch of each row separately. Group
+    ``g`` scales by ``1 + weight[(g * group_size) % weight.numel() + j]``, so a
+    weight holding one slice per branch gives every branch its own slice, and a
+    weight of exactly one group is shared by all groups.
 
     Args:
         x (torch.Tensor): BF16 contiguous input on an NPU with at least two
@@ -173,8 +203,8 @@ def grouped_gemma_rmsnorm(
         out (torch.Tensor | None): Optional pre-allocated BF16 contiguous output
             tensor on x's device with x's shape, not aliasing or overlapping x
             or weight. Defaults to None.
-        impl (str): Implementation name: "auto", "ascendc" or "torch_native".
-            Defaults to "auto". Keyword-only.
+        impl (str): Implementation name: "auto", "ascendc", "triton" or
+            "torch_native". Defaults to "auto". Keyword-only.
 
     Returns:
         torch.Tensor: Normalized BF16 result with x's shape and device. Returns

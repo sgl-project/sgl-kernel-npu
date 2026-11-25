@@ -224,7 +224,7 @@ def test_same_entry_cannot_be_used_as_reference(accuracy_case, reference):
     assert_calls(case, [])
 
 
-# Distinguish missing entries, unsupported DUT skips and reference errors before computation.
+# An unsupported DUT skips before the reference is resolved; missing entries fail.
 @pytest.mark.parametrize(
     "skip_accuracy, dut_state, ref_state, expected",
     [
@@ -238,14 +238,14 @@ def test_same_entry_cannot_be_used_as_reference(accuracy_case, reference):
             False,
             "unsupported",
             "missing",
-            "missing-ref",
-            id="reference-error-before-skip",
+            "skip",
+            id="unsupported-dut-missing-reference",
         ),
         pytest.param(
             False,
             "unsupported",
             "unsupported",
-            "unsupported-ref",
+            "skip",
             id="both-unsupported",
         ),
         pytest.param(
@@ -322,3 +322,38 @@ def test_accuracy_configuration_is_restored(raise_inside):
             assert caught.value is error
         assert (get_test_impls(), get_skip_acc_check()) == outer
     assert (get_test_impls(), get_skip_acc_check()) == before
+
+
+@pytest.mark.parametrize("wrong_write", [False, True])
+def test_accuracy_checks_independent_out_buffers(accuracy_case, wrong_write):
+    case = accuracy_case
+    op_name = "framework.mutable_probe"
+
+    @case.registry.register_operator(op_name)
+    def operator(value, *, out, impl="auto"):
+        return case.registry.get_impl(operator, impl)(value, out=out)
+
+    @case.registry.register_impl(op_name, "reference")
+    def reference(value, *, out):
+        out[0].add_(value)
+
+    @case.registry.register_impl(op_name, "dut")
+    def dut(value, *, out):
+        out[0].add_(value + int(wrong_write))
+
+    kwargs = {"out": [case.x.clone()]}
+    with (
+        pytest.raises(AssertionError, match=r"out\[0\]")
+        if wrong_write
+        else nullcontext()
+    ):
+        executor = case.check_accuracy(
+            operator,
+            (case.x,),
+            kwargs=kwargs,
+            mutable_kwargs=("out",),
+            impl="dut",
+            impl_ref="reference",
+        )
+        assert executor.accuracy_checked is True
+        assert kwargs["out"][0].cpu().tolist() == [2.0, 4.0]

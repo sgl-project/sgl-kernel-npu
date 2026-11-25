@@ -1,0 +1,47 @@
+{
+  "_comment": "Migrated DSV4 released bindings not already supplied by the mainline profile use this pinned commit and private package. BF16 sparse MLA and the other mainline operators remain in ops_transformer.json at their original revision.",
+  "name": "sgl_ops_transformer_dsv4",
+  "ops": {
+    "arch22": [
+      "quant_lightning_indexer_v2",
+      "quant_lightning_indexer_v2_metadata",
+      "mhc_pre_sinkhorn",
+      "mhc_post",
+      "inplace_partial_rotary_mul"
+    ],
+    "arch35": [
+      "mixed_quant_sparse_flash_mla",
+      "mixed_quant_sparse_flash_mla_metadata",
+      "quant_lightning_indexer_v2",
+      "quant_lightning_indexer_v2_metadata",
+      "kv_compress_epilog",
+      "mhc_pre_sinkhorn",
+      "mhc_post",
+      "inplace_partial_rotary_mul",
+      "indexer_quant_cache"
+    ]
+  },
+  "repository": "https://gitcode.com/cann/ops-transformer.git",
+  "commit": "3baf8ac0eba25fa464260a43bab8d5bac1fefb8a",
+  "commands": [
+    [
+      "bash",
+      "build.sh",
+      "--pkg",
+      "--soc={soc}",
+      "--vendor_name={vendor_name}",
+      "--ops={ops}",
+      "-j{jobs}"
+    ],
+    [
+      "bash",
+      "build.sh",
+      "--torch_extension",
+      "--ops={ops}",
+      "--vendor_name={vendor_name}"
+    ]
+  ],
+  "has_aicpu": true,
+  "license": "LICENSE",
+  "builder": "ops_transformer"
+}

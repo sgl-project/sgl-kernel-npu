@@ -7,22 +7,22 @@ A2 指 Ascend910B 系列。
 
 | 实现 | arch22 A3 | arch22 A2 | arch35 |
 | --- | --- | --- | --- |
-| `ascendc` | 支持 | 待验证 | 未实现 |
-| `torch_native` | 支持 | 待验证 | 待验证 |
-| `triton` | 未实现 | 未实现 | 未实现 |
+| `ascendc`（arch22 下 `auto`） | 支持 | 待验证 | 未实现 |
+| `triton`（arch35 下 `auto`） | 支持（`HC=4, H=2560`） | 待验证（`HC=4, H=2560`） | 支持（`HC=4, H=2560`） |
+| `torch_native` | 支持 | 待验证 | 支持 |
 | `tilelang` | 未实现 | 未实现 | 未实现 |
 
-`ascendc` 实现注册到 arch22（同时覆盖 A2 与 A3）；`cmake/legacy_kernels.cmake`
-中的 `SGL_KERNEL_ENABLE_A3_ONLY_OPS` 会为 Ascend950 系列之外的所有 SoC 构建其
-kernel，并在运行时通过 `GetCoreNumAiv()` 查询 Vector Core 数量。A2 标为"待验证"
-是因为实测仅在 A3 上完成；Ascend950 构建不包含该内部 helper，访问
-`torch.ops.npu.hyper_conn_branch_combine` 会抛出 `AttributeError`。硬件验证环境
-为 Ascend910_9382、CANN 9.1.0、torch 2.10.0、torch_npu 2.10.0。arch35 未实现。
+`ascendc` 实现在 arch22 上注册为默认 `"auto"`（覆盖 A2 与 A3）；
+`cmake/legacy_kernels.cmake` 中的 `SGL_KERNEL_ENABLE_A3_ONLY_OPS` 会为 Ascend950
+系列之外的所有 SoC 构建其 kernel，并在运行时通过 `GetCoreNumAiv()` 查询 Vector
+Core 数量。在 arch35 上，`"auto"` 选择 `triton` 实现（支持固定规模
+`hc_count=4, hidden_size=2560`）。A3 硬件验证环境为 Ascend910_9382、CANN 9.1.0、
+torch 2.10.0、torch_npu 2.10.0。
 
 ## 函数原型
 
-默认选项为 `auto`，与 `ascendc` 注册到同一入口。不传 `impl` 或传 `"auto"` 时选择
-Ascend C 流水线。
+不传 `impl` 或传 `"auto"` 时，在 `arch22` 上选择 `ascendc`，在 `arch35` 上选择
+`triton`。
 
 ```python
 from typing import Optional
@@ -68,13 +68,13 @@ kernel 契约一致。sigmoid 双侧尾部饱和到 0 和 2，不会产生 NaN�
 
 与接收预计算 `post` 及 $4\times 4$ `comb` 稠密混合矩阵且限定隐藏维度为
 `4096`/`7168` 的 `hc_post`、`mhc_post` 不同，`hc_combine` 在算子内部完成注入投
-影与 `2 * sigmoid` 门控链计算，残差流保持单位系数无跨分支稠密混合，并支持
-`[16, 4096]` 内的单分支隐藏维度。
+影与 `2 * sigmoid` 门控链计算，残差流保持单位系数无跨分支稠密混合，并在
+`ascendc` 与 `torch_native` 上支持 `[16, 4096]` 内的单分支隐藏维度。
 
 ## 参数与返回值
 
-公开 operator 在选择实现之前校验下表契约，因此两个后端拒绝同样的输入。非法输入在
-任何 kernel 下发之前抛出 `ValueError`。
+公开 operator 在选择实现之前校验下表契约，非法输入在任何 kernel 下发之前抛出
+`ValueError`。
 
 | 参数 | 类型 | Shape | Dtype | 默认值 | 描述与约束 |
 | --- | --- | --- | --- | --- | --- |
@@ -82,10 +82,10 @@ kernel 契约一致。sigmoid 双侧尾部饱和到 0 和 2，不会产生 NaN�
 | `residual` | `torch.Tensor` | `[rows, hc_count * hidden_size]` | `torch.bfloat16` | 必填 | 多分支残差；与 block_output 同设备的连续二维张量。`rows == 0` 时返回空结果。 |
 | `normed_residual` | `torch.Tensor` | `[rows, hc_count * hidden_size]` | `torch.bfloat16` | 必填 | 注入投影的归一化残差输入；与 block_output 同设备的连续二维张量。 |
 | `inject_weight` | `torch.Tensor` | `[hc_count, hc_count * hidden_size]` | `torch.bfloat16` | 必填 | 注入投影权重；与 block_output 同设备的连续二维张量。 |
-| `hc_count` | `int` | — | — | 必填 | hyper-connection 分支数；`[1, 8]` 内的 2 的幂。`bool` 被拒绝。 |
-| `hidden_size` | `int` | — | — | 必填 | 单分支隐藏维度；`[16, 4096]` 内 16 的倍数。`bool` 被拒绝。 |
+| `hc_count` | `int` | — | — | 必填 | hyper-connection 分支数；`[1, 8]` 内的 2 的幂（`triton` 限定为 `4`）。`bool` 被拒绝。 |
+| `hidden_size` | `int` | — | — | 必填 | 单分支隐藏维度；`[16, 4096]` 内 16 的倍数（`triton` 限定为 `2560`）。`bool` 被拒绝。 |
 | `out` | `torch.Tensor` 或 `None` | `[rows, hc_count * hidden_size]` 或 — | `torch.bfloat16` 或 — | `None` | 可选的预分配连续输出缓冲区，须位于 residual 所在设备、与 residual 同 shape、`requires_grad=False`，且与任何输入张量无内存重叠；为 `None` 时新建张量。 |
-| `impl` | `str` | — | — | `"auto"` | 仅限关键字；可选 `"auto"`、`"ascendc"`、`"torch_native"`。`auto` 选择 Ascend C。 |
+| `impl` | `str` | — | — | `"auto"` | 仅限关键字；可选 `"auto"`、`"ascendc"`、`"triton"`、`"torch_native"`。 |
 
 不支持自动求导：任何带 `requires_grad=True` 的输入或预分配 `out` 均会被拒绝。若
 提供 `out`，则其必须与 `residual` 的 shape（`[rows, hc_count * hidden_size]`）、
@@ -111,6 +111,12 @@ dtype（`torch.bfloat16`）及设备一致，保持连续，且不得与 `block_
   过 `GetCoreNumAiv()` 查询的运行时 Vector Core 数之内）。65 到 1022 行之间由
   128 行表项插值得到。
 
+## triton 后端
+
+- `arch35` 上的默认实现（在 `arch22` 和 `arch35` 上均可通过 `impl="triton"` 显式
+  选择，支持固定规模 `hc_count=4, hidden_size=2560`）。
+- 支持 `NPUGraph` 捕获以及原地更新输入与权重后的 replay。
+
 ## torch_native 后端
 
 - 独立的 PyTorch 实现，不调用任何自定义 native 算子。
@@ -119,7 +125,7 @@ dtype（`torch.bfloat16`）及设备一致，保持连续，且不得与 `block_
   为 `bfloat16`。
 - 会分配与完整残差等大的 float32 临时张量，prefill 规模下内存开销较大。它是参考
   实现，不是性能路径。
-- 两个后端的超越函数实现不同，不保证逐位相等；精度测试采用收紧的 `BF16_TIGHT` 容
+- 不同后端的超越函数实现不同，不保证逐位相等；精度测试采用收紧的 `BF16_TIGHT` 容
   差（`rtol = 8e-3`，1–2 个 BF16 ulp）。
 
 ## 调用示例
@@ -142,7 +148,7 @@ inject_weight = (
     torch.randn(hc_count, total, device="npu", dtype=torch.bfloat16) * 0.1
 )
 
-print(list_impls(hc_combine))  # ['ascendc', 'auto', 'torch_native']
+print(list_impls(hc_combine))  # ['ascendc', 'auto', 'torch_native', 'triton']
 out = hc_combine(
     block_output, residual, normed_residual, inject_weight, hc_count, hidden_size
 )

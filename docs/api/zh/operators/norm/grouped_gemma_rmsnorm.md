@@ -7,22 +7,22 @@ A2 指 Ascend910B 系列。
 
 | 实现 | arch22 A3 | arch22 A2 | arch35 |
 | --- | --- | --- | --- |
-| `ascendc` | 支持 | 待验证 | 未实现 |
-| `torch_native` | 支持 | 待验证 | 待验证 |
-| `triton` | 未实现 | 未实现 | 未实现 |
+| `ascendc`（arch22 下 `auto`） | 支持 | 待验证 | 未实现 |
+| `triton`（arch35 下 `auto`） | 支持（`x[R,10240], group_size=2560`） | 待验证（`x[R,10240], group_size=2560`） | 支持（`x[R,10240], group_size=2560`） |
+| `torch_native` | 支持 | 待验证 | 支持 |
 | `tilelang` | 未实现 | 未实现 | 未实现 |
 
-`ascendc` 实现注册到 arch22（同时覆盖 A2 与 A3）；`cmake/legacy_kernels.cmake`
-中的 `SGL_KERNEL_ENABLE_A3_ONLY_OPS` 会为 Ascend950 系列之外的所有 SoC 构建其
-kernel，并在运行时通过 `GetCoreNumAiv()` 查询 Vector Core 数量。A2 标为"待验证"
-是因为实测仅在 A3 上完成；Ascend950 构建不包含该内部 helper，访问
-`torch.ops.npu.hyper_conn_grouped_norm` 会抛出 `AttributeError`。硬件验证环境为
-Ascend910_9382、CANN 9.1.0、torch 2.10.0、torch_npu 2.10.0。arch35 未实现。
+`ascendc` 实现在 arch22 上注册为默认 `"auto"`（覆盖 A2 与 A3）；
+`cmake/legacy_kernels.cmake` 中的 `SGL_KERNEL_ENABLE_A3_ONLY_OPS` 会为 Ascend950
+系列之外的所有 SoC 构建其 kernel，并在运行时通过 `GetCoreNumAiv()` 查询 Vector
+Core 数量。在 arch35 上，`"auto"` 选择 `triton` 实现（支持固定规模
+`x[R, 10240], weight[10240], group_size=2560`）。A3 硬件验证环境为
+Ascend910_9382、CANN 9.1.0、torch 2.10.0、torch_npu 2.10.0。
 
 ## 函数原型
 
-默认选项为 `auto`，与 `ascendc` 注册到同一入口。不传 `impl` 或传 `"auto"` 时选择
-Ascend C kernel。
+不传 `impl` 或传 `"auto"` 时，在 `arch22` 上选择 `ascendc`，在 `arch35` 上选择
+`triton`。
 
 ```python
 from typing import Optional
@@ -67,17 +67,17 @@ $$
 
 ## 参数与返回值
 
-公开 operator 在选择实现之前校验下表契约，因此两个后端拒绝同样的输入。非法输入在
-任何 kernel 下发之前抛出 `ValueError`。
+公开 operator 在选择实现之前校验下表契约，非法输入在任何 kernel 下发之前抛出
+`ValueError`。
 
 | 参数 | 类型 | Shape | Dtype | 默认值 | 描述与约束 |
 | --- | --- | --- | --- | --- | --- |
-| `x` | `torch.Tensor` | `[..., H]` | `torch.bfloat16` | 必填 | 至少二维的输入；连续，位于 NPU 设备。`H` 必须是有效分组宽度的整数倍。行数为 0 时返回空结果。 |
-| `weight` | `torch.Tensor` | `[L]` | `torch.bfloat16` | 必填 | 与 x 同设备的连续一维权重。`L` 必须是有效分组宽度 `width` 的正整数倍，且 `x.numel() / width` 必须是 `L / width` 的整数倍。 |
-| `group_size` | `int` 或 `None` | — | — | `None` | 分组宽度；`[8, 4096]` 内 8 的倍数。`None` 表示取 `H`，即最后一维每段一个分组。`bool` 被拒绝。 |
+| `x` | `torch.Tensor` | `[..., H]` | `torch.bfloat16` | 必填 | 至少二维的输入；连续，位于 NPU 设备。`H` 必须是有效分组宽度的整数倍（`triton` 限定为 `x[R, 10240]`）。行数为 0 时返回空结果。 |
+| `weight` | `torch.Tensor` | `[L]` | `torch.bfloat16` | 必填 | 与 x 同设备的连续一维权重。`L` 必须是有效分组宽度 `width` 的正整数倍，且 `x.numel() / width` 必须是 `L / width` 的整数倍（`triton` 限定为 `L = 10240`）。 |
+| `group_size` | `int` 或 `None` | — | — | `None` | 分组宽度；`[8, 4096]` 内 8 的倍数（`triton` 限定为 `2560`）。`None` 表示取 `H`，即最后一维每段一个分组。`bool` 被拒绝。 |
 | `eps` | `int` 或 `float` | — | — | `1e-6` | 加到均方值上的有限正数。`bool` 被拒绝。 |
 | `out` | `torch.Tensor` 或 `None` | 与 x 相同或 — | `torch.bfloat16` 或 — | `None` | 可选的预分配连续输出缓冲区，须位于 x 所在设备、与 x 同 shape、`requires_grad=False`，且与 `x` 或 `weight` 无内存重叠；为 `None` 时新建张量。 |
-| `impl` | `str` | — | — | `"auto"` | 仅限关键字；可选 `"auto"`、`"ascendc"`、`"torch_native"`。`auto` 选择 Ascend C。 |
+| `impl` | `str` | — | — | `"auto"` | 仅限关键字；可选 `"auto"`、`"ascendc"`、`"triton"`、`"torch_native"`。 |
 
 不支持自动求导：任何带 `requires_grad=True` 的输入或预分配 `out` 均会被拒绝。若
 提供 `out`，则其必须与 `x` 的 shape、dtype（`torch.bfloat16`）及设备一致，保持连
@@ -104,6 +104,13 @@ $$
   非 `torch.rsqrt`）求逆均方根，因此归一化因子在输出取整前可能与参考实现相差约 1
   个 `float32` ulp。
 
+## triton 后端
+
+- `arch35` 上的默认实现（在 `arch22` 和 `arch35` 上均可通过 `impl="triton"` 显式
+  选择，支持固定规模 `x[R, 10240], weight[10240], group_size=2560`）。
+- 复用 `_layer_norm_fwd_1pass_kernel_npu` 并按 `FP32 (1 + weight)` 缩放，支持
+  `NPUGraph` 捕获以及原地更新输入与权重后的 replay。
+
 ## torch_native 后端
 
 - 独立的 PyTorch 实现，不调用任何自定义 native 算子。
@@ -129,8 +136,8 @@ x = torch.randn(rows, branches * width, device="npu", dtype=torch.bfloat16)
 # 每个分支各持一段权重：切片偏移在一行内轮转。
 weight = torch.randn(branches * width, device="npu", dtype=torch.bfloat16) * 0.02
 
-print(list_impls(grouped_gemma_rmsnorm))  # ['ascendc', 'auto', 'torch_native']
-out = grouped_gemma_rmsnorm(x, weight, width, 1e-6)  # 默认 auto 选择 Ascend C
+print(list_impls(grouped_gemma_rmsnorm))  # ['ascendc', 'auto', 'torch_native', 'triton']
+out = grouped_gemma_rmsnorm(x, weight, width, 1e-6)
 out_native = grouped_gemma_rmsnorm(x, weight, width, 1e-6, impl="torch_native")
 torch.testing.assert_close(out, out_native, rtol=5e-2, atol=5e-2)
 ```

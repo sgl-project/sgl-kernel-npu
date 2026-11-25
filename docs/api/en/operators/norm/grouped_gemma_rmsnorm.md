@@ -7,24 +7,23 @@ differently. A3 means Ascend910_93 series, A2 means Ascend910B series.
 
 | Implementation | arch22 A3 | arch22 A2 | arch35 |
 | --- | --- | --- | --- |
-| `ascendc` | Supported | Unverified | Not implemented |
-| `torch_native` | Supported | Unverified | Unverified |
-| `triton` | Not implemented | Not implemented | Not implemented |
+| `ascendc` (`auto` on arch22) | Supported | Unverified | Not implemented |
+| `triton` (`auto` on arch35) | Supported (`x[R,10240], group_size=2560`) | Unverified (`x[R,10240], group_size=2560`) | Supported (`x[R,10240], group_size=2560`) |
+| `torch_native` | Supported | Unverified | Supported |
 | `tilelang` | Not implemented | Not implemented | Not implemented |
 
-The `ascendc` implementation is registered for arch22, which covers both A2 and
-A3; `SGL_KERNEL_ENABLE_A3_ONLY_OPS` in `cmake/legacy_kernels.cmake` builds its
-kernel for every SoC outside the Ascend950 series with runtime vector core
-discovery (`GetCoreNumAiv()`). A2 is marked unverified because hardware
-measurements exist on A3 only; an Ascend950 build omits the native helper and
-raises `AttributeError` on `torch.ops.npu.hyper_conn_grouped_norm`. Hardware
-validation used Ascend910_9382 with CANN 9.1.0, torch 2.10.0 and
-torch_npu 2.10.0. arch35 is not implemented.
+The `ascendc` implementation is registered as `"auto"` on arch22, which covers
+both A2 and A3; `SGL_KERNEL_ENABLE_A3_ONLY_OPS` in `cmake/legacy_kernels.cmake`
+builds its kernel for every SoC outside the Ascend950 series with runtime vector
+core discovery (`GetCoreNumAiv()`). On arch35, `"auto"` selects the `triton`
+implementation (`x[R, 10240], weight[10240], group_size=2560`). Hardware
+validation on A3 used Ascend910_9382 with CANN 9.1.0, torch 2.10.0 and
+torch_npu 2.10.0.
 
 ## Signature
 
-The default option is `auto`, registered to the same entry point as `ascendc`.
-Omitting `impl` or passing `"auto"` selects the Ascend C kernel.
+Omitting `impl` or passing `"auto"` selects `ascendc` on `arch22` and `triton`
+on `arch35`.
 
 ```python
 from typing import Optional
@@ -75,17 +74,16 @@ normalization runs per fixed-width group rather than only across the entire row.
 ## Parameters and return value
 
 The public operator validates the contract below before selecting an
-implementation, so both backends reject the same inputs. Invalid inputs raise
-`ValueError` before any kernel launch.
+implementation, so invalid inputs raise `ValueError` before any kernel launch.
 
 | Parameter | Type | Shape | Dtype | Default | Description and constraints |
 | --- | --- | --- | --- | --- | --- |
-| `x` | `torch.Tensor` | `[..., H]` | `torch.bfloat16` | Required | Input with at least two dimensions; contiguous, on an NPU device. `H` must be a multiple of `group_size`. Zero rows return an empty result. |
-| `weight` | `torch.Tensor` | `[L]` | `torch.bfloat16` | Required | Contiguous 1-D weight on x's device. `L` must be a positive multiple of the effective group width, and `x.numel() / width` must be a multiple of `L / width`. |
-| `group_size` | `int` or `None` | — | — | `None` | Group width; a multiple of 8 in `[8, 4096]`. `None` uses `H`, making one group per last-dimension span. `bool` is rejected. |
+| `x` | `torch.Tensor` | `[..., H]` | `torch.bfloat16` | Required | Input with at least two dimensions; contiguous, on an NPU device. `H` must be a multiple of `group_size` (`x[R, 10240]` on `triton`). Zero rows return an empty result. |
+| `weight` | `torch.Tensor` | `[L]` | `torch.bfloat16` | Required | Contiguous 1-D weight on x's device. `L` must be a positive multiple of the effective group width, and `x.numel() / width` must be a multiple of `L / width` (`L = 10240` on `triton`). |
+| `group_size` | `int` or `None` | — | — | `None` | Group width; a multiple of 8 in `[8, 4096]` (`2560` on `triton`). `None` uses `H`, making one group per last-dimension span. `bool` is rejected. |
 | `eps` | `int` or `float` | — | — | `1e-6` | Positive finite term added to the mean square. `bool` is rejected. |
 | `out` | `torch.Tensor` or `None` | x's shape or — | `torch.bfloat16` or — | `None` | Optional pre-allocated contiguous output buffer on x's device with x's shape, `requires_grad=False`, and no memory overlap with `x` or `weight`. When `None`, a new tensor is allocated. |
-| `impl` | `str` | — | — | `"auto"` | Keyword-only; accepts `"auto"`, `"ascendc"` or `"torch_native"`. `auto` selects Ascend C. |
+| `impl` | `str` | — | — | `"auto"` | Keyword-only; accepts `"auto"`, `"ascendc"`, `"triton"` or `"torch_native"`. |
 
 Autograd is not supported: any input or pre-allocated `out` with
 `requires_grad=True` is rejected. When `out` is provided, it must match `x`'s
@@ -120,6 +118,15 @@ overlap `x` or `weight`.
   `Sqrt` + `Div` rather than `torch.rsqrt`, so the normalization factor can
   differ from the reference by ~1 `float32` ulp before the output rounding.
 
+## triton backend
+
+- Default implementation on `arch35` (and selectable explicitly via
+  `impl="triton"` on `arch22` and `arch35` for `x[R, 10240], weight[10240],
+  group_size=2560`).
+- Reuses `_layer_norm_fwd_1pass_kernel_npu` with `FP32 (1 + weight)` and
+  supports `NPUGraph` capture and replay after in-place input and weight
+  updates.
+
 ## torch_native backend
 
 - Independent PyTorch implementation; it calls no custom native operator.
@@ -147,8 +154,8 @@ x = torch.randn(rows, branches * width, device="npu", dtype=torch.bfloat16)
 # One weight slice per branch: the slice offset cycles across the row.
 weight = torch.randn(branches * width, device="npu", dtype=torch.bfloat16) * 0.02
 
-print(list_impls(grouped_gemma_rmsnorm))  # ['ascendc', 'auto', 'torch_native']
-out = grouped_gemma_rmsnorm(x, weight, width, 1e-6)  # Default auto selects Ascend C
+print(list_impls(grouped_gemma_rmsnorm))  # ['ascendc', 'auto', 'torch_native', 'triton']
+out = grouped_gemma_rmsnorm(x, weight, width, 1e-6)
 out_native = grouped_gemma_rmsnorm(x, weight, width, 1e-6, impl="torch_native")
 torch.testing.assert_close(out, out_native, rtol=5e-2, atol=5e-2)
 ```

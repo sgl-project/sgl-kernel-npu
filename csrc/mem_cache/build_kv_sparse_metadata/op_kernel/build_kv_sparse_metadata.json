@@ -1,0 +1,39 @@
+{
+    "SglBuildKvSparseMetadata": {
+        "opInfo": {
+            "computeCost": "100",
+            "engine": "DNN_VM_AICPU",
+            "flagAsync": "False",
+            "flagPartial": "False",
+            "functionName": "RunCpuKernel",
+            "kernelSo": "libsgl_kernel_npu_aicpu.so",
+            "opKernelLib": "CUSTAICPUKernel",
+            "userDefined": "True",
+            "workspaceSize": "100"
+        },
+        "input0": {
+            "type": "DT_INT64",
+            "name": "device_indices"
+        },
+        "input1": {
+            "type": "DT_INT64",
+            "name": "host_indices"
+        },
+        "output0": {
+            "type": "DT_INT64",
+            "name": "src"
+        },
+        "output1": {
+            "type": "DT_INT64",
+            "name": "dst"
+        },
+        "output2": {
+            "type": "DT_INT32",
+            "name": "lengths"
+        },
+        "output3": {
+            "type": "DT_INT32",
+            "name": "count"
+        }
+    }
+}

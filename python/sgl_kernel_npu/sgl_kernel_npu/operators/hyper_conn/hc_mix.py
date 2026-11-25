@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+_triton_fn = None
 _torch_native_fn = None
 
 # Unified Buffer sizing caps the per-branch hidden size, the low-rank width and
@@ -19,7 +20,7 @@ WIDTH_ALIGNMENT = 16
 def _check_inputs(normed, down_weight, up_weight, hc_count, hidden_size):
     """Reject inputs outside the operator contract before any kernel launch.
 
-    Both backends share this contract, so it is checked once here instead of
+    All backends share this contract, so it is checked once here instead of
     being duplicated per backend. Only metadata is inspected; no
     device-to-host data read happens.
     """
@@ -71,7 +72,7 @@ def _check_inputs(normed, down_weight, up_weight, hc_count, hidden_size):
 
 
 # The native entry points are compiled by the A3-only operator set of an arch22
-# build, so this implementation is not declared for arch35.
+# build, while arch35 defaults to the Triton implementation.
 @register_impl("hyper_conn.hc_mix", "auto", supported_generations={Generation.ARCH22})
 @register_impl(
     "hyper_conn.hc_mix", "ascendc", supported_generations={Generation.ARCH22}
@@ -85,7 +86,26 @@ def _ascendc_impl(normed, down_weight, up_weight, hc_count, hidden_size):
     return torch.ops.npu.hyper_conn_branch_mix(normed, gate_logits, hc_count)
 
 
-@register_impl("hyper_conn.hc_mix", "torch_native")
+@register_impl("hyper_conn.hc_mix", "auto", supported_generations={Generation.ARCH35})
+@register_impl(
+    "hyper_conn.hc_mix",
+    "triton",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
+)
+def _triton_impl(normed, down_weight, up_weight, hc_count, hidden_size):
+    global _triton_fn
+    if _triton_fn is None:
+        from ...implementation.triton.hyper_conn.hc import mix
+
+        _triton_fn = mix
+    return _triton_fn(normed, down_weight, up_weight, hc_count, hidden_size)
+
+
+@register_impl(
+    "hyper_conn.hc_mix",
+    "torch_native",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
+)
 def _torch_native_impl(normed, down_weight, up_weight, hc_count, hidden_size):
     global _torch_native_fn
     if _torch_native_fn is None:
@@ -99,10 +119,11 @@ def _torch_native_impl(normed, down_weight, up_weight, hc_count, hidden_size):
 def hc_mix(normed, down_weight, up_weight, hc_count, hidden_size, *, impl="auto"):
     """Compute the low-rank gated average of hyper-connection branches.
 
-    The default ``impl="auto"`` selects Ascend C. Given a normalized residual
-    ``normed`` of shape ``[rows, hc_count * hidden_size]``, this operator runs
-    the down projection, divides by ``hc_count`` and applies SiLU, runs the up
-    projection to produce per-branch gate logits of shape
+    The default ``impl="auto"`` selects Ascend C on ``arch22`` and Triton on
+    ``arch35`` (fixed ``hc_count=4, hidden_size=2560, low_rank=320``). Given a
+    normalized residual ``normed`` of shape ``[rows, hc_count * hidden_size]``,
+    this operator runs the down projection, divides by ``hc_count`` and applies
+    SiLU, runs the up projection to produce per-branch gate logits of shape
     ``[rows, hc_count, hidden_size]``, and averages the sigmoid-gated branches
     into ``[rows, hidden_size]``:
 
@@ -122,22 +143,15 @@ def hc_mix(normed, down_weight, up_weight, hc_count, hidden_size, *, impl="auto"
         up_weight (torch.Tensor): BF16 contiguous
             ``[hc_count * hidden_size, low_rank]`` up-projection weight on
             normed's device. Both ND and pre-converted ``FRACTAL_NZ`` weights
-            are accepted.
+            are accepted on ``ascendc`` / ``torch_native``.
         hc_count (int): Hyper-connection branch count; a power of two in [1, 8].
         hidden_size (int): Per-branch hidden size; a multiple of 16 up to 4096.
-        impl (str): Implementation name: "auto", "ascendc" or "torch_native".
-            Defaults to "auto". Keyword-only.
+        impl (str): Implementation name: "auto", "ascendc", "triton" or
+            "torch_native". Defaults to "auto". Keyword-only.
 
     Returns:
         torch.Tensor: Newly allocated BF16 result of shape
         ``[rows, hidden_size]`` on normed's device. Inputs are not modified.
-
-    The two projections run through ``torch.nn.functional.linear``, while the
-    scaled SiLU and branch reduction accumulate in ``float32`` and round to
-    ``bfloat16`` only when writing their outputs (``activated`` before the up
-    projection, and ``out``). Both implementations evaluate sigmoid as
-    ``1 / (1 + exp(-x))`` with backend-specific transcendentals, so outputs may
-    differ by up to a BF16 ulp rather than being bitwise equal.
     """
     _check_inputs(normed, down_weight, up_weight, hc_count, hidden_size)
     impl_fn = get_impl_by_name("hyper_conn.hc_mix", impl)

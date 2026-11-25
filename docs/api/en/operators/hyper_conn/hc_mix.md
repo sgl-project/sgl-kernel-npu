@@ -7,24 +7,23 @@ differently. A3 means Ascend910_93 series, A2 means Ascend910B series.
 
 | Implementation | arch22 A3 | arch22 A2 | arch35 |
 | --- | --- | --- | --- |
-| `ascendc` | Supported | Unverified | Not implemented |
-| `torch_native` | Supported | Unverified | Unverified |
-| `triton` | Not implemented | Not implemented | Not implemented |
+| `ascendc` (`auto` on arch22) | Supported | Unverified | Not implemented |
+| `triton` (`auto` on arch35) | Supported (`HC=4, H=2560, L=320`) | Unverified (`HC=4, H=2560, L=320`) | Supported (`HC=4, H=2560, L=320`) |
+| `torch_native` | Supported | Unverified | Supported |
 | `tilelang` | Not implemented | Not implemented | Not implemented |
 
-The `ascendc` implementation is registered for arch22, which covers both A2 and
-A3; `SGL_KERNEL_ENABLE_A3_ONLY_OPS` in `cmake/legacy_kernels.cmake` builds its
-kernels for every SoC outside the Ascend950 series with runtime vector core
-discovery (`GetCoreNumAiv()`). A2 is marked unverified because hardware
-measurements exist on A3 only; an Ascend950 build omits the native helpers and
-raises `AttributeError` on `torch.ops.npu.hyper_conn_scaled_silu` or
-`torch.ops.npu.hyper_conn_branch_mix`. Hardware validation used Ascend910_9382
-with CANN 9.1.0, torch 2.10.0 and torch_npu 2.10.0. arch35 is not implemented.
+The `ascendc` implementation is registered as `"auto"` on arch22, which covers
+both A2 and A3; `SGL_KERNEL_ENABLE_A3_ONLY_OPS` in `cmake/legacy_kernels.cmake`
+builds its kernels for every SoC outside the Ascend950 series with runtime
+vector core discovery (`GetCoreNumAiv()`). On arch35, `"auto"` selects the
+`triton` implementation (`hc_count=4, hidden_size=2560, low_rank=320`).
+Hardware validation on A3 used Ascend910_9382 with CANN 9.1.0, torch 2.10.0 and
+torch_npu 2.10.0.
 
 ## Signature
 
-The default option is `auto`, registered to the same entry point as `ascendc`.
-Omitting `impl` or passing `"auto"` selects the Ascend C pipeline.
+Omitting `impl` or passing `"auto"` selects `ascendc` on `arch22` and `triton`
+on `arch35`.
 
 ```python
 from sgl_kernel_npu.operators.hyper_conn import hc_mix
@@ -75,17 +74,16 @@ of 1.
 ## Parameters and return value
 
 The public operator validates the contract below before selecting an
-implementation, so both backends reject the same inputs. Invalid inputs raise
-`ValueError` before any kernel launch.
+implementation, so invalid inputs raise `ValueError` before any kernel launch.
 
 | Parameter | Type | Shape | Dtype | Default | Description and constraints |
 | --- | --- | --- | --- | --- | --- |
 | `normed` | `torch.Tensor` | `[rows, hc_count * hidden_size]` | `torch.bfloat16` | Required | Normalized residual; contiguous 2-D tensor on an NPU device. `rows == 0` returns an empty `[0, hidden_size]` result. |
-| `down_weight` | `torch.Tensor` | `[low_rank, hc_count * hidden_size]` | `torch.bfloat16` | Required | Down-projection weight; contiguous 2-D tensor on normed's device. `low_rank` must be a multiple of 16 in `[16, 4096]`. |
-| `up_weight` | `torch.Tensor` | `[hc_count * hidden_size, low_rank]` | `torch.bfloat16` | Required | Up-projection weight; contiguous 2-D tensor on normed's device. Accepts both standard ND storage and pre-converted `FRACTAL_NZ` (`torch_npu.npu_format_cast(w, 29)`). |
-| `hc_count` | `int` | — | — | Required | Hyper-connection branch count; a power of two in `[1, 8]`. `bool` is rejected. |
-| `hidden_size` | `int` | — | — | Required | Per-branch hidden size; a multiple of 16 in `[16, 4096]`. `bool` is rejected. |
-| `impl` | `str` | — | — | `"auto"` | Keyword-only; accepts `"auto"`, `"ascendc"` or `"torch_native"`. `auto` selects Ascend C. |
+| `down_weight` | `torch.Tensor` | `[low_rank, hc_count * hidden_size]` | `torch.bfloat16` | Required | Down-projection weight; contiguous 2-D tensor on normed's device. `low_rank` must be a multiple of 16 in `[16, 4096]` (`320` on `triton`). |
+| `up_weight` | `torch.Tensor` | `[hc_count * hidden_size, low_rank]` | `torch.bfloat16` | Required | Up-projection weight; contiguous 2-D tensor on normed's device. Accepts both standard ND storage and pre-converted `FRACTAL_NZ` (`torch_npu.npu_format_cast(w, 29)`) on `ascendc` / `torch_native`. |
+| `hc_count` | `int` | — | — | Required | Hyper-connection branch count; a power of two in `[1, 8]` (`4` on `triton`). `bool` is rejected. |
+| `hidden_size` | `int` | — | — | Required | Per-branch hidden size; a multiple of 16 in `[16, 4096]` (`2560` on `triton`). `bool` is rejected. |
+| `impl` | `str` | — | — | `"auto"` | Keyword-only; accepts `"auto"`, `"ascendc"`, `"triton"` or `"torch_native"`. |
 
 Autograd is not supported: an input with `requires_grad` is rejected.
 
@@ -115,6 +113,13 @@ Autograd is not supported: an input with `requires_grad` is rejected.
   selected from a measured table keyed on `hidden_size` and `rows` (clamped to
   the task count and runtime vector core count via `GetCoreNumAiv()`). Row
   counts between 65 and 1022 interpolate from the 128-row entry.
+
+## triton backend
+
+- Default implementation on `arch35` (and selectable explicitly via
+  `impl="triton"` on `arch22` and `arch35` for
+  `hc_count=4, hidden_size=2560, low_rank=320` with ND weights).
+- Supports `NPUGraph` capture and replay after in-place input and weight updates.
 
 ## torch_native backend
 
@@ -153,7 +158,7 @@ up_weight = (
 torch.npu.config.allow_internal_format = True
 up_weight_nz = torch_npu.npu_format_cast(up_weight.contiguous(), 29)
 
-print(list_impls(hc_mix))  # ['ascendc', 'auto', 'torch_native']
+print(list_impls(hc_mix))  # ['ascendc', 'auto', 'torch_native', 'triton']
 out = hc_mix(normed, down_weight, up_weight_nz, hc_count, hidden_size)
 out_native = hc_mix(
     normed, down_weight, up_weight, hc_count, hidden_size, impl="torch_native"

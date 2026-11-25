@@ -1,0 +1,21 @@
+{
+  "_comment": "CANN 9.2.0 recipes kernels for DSV4.1. kv_compress_epilog_v2 is the released full-width (non-packed) quantizing KV writer; the DSV4 packed 448+64 writer stays in ops_transformer_dsv4.json. npu_hc_pre_v2 is the DSV4.1 fused hc_pre bridge over the hc_pre kernel.",
+  "name": "sgl_cann_recipes_infer",
+  "ops": {
+    "arch22": {},
+    "arch35": {
+      "kv_compress_epilog_v2": "kv_compress_epilog_v2",
+      "npu_hc_pre_v2": "hc_pre"
+    }
+  },
+  "repository": "https://gitcode.com/cann/cann-recipes-infer.git",
+  "commit": "6d060311ae75f6105fe4216e20566875da5a8838",
+  "commands": [
+    ["cmake", "-S", "ops/ascendc", "-B", "ops/ascendc/build", "-DBUILD_OPEN_PROJECT=ON", "-DASCEND_COMPUTE_UNIT={soc}", "-DASCEND_OP_NAME={kernel_ops}", "-DVENDOR_NAME={vendor_name}", "-DCMAKE_BUILD_TYPE=Release", "-DPython3_EXECUTABLE={python}"],
+    ["cmake", "--build", "ops/ascendc/build", "--target", "package", "--parallel", "{jobs}"],
+    ["{python}", "ops/ascendc/torch_ops_extension/sgl_setup.py", "bdist_wheel", "--dist-dir", "dist"]
+  ],
+  "has_aicpu": false,
+  "license": "LICENSE",
+  "builder": "cann_recipes_infer"
+}

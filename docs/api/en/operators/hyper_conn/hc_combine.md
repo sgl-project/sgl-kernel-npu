@@ -7,24 +7,22 @@ differently. A3 means Ascend910_93 series, A2 means Ascend910B series.
 
 | Implementation | arch22 A3 | arch22 A2 | arch35 |
 | --- | --- | --- | --- |
-| `ascendc` | Supported | Unverified | Not implemented |
-| `torch_native` | Supported | Unverified | Unverified |
-| `triton` | Not implemented | Not implemented | Not implemented |
+| `ascendc` (`auto` on arch22) | Supported | Unverified | Not implemented |
+| `triton` (`auto` on arch35) | Supported (`HC=4, H=2560`) | Unverified (`HC=4, H=2560`) | Supported (`HC=4, H=2560`) |
+| `torch_native` | Supported | Unverified | Supported |
 | `tilelang` | Not implemented | Not implemented | Not implemented |
 
-The `ascendc` implementation is registered for arch22, which covers both A2 and
-A3; `SGL_KERNEL_ENABLE_A3_ONLY_OPS` in `cmake/legacy_kernels.cmake` builds its
-kernel for every SoC outside the Ascend950 series with runtime vector core
-discovery (`GetCoreNumAiv()`). A2 is marked unverified because hardware
-measurements exist on A3 only; an Ascend950 build omits the native helper and
-raises `AttributeError` on `torch.ops.npu.hyper_conn_branch_combine`. Hardware
-validation used Ascend910_9382 with CANN 9.1.0, torch 2.10.0 and
-torch_npu 2.10.0. arch35 is not implemented.
+The `ascendc` implementation is registered as `"auto"` on arch22, which covers
+both A2 and A3; `SGL_KERNEL_ENABLE_A3_ONLY_OPS` in `cmake/legacy_kernels.cmake`
+builds its kernel for every SoC outside the Ascend950 series with runtime vector
+core discovery (`GetCoreNumAiv()`). On arch35, `"auto"` selects the `triton`
+implementation (`hc_count=4, hidden_size=2560`). Hardware validation on A3 used
+Ascend910_9382 with CANN 9.1.0, torch 2.10.0 and torch_npu 2.10.0.
 
 ## Signature
 
-The default option is `auto`, registered to the same entry point as `ascendc`.
-Omitting `impl` or passing `"auto"` selects the Ascend C pipeline.
+Omitting `impl` or passing `"auto"` selects `ascendc` on `arch22` and `triton`
+on `arch35`.
 
 ```python
 from typing import Optional
@@ -73,13 +71,12 @@ Unlike `hc_post` and `mhc_post`, which take precomputed `post` and $4\times 4$
 `comb` stream-mixing matrices for fixed hidden sizes (`4096`/`7168`),
 `hc_combine` projects raw injection logits internally, applies the `2 * sigmoid`
 gate ladder with unit residual stream identity, and supports per-branch hidden
-sizes in `[16, 4096]`.
+sizes in `[16, 4096]` on `ascendc` and `torch_native`.
 
 ## Parameters and return value
 
 The public operator validates the contract below before selecting an
-implementation, so both backends reject the same inputs. Invalid inputs raise
-`ValueError` before any kernel launch.
+implementation, so invalid inputs raise `ValueError` before any kernel launch.
 
 | Parameter | Type | Shape | Dtype | Default | Description and constraints |
 | --- | --- | --- | --- | --- | --- |
@@ -87,10 +84,10 @@ implementation, so both backends reject the same inputs. Invalid inputs raise
 | `residual` | `torch.Tensor` | `[rows, hc_count * hidden_size]` | `torch.bfloat16` | Required | Multi-branch residual; contiguous 2-D tensor on block_output's device. `rows == 0` returns an empty result. |
 | `normed_residual` | `torch.Tensor` | `[rows, hc_count * hidden_size]` | `torch.bfloat16` | Required | Normalized residual input to the injection projection; contiguous 2-D tensor on block_output's device. |
 | `inject_weight` | `torch.Tensor` | `[hc_count, hc_count * hidden_size]` | `torch.bfloat16` | Required | Injection projection weight; contiguous 2-D tensor on block_output's device. |
-| `hc_count` | `int` | — | — | Required | Hyper-connection branch count; a power of two in `[1, 8]`. `bool` is rejected. |
-| `hidden_size` | `int` | — | — | Required | Per-branch hidden size; a multiple of 16 in `[16, 4096]`. `bool` is rejected. |
+| `hc_count` | `int` | — | — | Required | Hyper-connection branch count; a power of two in `[1, 8]` (`4` on `triton`). `bool` is rejected. |
+| `hidden_size` | `int` | — | — | Required | Per-branch hidden size; a multiple of 16 in `[16, 4096]` (`2560` on `triton`). `bool` is rejected. |
 | `out` | `torch.Tensor` or `None` | `[rows, hc_count * hidden_size]` or — | `torch.bfloat16` or — | `None` | Optional pre-allocated contiguous output buffer on residual's device with residual's shape, `requires_grad=False`, and no memory overlap with any input tensor. When `None`, a new tensor is allocated. |
-| `impl` | `str` | — | — | `"auto"` | Keyword-only; accepts `"auto"`, `"ascendc"` or `"torch_native"`. `auto` selects Ascend C. |
+| `impl` | `str` | — | — | `"auto"` | Keyword-only; accepts `"auto"`, `"ascendc"`, `"triton"` or `"torch_native"`. |
 
 Autograd is not supported: any input or pre-allocated `out` with
 `requires_grad=True` is rejected. When `out` is provided, it must match
@@ -120,6 +117,12 @@ and device, be contiguous, and not alias or overlap `block_output`, `residual`,
   `hidden_size` and `rows` (clamped to the task count and runtime vector core
   count via `GetCoreNumAiv()`). Row counts between 65 and 1022 interpolate from
   the 128-row entry.
+
+## triton backend
+
+- Default implementation on `arch35` (and selectable explicitly via
+  `impl="triton"` on `arch22` and `arch35` for `hc_count=4, hidden_size=2560`).
+- Supports `NPUGraph` capture and replay after in-place input and weight updates.
 
 ## torch_native backend
 
@@ -154,7 +157,7 @@ inject_weight = (
     torch.randn(hc_count, total, device="npu", dtype=torch.bfloat16) * 0.1
 )
 
-print(list_impls(hc_combine))  # ['ascendc', 'auto', 'torch_native']
+print(list_impls(hc_combine))  # ['ascendc', 'auto', 'torch_native', 'triton']
 out = hc_combine(
     block_output, residual, normed_residual, inject_weight, hc_count, hidden_size
 )

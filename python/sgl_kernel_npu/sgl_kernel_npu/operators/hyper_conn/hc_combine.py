@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+_triton_fn = None
 _torch_native_fn = None
 
 # Unified Buffer sizing caps the per-branch hidden size and the branch count.
@@ -53,7 +54,7 @@ def _check_inputs(
 ):
     """Reject inputs outside the operator contract before any kernel launch.
 
-    Both backends share this contract, so it is checked once here instead of
+    All backends share this contract, so it is checked once here instead of
     being duplicated per backend. Only metadata is inspected; no
     device-to-host data read happens.
     """
@@ -124,7 +125,7 @@ def _check_inputs(
 
 
 # The native entry point is compiled by the A3-only operator set of an arch22
-# build, so this implementation is not declared for arch35.
+# build, while arch35 defaults to the Triton implementation.
 @register_impl(
     "hyper_conn.hc_combine", "auto", supported_generations={Generation.ARCH22}
 )
@@ -148,7 +149,47 @@ def _ascendc_impl(
     )
 
 
-@register_impl("hyper_conn.hc_combine", "torch_native")
+@register_impl(
+    "hyper_conn.hc_combine", "auto", supported_generations={Generation.ARCH35}
+)
+@register_impl(
+    "hyper_conn.hc_combine",
+    "triton",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
+)
+def _triton_impl(
+    block_output,
+    residual,
+    normed_residual,
+    inject_weight,
+    hc_count,
+    hidden_size,
+    out=None,
+):
+    global _triton_fn
+    if _triton_fn is None:
+        from ...implementation.triton.hyper_conn.hc import combine
+
+        _triton_fn = combine
+    result = _triton_fn(
+        block_output,
+        residual,
+        normed_residual,
+        inject_weight,
+        hc_count,
+        hidden_size,
+    )
+    if out is not None:
+        out.copy_(result)
+        return out
+    return result
+
+
+@register_impl(
+    "hyper_conn.hc_combine",
+    "torch_native",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
+)
 def _torch_native_impl(
     block_output,
     residual,
@@ -188,10 +229,11 @@ def hc_combine(
 ) -> torch.Tensor:
     """Project per-branch gates and inject ``block_output`` into ``residual``.
 
-    The default ``impl="auto"`` selects Ascend C. One gate per ``(row, branch)``
-    is projected from ``normed_residual`` and ``inject_weight``, scaled by
-    ``2 * sigmoid(logit / hc_count)``, and used to scale ``block_output`` onto
-    every branch of ``residual``:
+    The default ``impl="auto"`` selects Ascend C on ``arch22`` and Triton on
+    ``arch35`` (fixed ``hc_count=4, hidden_size=2560``). One gate per
+    ``(row, branch)`` is projected from ``normed_residual`` and
+    ``inject_weight``, scaled by ``2 * sigmoid(logit / hc_count)``, and used to
+    scale ``block_output`` onto every branch of ``residual``:
 
     ``z = linear(normed_residual, inject_weight)``
 
@@ -217,21 +259,14 @@ def hc_combine(
         out (torch.Tensor | None): Optional pre-allocated BF16 contiguous output
             tensor on residual's device with residual's shape, not aliasing or
             overlapping any input tensor. Defaults to None.
-        impl (str): Implementation name: "auto", "ascendc" or "torch_native".
-            Defaults to "auto". Keyword-only.
+        impl (str): Implementation name: "auto", "ascendc", "triton" or
+            "torch_native". Defaults to "auto". Keyword-only.
 
     Returns:
         torch.Tensor: Combined BF16 result with residual's shape and device.
         Returns ``out`` (written in place) when supplied, or a newly allocated
         tensor otherwise. Inputs are not modified; the residual is not updated
         in place.
-
-    The gate projection runs through ``torch.nn.functional.linear``, while the
-    combine stage evaluates the gate, branch scaling and residual addition in
-    ``float32`` and rounds to ``bfloat16`` once when writing ``out``. Both
-    implementations evaluate sigmoid as ``1 / (1 + exp(-x))`` with
-    backend-specific transcendentals, so outputs may differ by up to a BF16 ulp
-    rather than being bitwise equal.
     """
     _check_inputs(
         block_output,

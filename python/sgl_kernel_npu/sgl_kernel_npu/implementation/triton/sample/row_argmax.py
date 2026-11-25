@@ -9,8 +9,7 @@ shaped around Ascend DMA behaviour rather than around the reduction.
   (scalar broadcast, compare, select, second reduce) and roughly triples the
   time, so a tile only reports its maximum and the winning tile is re-read to
   resolve the index -- one extra tile of traffic instead of repeated index work.
-* The row scan and index pass share one kernel. Its compiled launcher is reused
-  to avoid repeating Python JIT dispatch on every call.
+* The row scan and index pass share one kernel.
 """
 
 import torch
@@ -20,7 +19,6 @@ import triton.language as tl
 # 8192 FP32 elements = 32 KB, the largest tile that still leaves room for the
 # double buffer the compiler allocates for the loop-carried load.
 _TILE = 8192
-_row_argmax_launchers = {}
 
 
 @triton.jit
@@ -69,22 +67,8 @@ def row_argmax(x: torch.Tensor) -> torch.Tensor:
     out = torch.empty(rows, dtype=torch.int64, device=x.device)
     if rows == 0:
         return out
-    # Cache only compiled launchers. Tensor data and the current stream remain
-    # runtime arguments. Include pointer alignment in the specialization key.
-    key = (x.device, rows, n, x.stride(0), x.data_ptr() % 16)
-    launch = _row_argmax_launchers.get(key)
-    if launch is None:
-        kernel = _row_argmax_kernel.warmup(
-            x,
-            out,
-            n,
-            x.stride(0),
-            rows,
-            triton.cdiv(n, _TILE),
-            TILE=_TILE,
-            grid=(rows,),
-        )
-        launch = kernel[(rows, 1, 1)]
-        _row_argmax_launchers[key] = launch
-    launch(x, out)
+    # Each program reduces one independent logits row to a single token index.
+    _row_argmax_kernel[(rows,)](
+        x, out, n, x.stride(0), rows, triton.cdiv(n, _TILE), TILE=_TILE
+    )
     return out
