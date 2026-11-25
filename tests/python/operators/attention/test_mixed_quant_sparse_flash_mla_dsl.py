@@ -25,6 +25,19 @@ D = 512
 perf_shape = [(1, 128, 512), (6, 128, 512)]
 
 
+@pytest.fixture(scope="module", autouse=True)
+def require_cann_9_2_0_or_newer():
+    from packaging.version import Version
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
+
+    # The generated kernel uses asc_load_dev, introduced in CANN 9.2.0.
+    version = detect_cann_version()
+    if Version(version) < Version("9.2.0"):
+        pytest.skip(
+            f"Mixed Quant Sparse Flash MLA DSL requires CANN >= 9.2.0 (found {version})"
+        )
+
+
 def _make_kv(batch, tokens, block_size, fp4, generator):
     """Pack KV bytes and scales, then shuffle physical page placement."""
     pages = (tokens + block_size - 1) // block_size
