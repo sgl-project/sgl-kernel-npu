@@ -3,7 +3,7 @@
   "source_commit": "85910cd528e2e260848e58e6337adf35cfd5d982",
   "source_root": "csrc/attention/fused_scatter_copy_sparse_flash_attention",
   "source_license": "CANN Open Software License Agreement Version 2.0, as stated in upstream file headers; preserve notices with source files",
-  "destination": "sgl-kernel-npu/csrc/fused_scatter_copy_sparse_flash_attention",
+  "destination": "sgl-kernel-npu/csrc/attention/fused_scatter_copy_sparse_flash_attention",
   "note": "Unmodified source snapshot copied before SGLang integration edits; hashes below identify original copied files.",
   "files": [
     {
@@ -24,7 +24,7 @@
       "path": "csrc/fused_scatter_copy_sparse_flash_attention/README.md",
       "sha256": "98d3478f0dd185a94ca2a256b59a10fab060367d27f1ecd3b071951aa0d31fea",
       "retained_in_port": true,
-      "actual_path": "csrc/fused_scatter_copy_sparse_flash_attention/README.md",
+      "actual_path": "csrc/attention/fused_scatter_copy_sparse_flash_attention/README.md",
       "reason": "Rewritten to document the SGLang Q1 integration contract."
     },
     {
@@ -94,7 +94,7 @@
       "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/first_fill_scatter_copy_kernel.h",
       "sha256": "1035dc2a226d792482969d86734d7732994dd3efe611ead96efaf1e2d8a99ae5",
       "retained_in_port": true,
-      "actual_path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/first_fill_scatter_copy_kernel.h",
+      "actual_path": "csrc/attention/fused_scatter_copy_sparse_flash_attention/op_kernel/first_fill_scatter_copy_kernel.h",
       "reason": "Active inherited AscendC implementation header included by the combined kernel."
     },
     {
@@ -108,28 +108,28 @@
       "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_common.h",
       "sha256": "88bffb36e726d604acb502c7e033f4ebb75b463c8ba7425b0256282aa6bd8a38",
       "retained_in_port": true,
-      "actual_path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_common.h",
+      "actual_path": "csrc/attention/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_common.h",
       "reason": "Active inherited AscendC implementation header included by the combined kernel."
     },
     {
       "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_kernel_mla.h",
       "sha256": "1cc563581250e877e73393411b6721fd3024f17a4a4a5e2f406043c2e1b9525d",
       "retained_in_port": true,
-      "actual_path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_kernel_mla.h",
+      "actual_path": "csrc/attention/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_kernel_mla.h",
       "reason": "Active inherited AscendC implementation header included by the combined kernel."
     },
     {
       "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_service_cube_mla.h",
       "sha256": "2d467621e07a3785fd742c3fc8845078aba74a3acccd6f43f9240ade0daf19c1",
       "retained_in_port": true,
-      "actual_path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_service_cube_mla.h",
+      "actual_path": "csrc/attention/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_service_cube_mla.h",
       "reason": "Active inherited AscendC implementation header included by the combined kernel."
     },
     {
       "path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_service_vector_mla.h",
       "sha256": "7beb21871f691b460b991bc10916b5e0a95c8a8b91c6f8f0713c143f1b83685b",
       "retained_in_port": true,
-      "actual_path": "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_service_vector_mla.h",
+      "actual_path": "csrc/attention/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_service_vector_mla.h",
       "reason": "Active inherited AscendC implementation header included by the combined kernel."
     },
     {

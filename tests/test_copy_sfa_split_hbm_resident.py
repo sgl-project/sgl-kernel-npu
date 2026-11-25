@@ -7,6 +7,14 @@ import torch
 from test_copy_sfa_dynamic_tnd import _DynamicTndCase, _require_npu
 
 
+def _split_copy_sfa(*args, **kwargs):
+    from sgl_kernel_npu.operators.attention import (
+        fused_scatter_copy_sparse_flash_attention_split,
+    )
+
+    fused_scatter_copy_sparse_flash_attention_split(*args, **kwargs)
+
+
 @pytest.mark.parametrize("width", [1, 4])
 @pytest.mark.parametrize("old_end", [-1, 124, 127])
 @pytest.mark.parametrize("graph", [False, True])
@@ -88,7 +96,7 @@ def test_split_hbm_short_resident_current_and_history(width, old_end, graph):
         scale = 1 / math.sqrt(576)
 
         def run():
-            torch.ops.npu.fused_scatter_copy_sparse_flash_attention_split(
+            _split_copy_sfa(
                 q,
                 qr,
                 hbm_k,
@@ -224,7 +232,7 @@ def _check_long_first_fill(width, graph, missing_current_page=False):
         host_rope.copy_(host_rows[:, 512:])
 
         def run():
-            torch.ops.npu.fused_scatter_copy_sparse_flash_attention_split(
+            _split_copy_sfa(
                 case.query,
                 case.query_rope,
                 hbm_k,
@@ -360,7 +368,7 @@ def test_long_source_aware_current_ignores_poisoned_host(graph, strong_signal):
         host_rope.copy_(host_rows[:, 512:])
 
         def run():
-            torch.ops.npu.fused_scatter_copy_sparse_flash_attention_split(
+            _split_copy_sfa(
                 case.query,
                 case.query_rope,
                 hbm_k,
@@ -541,7 +549,7 @@ def test_mixed_short_first_fill_and_padding(graph):
         host_rope.copy_(host[:, 512:])
 
         def run():
-            torch.ops.npu.fused_scatter_copy_sparse_flash_attention_split(
+            _split_copy_sfa(
                 case.query,
                 case.query_rope,
                 hbm_k,

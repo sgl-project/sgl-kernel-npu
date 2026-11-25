@@ -5,7 +5,7 @@ import torch
 
 pytest.importorskip("torch_npu")
 import sgl_kernel_npu  # noqa: F401
-from sgl_kernel_npu.sparsity_driven_kv_offload import fused_lightning_indexer_manage
+from sgl_kernel_npu.operators.indexer import fused_lightning_indexer_manage
 from utils import require_npu_op
 
 pytestmark = require_npu_op("fused_lightning_indexer_manage")
@@ -30,7 +30,8 @@ def make_case(batch=1, heads=32, dtype=torch.bfloat16, source_capacity=8320):
         source_capacity // 128, dtype=torch.int32, device=device
     ).repeat(batch, 1)
 
-    vector = lambda value: torch.full((batch,), value, dtype=torch.int32, device=device)
+    def vector(value):
+        return torch.full((batch,), value, dtype=torch.int32, device=device)
 
     pool = torch.full((batch, source_capacity), -1, dtype=torch.int32, device=device)
     ids = torch.empty(batch, 2048, dtype=torch.int32, device=device)

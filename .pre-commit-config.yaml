@@ -1,7 +1,7 @@
 default_stages: [pre-commit, pre-push, manual]
 
 # Preserve imported device snapshots; local adaptations are tracked in upstream.json.
-exclude: ^csrc/fused_lightning_indexer_manage/op_kernel/upstream/
+exclude: ^csrc/indexer/fused_lightning_indexer_manage/op_kernel/upstream/
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks

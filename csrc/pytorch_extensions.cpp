@@ -12,7 +12,7 @@
 // limitations under the License.
 
 #include "version.h"
-#include "fused_lightning_indexer_manage/op_kernel/upstream/fused_lightning_indexer_manage_constants.h"
+#include "indexer/fused_lightning_indexer_manage/op_kernel/upstream/fused_lightning_indexer_manage_constants.h"
 
 #include "torch_helper.h"
 #include "sgl_kenel_npu_ops.h"

@@ -4,7 +4,7 @@ LIM is compiled into the normal `libsgl_kernel_npu.so` and shipped by the
 `sgl_kernel_npu` wheel. Its Python entry is:
 
 ```python
-from sgl_kernel_npu.sparsity_driven_kv_offload import fused_lightning_indexer_manage
+from sgl_kernel_npu.operators.indexer import fused_lightning_indexer_manage
 ```
 
 The registered torch operation is `torch.ops.npu.fused_lightning_indexer_manage`.

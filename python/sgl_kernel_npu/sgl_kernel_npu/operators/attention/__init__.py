@@ -9,6 +9,9 @@ from .flash_decode_bnsd_with_gqa_share_sparse import (
     flash_decode_bnsd_with_gqa_share_sparse,
 )
 from .flash_mla import flash_mla, flash_mla_metadata
+from .fused_scatter_copy_sparse_flash_attention_split import (
+    fused_scatter_copy_sparse_flash_attention_split,
+)
 from .gqa_share_sparse_decode import gqa_share_sparse_decode
 from .kda import chunk_kda_fwd
 from .kv_quant_sparse_attn_sharedkv import kv_quant_sparse_attn_sharedkv
@@ -19,6 +22,7 @@ from .laser_attention import la
 from .mla_preprocess import mla_preprocess
 from .mlaprolog_v4 import mlaprolog_v4
 from .paged_mtp_attention import paged_mtp_attention_decode
+from .prepare_copy_sfa_metadata import prepare_copy_sfa_metadata
 from .quant_flash_attn import quant_flash_attn
 from .quant_flash_attn_metadata import quant_flash_attn_metadata
 from .sparse_attn_sharedkv import sparse_attn_sharedkv
@@ -34,12 +38,14 @@ __all__ = [
     "chunk_kda_fwd",
     "flash_mla",
     "flash_mla_metadata",
+    "fused_scatter_copy_sparse_flash_attention_split",
     "kv_quant_sparse_attn_sharedkv",
     "kv_quant_sparse_attn_sharedkv_metadata_host",
     "la",
     "mlaprolog_v4",
     "mla_preprocess",
     "paged_mtp_attention_decode",
+    "prepare_copy_sfa_metadata",
     "quant_flash_attn",
     "quant_flash_attn_metadata",
     "compressor_v2",

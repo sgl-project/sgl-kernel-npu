@@ -482,7 +482,7 @@ python3 tests/python/sgl_kernel_npu/test_hello_world.py
 ### Native LIM for sparse KV offload
 
 An A2/A3 kernel build includes
-`sgl_kernel_npu.sparsity_driven_kv_offload.fused_lightning_indexer_manage` in
+`sgl_kernel_npu.operators.indexer.fused_lightning_indexer_manage` in
 the normal wheel. It directly launches the in-tree Ascend C implementation;
 there is no separate LIM vendor package or external shared-library path.
-See [the source and operator contract](../../csrc/fused_lightning_indexer_manage/README.md).
+See [the source and operator contract](../../csrc/indexer/fused_lightning_indexer_manage/README.md).

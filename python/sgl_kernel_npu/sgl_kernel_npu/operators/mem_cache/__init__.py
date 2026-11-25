@@ -9,6 +9,7 @@ from .kpool_decode_update_and_maybe_write_cache import (
 )
 from .kpool_write_tail_and_maybe_compress import kpool_write_tail_and_maybe_compress
 from .kv_compress_epilog import kv_compress_epilog
+from .prepare_sparse_kv_offload_rows import prepare_sparse_kv_offload_rows
 from .scatter_kpool_tail_updates import scatter_kpool_tail_updates
 
 __all__ = [
@@ -20,5 +21,6 @@ __all__ = [
     "kpool_assemble_softmax_rotate_write_cache",
     "kpool_decode_update_and_maybe_write_cache",
     "kpool_write_tail_and_maybe_compress",
+    "prepare_sparse_kv_offload_rows",
     "scatter_kpool_tail_updates",
 ]

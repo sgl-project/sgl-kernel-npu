@@ -5,12 +5,17 @@ LIM selection/copy plan, updates a combined HBM KV cache, and computes sparse
 attention. It supports registered combined host KV and separate registered CKV
 and KPE host mappings.
 
+For separate CKV and KPE tensors in HBM, use
+`sgl_kernel_npu.operators.attention.fused_scatter_copy_sparse_flash_attention_split`.
+
 ## Contract
 
 - Query and RoPE query are contiguous TND `[T,H,512]` and `[T,H,64]` tensors.
   Cumulative query lengths describe each request's query window.
 - HBM KV is contiguous `[pages,128,1,576]`, with one KV head and CKV/KPE widths
   512/64. Floating tensors use FP16 or BF16 and share one NPU.
+- The split HBM entry takes two contiguous tensors of shapes
+  `[pages,128,1,512]` and `[pages,128,1,64]` and distinct registered host pointers.
 - TopK source/slot tensors are `[T,2048]`. Request-union miss buffers are
   contiguous `[B,M]`, with `[B]` valid counts; native LIM uses `M=32768`.
 - The caller owns page tables, resident maps, registered host storage and the
@@ -21,8 +26,8 @@ and KPE host mappings.
 - Supplying current KV, positions, valid masks, request slots, token mappings and
   resident extents enables short-history restoration and current-KV staging
   inside CopySFA. Keep these inputs alive until the consuming stream completes.
-- Split host storage supplies separate registered CKV/KPE addresses and token
-  strides. It does not change the combined HBM cache layout.
+- The combined HBM entry can also consume separate registered host CKV/KPE
+  addresses and token strides.
 
 The schema and native validation are defined in `csrc/pytorch_extensions.cpp`
 and `op_host/fused_copy_sfa.cpp`. SGLang selects the fused runtime with

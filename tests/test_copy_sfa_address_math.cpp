@@ -1,7 +1,7 @@
 #include <cassert>
 #include <cstdint>
 
-#include "../csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/copy_sfa_address_math.h"
+#include "../csrc/attention/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/copy_sfa_address_math.h"
 
 using sglang::npu_kernel::copy_sfa::SourceGapBytes;
 
