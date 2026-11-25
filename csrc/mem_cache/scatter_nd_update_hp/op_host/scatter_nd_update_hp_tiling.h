@@ -8,92 +8,13 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-/*!
- * \file scatter_nd_update_hp_tiling.h
- * \brief scatter_nd_update arch22 tiling data definition
- */
+// Compile information and host tiling implementation for arch22.
+#pragma once
 
-#ifndef SCATTER_ND_UPDATE_SK_ARCH22_TILING_H
-#define SCATTER_ND_UPDATE_SK_ARCH22_TILING_H
-
-#include "register/tilingdata_base.h"
-#include "tiling/tiling_api.h"
-
-constexpr uint64_t MAX_DIM_NUM = 8;
+#include "../op_kernel/scatter_nd_update_hp_tiling_arch22.h"
+#include "exe_graph/runtime/tiling_context.h"
 
 namespace optiling {
-
-BEGIN_TILING_DATA_DEF(ScatterNdUpdateSkScatterTiling)
-TILING_DATA_FIELD_DEF(uint64_t, scatterLength)
-TILING_DATA_FIELD_DEF(uint64_t, tailRow)
-TILING_DATA_FIELD_DEF(uint64_t, frontRow)
-TILING_DATA_FIELD_DEF(uint64_t, frontNum)
-TILING_DATA_FIELD_DEF(uint64_t, tailNum)
-TILING_DATA_FIELD_DEF(uint64_t, ubLengthForUpdates)
-TILING_DATA_FIELD_DEF(uint64_t, scatterAlignLength)
-TILING_DATA_FIELD_DEF(uint64_t, formDim)
-TILING_DATA_FIELD_DEF(uint64_t, copyRow)
-TILING_DATA_FIELD_DEF(uint64_t, scatterTileNum)
-TILING_DATA_FIELD_DEF(uint64_t, scatterTileLength)
-TILING_DATA_FIELD_DEF(uint64_t, scatterTileTail)
-TILING_DATA_FIELD_DEF(uint64_t, scatterTileAlignLength)
-END_TILING_DATA_DEF
-
-REGISTER_TILING_DATA_CLASS(ScatterNdUpdateSkScatterTilingOp, ScatterNdUpdateSkScatterTiling)
-
-BEGIN_TILING_DATA_DEF(ScatterNdUpdateSkLinearIndexTiling)
-TILING_DATA_FIELD_DEF(uint64_t, coreNum)
-TILING_DATA_FIELD_DEF(uint64_t, ubSize)
-TILING_DATA_FIELD_DEF(uint64_t, indexDim)
-TILING_DATA_FIELD_DEF(uint64_t, blockLength)
-TILING_DATA_FIELD_DEF(uint64_t, blockNum)
-TILING_DATA_FIELD_DEF(uint64_t, blockRemainLength)
-TILING_DATA_FIELD_DEF(uint64_t, tailBlockNum)
-TILING_DATA_FIELD_DEF(uint64_t, frontBlockNum)
-TILING_DATA_FIELD_DEF(uint64_t, frontCoreNum)
-TILING_DATA_FIELD_DEF(uint64_t, tailCoreNum)
-TILING_DATA_FIELD_DEF(uint64_t, sortWorkspace)
-TILING_DATA_FIELD_DEF_ARR(uint64_t, MAX_DIM_NUM, indicesMask)
-TILING_DATA_FIELD_DEF(uint64_t, isInt64Indices)
-TILING_DATA_FIELD_DEF(uint64_t, needLargeIndexKernel)
-END_TILING_DATA_DEF
-
-REGISTER_TILING_DATA_CLASS(ScatterNdUpdateSkLinearIndexTilingOp, ScatterNdUpdateSkLinearIndexTiling)
-
-BEGIN_TILING_DATA_DEF(ScatterNdUpdateSkViewTiling)
-TILING_DATA_FIELD_DEF(uint64_t, isViewStride0)
-TILING_DATA_FIELD_DEF(uint64_t, varStride0Elements)
-TILING_DATA_FIELD_DEF(uint64_t, firstDimStrideRows)
-END_TILING_DATA_DEF
-
-REGISTER_TILING_DATA_CLASS(ScatterNdUpdateSkViewTilingOp, ScatterNdUpdateSkViewTiling)
-
-BEGIN_TILING_DATA_DEF(ScatterNdUpdateSkHpTiling)
-TILING_DATA_FIELD_DEF(uint64_t, hpCoreNum)
-TILING_DATA_FIELD_DEF(uint64_t, hpFrontIndexNum)
-TILING_DATA_FIELD_DEF(uint64_t, hpTailIndexNum)
-TILING_DATA_FIELD_DEF(uint64_t, hpFrontCoreNum)
-TILING_DATA_FIELD_DEF(uint64_t, hpTailCoreNum)
-TILING_DATA_FIELD_DEF(uint64_t, hpIndexTileLength)
-TILING_DATA_FIELD_DEF(uint64_t, hpScatterTileLength)
-TILING_DATA_FIELD_DEF(uint64_t, hpScatterTileNum)
-TILING_DATA_FIELD_DEF(uint64_t, hpScatterTileTail)
-TILING_DATA_FIELD_DEF(uint64_t, hpRowBytesAligned)
-TILING_DATA_FIELD_DEF(uint64_t, hpRowsPerBatch)
-END_TILING_DATA_DEF
-
-REGISTER_TILING_DATA_CLASS(ScatterNdUpdateSkHpTilingOp, ScatterNdUpdateSkHpTiling)
-
-BEGIN_TILING_DATA_DEF(ScatterNdUpdateSkArch22TilingData)
-TILING_DATA_FIELD_DEF_STRUCT(ScatterNdUpdateSkScatterTiling, scatterTiling)
-TILING_DATA_FIELD_DEF_STRUCT(ScatterNdUpdateSkLinearIndexTiling, linearIndexTiling)
-TILING_DATA_FIELD_DEF_STRUCT(ScatterNdUpdateSkHpTiling, hpTiling)
-TILING_DATA_FIELD_DEF_STRUCT(ScatterNdUpdateSkViewTiling, viewTiling)
-END_TILING_DATA_DEF
-
-REGISTER_TILING_DATA_CLASS(SglScatterNdUpdateHp, ScatterNdUpdateSkArch22TilingData)
-REGISTER_TILING_DATA_CLASS(ScatterNdUpdateSkTilingDataOp, ScatterNdUpdateSkArch22TilingData)
-
 struct ScatterNdUpdateSkArch22CompileInfo {
     uint32_t vectorCoreNum = 0;
     uint64_t ubSize = 0;
@@ -176,4 +97,3 @@ private:
     uint64_t hpRowsPerBatch_ = 1;
 };
 }  // namespace optiling
-#endif  // SCATTER_ND_UPDATE_ARCH22_TILING_H

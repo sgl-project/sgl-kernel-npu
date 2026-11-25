@@ -21,7 +21,6 @@
 #include "scatter_nd_update_hp_tiling.h"
 
 namespace optiling {
-constexpr uint64_t MAX_DIM_NUM = 8;
 constexpr uint64_t MAX_LENGTH_INT32 = (1LL << 31) - 1;
 constexpr uint64_t MAX_FLOAT_EXPRESS_INT32 = (1LL << 24) - 1;
 constexpr uint64_t SORT_USE_GM_NUM = 2;
