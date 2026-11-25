@@ -3,7 +3,6 @@ import os
 import pathlib
 from functools import lru_cache, wraps
 
-_manifest = {}
 if (pathlib.Path(__file__).parent / "_cann").is_dir():
     # Enable the bundled CANN operators before initializing torch_npu.
     _cann_vendor = (

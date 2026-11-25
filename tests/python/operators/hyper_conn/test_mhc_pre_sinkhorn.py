@@ -1,10 +1,6 @@
 import pytest
 
 torch = pytest.importorskip("torch")
-pytest.importorskip("torch_npu")
-
-# Register the bundled vendor before the device fixture initializes the NPU.
-import sgl_kernel_npu  # noqa: F401
 
 from tests.python.utils.accuracy import check_accuracy
 from tests.python.utils.performance import check_performance
@@ -62,88 +58,3 @@ def test_mhc_pre_sinkhorn(tokens, hidden, dtype, hc_eps, norm_eps):
         and dtype == torch.bfloat16
         and hc_eps == 1e-6,
     )
-
-
-def test_a3_return_pre_graph_replay():
-    from sgl_kernel_npu.operators.hyper_conn.mhc_pre_sinkhorn import (
-        _has_bundled_v2,
-        mhc_pre_sinkhorn,
-    )
-
-    if not _has_bundled_v2():
-        pytest.skip("requires the bundled mHC V2 vendor")
-
-    x, phi, alpha, bias = (a.npu() for a in generate_data(6, 5120, torch.bfloat16))
-    args = (x, phi, alpha, bias)
-    kwargs = {"norm_eps": 1e-20}
-    old = mhc_pre_sinkhorn(*args, **kwargs)
-    new = mhc_pre_sinkhorn(*args, **kwargs, return_pre=True)
-    assert len(old) == 3
-    assert len(new) == 4
-    torch.testing.assert_close(new[0], old[0], atol=0, rtol=0)
-    # The backward-output tiling can round FP32 coefficients differently.
-    for result, expected in zip(new[1:3], old[1:], strict=True):
-        torch.testing.assert_close(result, expected, atol=2e-7, rtol=2e-7)
-    torch.npu.synchronize()
-
-    graph = torch.npu.NPUGraph()
-    with torch.npu.graph(graph):
-        captured = mhc_pre_sinkhorn(*args, **kwargs, return_pre=True)
-    for factor in (1.5, -0.8):
-        x.mul_(factor)
-        graph.replay()
-        torch.npu.synchronize()
-        expected = mhc_pre_sinkhorn(
-            *args, **kwargs, return_pre=True, impl="torch_native"
-        )
-        for result, reference in zip(captured[1:], expected[1:], strict=True):
-            torch.testing.assert_close(result, reference, atol=2e-4, rtol=2e-4)
-
-
-@pytest.mark.parametrize("tokens", [18, 24])
-def test_a3_v2_premix_graph_replay(tokens):
-    from sgl_kernel_npu.operators.hyper_conn.mhc_pre_sinkhorn import (
-        _has_bundled_v2,
-        mhc_pre_sinkhorn,
-    )
-
-    if not _has_bundled_v2():
-        pytest.skip("requires the bundled mHC V2 vendor")
-
-    with torch.device("cpu"):
-        cpu_args = generate_data(tokens, 5120, torch.bfloat16)
-        previous = torch.zeros((tokens, 4), dtype=torch.float32)
-    args = tuple(t.npu() for t in cpu_args)
-    x = args[0]
-    previous[:, 0] = 1
-    pre_mix = previous.npu()
-    kwargs = {"pre_mix": pre_mix, "return_pre": True, "norm_eps": 1e-20}
-    eager = mhc_pre_sinkhorn(*args, **kwargs, impl="cann_ops_transformer_v2")
-    torch.testing.assert_close(eager[0].cpu(), cpu_args[0][:, 0], atol=0, rtol=0)
-    torch.npu.synchronize()
-
-    graph = torch.npu.NPUGraph()
-    with torch.npu.graph(graph):
-        outputs = mhc_pre_sinkhorn(*args, **kwargs, impl="cann_ops_transformer_v2")
-
-    generator = torch.Generator().manual_seed(tokens)
-    for _ in range(2):
-        changed_x = (
-            torch.randn(x.shape, dtype=x.dtype, device="cpu", generator=generator) * 0.1
-        )
-        changed_pre = torch.rand(previous.shape, device="cpu", generator=generator)
-        x.copy_(changed_x)
-        pre_mix.copy_(changed_pre)
-        graph.replay()
-        torch.npu.synchronize()
-        expected = mhc_pre_sinkhorn(
-            changed_x,
-            *cpu_args[1:],
-            pre_mix=changed_pre,
-            return_pre=True,
-            norm_eps=1e-20,
-            impl="torch_native",
-        )
-        torch.testing.assert_close(outputs[0].cpu(), expected[0], atol=1e-5, rtol=1e-2)
-        for result, reference in zip(outputs[1:], expected[1:], strict=True):
-            torch.testing.assert_close(result.cpu(), reference, atol=2e-4, rtol=2e-4)

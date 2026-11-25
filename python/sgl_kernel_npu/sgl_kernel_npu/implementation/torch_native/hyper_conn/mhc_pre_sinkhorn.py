@@ -7,19 +7,7 @@ _mhc_pre_torch; no vendor kernel is called.
 import torch
 
 
-def mhc_pre_sinkhorn(
-    x,
-    phi,
-    alpha,
-    bias,
-    hc_mult,
-    num_iters,
-    hc_eps,
-    norm_eps,
-    *,
-    return_pre=False,
-    pre_mix=None,
-):
+def mhc_pre_sinkhorn(x, phi, alpha, bias, hc_mult, num_iters, hc_eps, norm_eps):
     flat = x.float().flatten(1)
     normalized = flat * torch.rsqrt(flat.square().mean(-1, keepdim=True) + norm_eps)
     mixes = torch.nn.functional.linear(normalized, phi)
@@ -33,7 +21,5 @@ def mhc_pre_sinkhorn(
     for _ in range(num_iters - 1):
         comb = comb / (comb.sum(-1, keepdim=True) + hc_eps)
         comb = comb / (comb.sum(-2, keepdim=True) + hc_eps)
-    weights = pre if pre_mix is None else pre_mix
-    hin = (weights.unsqueeze(-1) * x.float()).sum(1).to(x.dtype)
-    outputs = hin, post, comb.reshape(x.shape[0], hc_mult * hc_mult)
-    return (*outputs, pre) if return_pre else outputs
+    hin = (pre.unsqueeze(-1) * x.float()).sum(1).to(x.dtype)
+    return hin, post, comb.reshape(x.shape[0], hc_mult * hc_mult)

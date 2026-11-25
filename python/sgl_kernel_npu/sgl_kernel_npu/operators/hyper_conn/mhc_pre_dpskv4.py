@@ -3,7 +3,6 @@
 from ..utils.cann import detect_cann_version
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
-from .mhc_pre_sinkhorn import _has_bundled_v2, mhc_pre_sinkhorn
 
 _cann_920_fn = None
 _cann_920_v2_fn = None
@@ -35,16 +34,22 @@ def _cann_mhc_pre(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_
         raise RuntimeError(
             f"This implementation requires CANN 9.2.x, got {cann_version}"
         )
-    shape = x.shape
-    args = (fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps)
-    if _has_bundled_v2():
-        h_in, h_post, h_res = mhc_pre_sinkhorn(x.reshape(-1, hc_mult, shape[-1]), *args)
-    else:
-        if _cann_920_fn is None:
-            from ..._third_party.sgl_ops_transformer_dsv4 import ops
+    if _cann_920_fn is None:
+        from ..._third_party.sgl_ops_transformer_dsv4 import ops
 
-            _cann_920_fn = ops.mhc_pre_sinkhorn
-        h_in, h_post, h_res = _cann_920_fn(x.reshape(-1, 1, hc_mult, shape[-1]), *args)
+        _cann_920_fn = ops.mhc_pre_sinkhorn
+
+    shape = x.shape
+    h_in, h_post, h_res = _cann_920_fn(
+        x.reshape(-1, 1, hc_mult, shape[-1]),
+        fn,
+        scale,
+        base,
+        hc_mult,
+        sinkhorn_iters,
+        hc_eps,
+        rms_norm_eps,
+    )
     return (
         h_in.reshape(-1, shape[-1]).to(x.dtype),
         h_post.reshape(-1, hc_mult),
