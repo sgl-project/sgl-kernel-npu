@@ -17,70 +17,11 @@
 
 #include <sstream>
 #include <exe_graph/runtime/tiling_context.h>
-#include <graph/utils/type_utils.h>
-#include "tiling/platform/platform_ascendc.h"
 #include "tiling_base/error_log.h"
-
-#ifdef ASCENDC_OP_TEST
-#define ASCENDC_EXTERN_C extern "C"
-#else
-#define ASCENDC_EXTERN_C
-#endif
 
 namespace Ops {
 namespace Transformer {
 namespace OpTiling {
-
-struct AiCoreParams {
-    uint64_t ubSize = 0;
-    uint64_t blockDim = 0;
-    uint64_t aicNum = 0;
-    uint64_t l1Size = 0;
-    uint64_t l0aSize = 0;
-    uint64_t l0bSize = 0;
-    uint64_t l0cSize = 0;
-};
-
-struct CompileInfoCommon {
-    uint32_t aivNum;
-    uint32_t aicNum;
-    uint64_t ubSize;
-    uint64_t l1Size;
-    uint64_t l0aSize;
-    uint64_t l0bSize;
-    uint64_t l0cSize;
-    uint64_t l2CacheSize;
-    int64_t coreNum;
-    int32_t socVersion;
-    uint32_t rsvd;
-};
-
-struct FlashAttentionScoreGradCompileInfo {
-    uint32_t aivNum;
-    uint32_t aicNum;
-    uint64_t ubSize;
-    uint64_t l1Size;
-    uint64_t l0aSize;
-    uint64_t l0bSize;
-    uint64_t l0cSize;
-    uint64_t l2CacheSize;
-    int64_t coreNum;
-    platform_ascendc::SocVersion socVersion;
-};
-
-struct FACompileInfoCommon {
-    uint32_t aivNum;
-    uint32_t aicNum;
-    uint64_t ubSize;
-    uint64_t l1Size;
-    uint64_t l0aSize;
-    uint64_t l0bSize;
-    uint64_t l0cSize;
-    uint64_t l2CacheSize;
-    int64_t coreNum;
-    int32_t socVersion;
-    uint32_t rsvd;
-};
 
 class TilingBaseClass
 {
@@ -127,12 +68,6 @@ public:
         return ge::GRAPH_SUCCESS;
     }
 
-    // 更新 context
-    virtual void Reset(gert::TilingContext *context)
-    {
-        context_ = context;
-    }
-
 protected:
     virtual bool IsCapable() = 0;
     // 1、获取平台信息比如CoreNum、UB/L1/L0C资源大小
@@ -171,84 +106,8 @@ protected:
         OP_LOGD(context_, "%s", oss.str().c_str());
     }
 
-    static uint32_t CalcTschBlockDim(uint32_t sliceNum, uint32_t aicCoreNum, uint32_t aivCoreNum)
-    {
-        uint32_t ration;
-        if (aicCoreNum == 0 || aivCoreNum == 0 || aicCoreNum > aivCoreNum) {
-            return sliceNum;
-        }
-        ration = aivCoreNum / aicCoreNum;
-        return (sliceNum + (ration - 1)) / ration;
-    }
-
-    template <typename T>
-    [[nodiscard]] std::string GetShapeDebugStr(const T &shape) const
-    {
-        std::ostringstream oss;
-        oss << "[";
-        if (shape.GetDimNum() > 0) {
-            for (size_t i = 0; i < shape.GetDimNum() - 1; ++i) {
-                oss << shape.GetDim(i) << ", ";
-            }
-            oss << shape.GetDim(shape.GetDimNum() - 1);
-        }
-        oss << "]";
-        return oss.str();
-    }
-
-    [[nodiscard]] std::string GetTensorDebugStr(const gert::StorageShape *shape,
-                                                const gert::CompileTimeTensorDesc *tensor)
-    {
-        if (shape == nullptr || tensor == nullptr) {
-            return "nil ";
-        }
-        std::ostringstream oss;
-        oss << "(dtype: " << ge::TypeUtils::DataTypeToSerialString(tensor->GetDataType()) << "),";
-        oss << "(shape:" << GetShapeDebugStr(shape->GetStorageShape()) << "),";
-        oss << "(ori_shape:" << GetShapeDebugStr(shape->GetOriginShape()) << "),";
-        oss << "(format: "
-            << ge::TypeUtils::FormatToSerialString(
-                   static_cast<ge::Format>(ge::GetPrimaryFormat(tensor->GetStorageFormat())))
-            << "),";
-        oss << "(ori_format: " << ge::TypeUtils::FormatToSerialString(tensor->GetOriginFormat()) << ") ";
-        return oss.str();
-    }
-
-    [[nodiscard]] std::string GetTilingContextDebugStr()
-    {
-        std::ostringstream oss;
-        for (size_t i = 0; i < context_->GetComputeNodeInfo()->GetInputsNum(); ++i) {
-            oss << "input" << i << ": ";
-            oss << GetTensorDebugStr(context_->GetInputShape(i), context_->GetInputDesc(i));
-        }
-
-        for (size_t i = 0; i < context_->GetComputeNodeInfo()->GetOutputsNum(); ++i) {
-            oss << "output" << i << ": ";
-            oss << GetTensorDebugStr(context_->GetOutputShape(i), context_->GetOutputDesc(i));
-        }
-        return oss.str();
-    }
-
-    [[nodiscard]] std::string GetTilingDataDebugStr() const
-    {
-        auto rawTilingData = context_->GetRawTilingData();
-        auto rawTilingDataSize = rawTilingData->GetDataSize();
-        auto data = reinterpret_cast<const int32_t *>(rawTilingData->GetData());
-        size_t len = rawTilingDataSize / sizeof(int32_t);
-        std::ostringstream oss;
-        for (size_t i = 0; i < len; i++) {
-            oss << data[i] << ", ";
-        }
-        return oss.str();
-    }
-
 protected:
     gert::TilingContext *context_ = nullptr;
-    std::unique_ptr<platform_ascendc::PlatformAscendC> ascendcPlatform_{nullptr};
-    uint32_t blockDim_{0};
-    uint64_t workspaceSize_{0};
-    uint64_t tilingKey_{0};
-    AiCoreParams aicoreParams_;
 };
 
 }  // namespace OpTiling
