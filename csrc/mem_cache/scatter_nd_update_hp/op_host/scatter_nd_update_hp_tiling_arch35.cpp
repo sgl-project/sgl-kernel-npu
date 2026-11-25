@@ -348,8 +348,7 @@ ge::graphStatus ScatterNdUpdateSkTilingRegbase::GetShapeAttrsInfo()
     // 获取并记录 var 的形状信息
     auto varShape = context_->GetInputShape(INPUT_IDX_VAR);
     OP_CHECK_NULL_WITH_CONTEXT(context_, varShape);
-    // 运行时 aclnn launcher 会将 var 的存储压平（originShape 为 1-D），
-    // 真实 view 语义保存在 storageShape + strides 属性中，这里以 storageShape 为准
+    // Generated ACLNN supplies the logical view shape; strides are passed separately.
     const gert::Shape &varOriginShape = EnsureNotScalar(varShape->GetStorageShape());
 
     // 验证和获取 var 的基本信息
@@ -1018,8 +1017,7 @@ ge::graphStatus ScatterNdUpdateSkTilingRegbase::SetStride()
 {
     auto varShape = context_->GetInputShape(INPUT_IDX_VAR);
     OP_CHECK_NULL_WITH_CONTEXT(context_, varShape);
-    // 运行时 originShape 可能被 launcher 压平为 1-D 存储，
-    // 连续场景的默认 stride 需基于真实 view 形状（storageShape）计算
+    // Compute contiguous strides from the logical view shape.
     const gert::Shape &varViewShape = EnsureNotScalar(varShape->GetStorageShape());
 
     // 检查输入是否为非连续视图（连续性已由 GetShapeAttrsInfo 通过 strides 属性判定）
@@ -1147,6 +1145,6 @@ static ge::graphStatus ScatterNdUpdateSkArch35TilingFunc(gert::TilingContext *co
     return tilingOp.DoTiling();
 }
 
-IMPL_OP_OPTILING(SglScatterNdUpdateSk).Tiling(ScatterNdUpdateSkArch35TilingFunc);
+IMPL_OP_OPTILING(SglScatterNdUpdateHp).Tiling(ScatterNdUpdateSkArch35TilingFunc);
 
 }  // namespace optiling

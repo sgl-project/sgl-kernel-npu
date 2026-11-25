@@ -160,7 +160,7 @@ private:
     int64_t isDeterminSimt_ = 0;
     int64_t needInt64_ = 0;
 
-    const char *opName = "SglScatterNdUpdateSk";
+    const char *opName = "SglScatterNdUpdateHp";
 };
 
 }  // namespace optiling

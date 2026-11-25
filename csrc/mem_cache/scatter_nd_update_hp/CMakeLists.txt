@@ -1,15 +1,10 @@
 sgl_register_operator(
     ID scatter_nd_update_hp
     EXECUTION_UNIT AICORE
-    CANN_OP_TYPE SglScatterNdUpdateSk
+    CANN_OP_TYPE SglScatterNdUpdateHp
     SUPPORTED_ARCHS 2201 3510
     OPDEF_SOURCES op_host/scatter_nd_update_hp_def.cpp
     INFER_SOURCES op_host/scatter_nd_update_hp_infer.cpp
-    ACLNN_SOURCES
-        op_host/op_api/aclnn_scatter_nd_update_hp.cpp
-        op_host/op_api/scatter_nd_update_hp.cpp
-    ACLNN_HEADERS op_host/op_api/aclnn_scatter_nd_update_hp.h
-    ACLNN_LINK_LIBRARIES opapi_math
     KERNEL_COMPILE_OPTIONS --cce-auto-sync=on -Wno-deprecated-declarations
     TORCH_ADAPTER torch_adapter.cpp
 )

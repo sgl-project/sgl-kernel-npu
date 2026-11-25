@@ -80,9 +80,7 @@ inline bool ScatterNdUpdateSkArch22Tiling::IsSort(uint64_t totalLength) const
 
 inline void ScatterNdUpdateSkArch22Tiling::Tiling4LinearIndex(uint64_t indexRow, uint64_t indexDim)
 {
-    // 注意：torch_npu 环境下 aclTensor 的 originShape 来自 1-D storageDims（storage.nbytes/itemsize），
-    // aclnn 层已通过 SetStorageShape(viewShape) 修正 storageShape，故此处必须读 GetStorageShape()
-    // （与 scatter_nd_update_asc 一致），否则 var 会被解析成 1-D 扁平形状导致 scatterLength=1。
+    // Generated ACLNN supplies the logical view shape; strides are passed separately.
     auto varRefShape = tilingContext_->GetInputShape(0)->GetStorageShape();
     uint64_t strides = 1;
     for (int64_t i = indexDim - 1; i >= 0; --i) {
@@ -452,7 +450,6 @@ static ScatterInitInfo ParseScatterShapes(const gert::TilingContext *ctx, uint64
 {
     ScatterInitInfo info{};
     info.scatterLength = scatterLengthInit;
-    // torch_npu 环境下 originShape 为 1-D storageDims，必须读 GetStorageShape()（aclnn 已 SetStorageShape 修正）
     auto varRefShape = ctx->GetInputShape(0)->GetStorageShape();
     auto indicesShape = ctx->GetInputShape(1)->GetStorageShape();
     uint64_t varDimNum = varRefShape.GetDimNum();
@@ -518,7 +515,7 @@ static ge::graphStatus ScatterNdUpdateSkArch22TilingFunc(gert::TilingContext *co
     return tilingOp.SetKernelTiling();
 }
 
-IMPL_OP_OPTILING(SglScatterNdUpdateSk)
+IMPL_OP_OPTILING(SglScatterNdUpdateHp)
     .Tiling(ScatterNdUpdateSkArch22TilingFunc)
     .TilingParse<ScatterNdUpdateSkArch22CompileInfo>(TilingParseForScatterNdUpdateSkArch22);
 

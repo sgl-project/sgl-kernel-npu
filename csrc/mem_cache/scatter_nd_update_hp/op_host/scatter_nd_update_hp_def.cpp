@@ -14,13 +14,14 @@
 #include "register/op_def_registry.h"
 
 namespace ops {
-class SglScatterNdUpdateSk : public OpDef
+class SglScatterNdUpdateHp : public OpDef
 {
 public:
-    explicit SglScatterNdUpdateSk(const char *name) : OpDef(name)
+    explicit SglScatterNdUpdateHp(const char *name) : OpDef(name)
     {
         this->Input("var")
             .ParamType(REQUIRED)
+            .IgnoreContiguous()
             .DataType({ge::DT_INT64, ge::DT_INT8,        ge::DT_FLOAT,         ge::DT_FLOAT16,  ge::DT_BF16,
                        ge::DT_BOOL,  ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E4M3FN, ge::DT_HIFLOAT8, ge::DT_UINT8,
                        ge::DT_INT64, ge::DT_INT8,        ge::DT_FLOAT,         ge::DT_FLOAT16,  ge::DT_BF16,
@@ -62,6 +63,7 @@ public:
                                  ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
         this->Output("var")
             .ParamType(REQUIRED)
+            .IgnoreContiguous()
             .DataType({ge::DT_INT64, ge::DT_INT8,        ge::DT_FLOAT,         ge::DT_FLOAT16,  ge::DT_BF16,
                        ge::DT_BOOL,  ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E4M3FN, ge::DT_HIFLOAT8, ge::DT_UINT8,
                        ge::DT_INT64, ge::DT_INT8,        ge::DT_FLOAT,         ge::DT_FLOAT16,  ge::DT_BF16,
@@ -76,16 +78,13 @@ public:
                                  ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
         // Explicit strides of var axes (the first axis may be non-contiguous),
         // passed through from var.strides() by the torch binding.
-        // NOTE: the attr declaration order must match the launcher's
-        // OP_ATTR(strides, use_locking) order; otherwise the aclop dump
-        // (static_kernel_compile) reads attrs by def order with mismatched
-        // types and segfaults.
         this->Attr("strides").AttrType(REQUIRED).ListInt();
         this->Attr("use_locking").AttrType(OPTIONAL).Bool(false);
 
         OpAICoreConfig aicoreConfigArch22;
         aicoreConfigArch22.Input("var")
             .ParamType(REQUIRED)
+            .IgnoreContiguous()
             .DataType({ge::DT_FLOAT16, ge::DT_FLOAT, ge::DT_BF16, ge::DT_BOOL, ge::DT_INT64, ge::DT_INT32, ge::DT_INT16,
                        ge::DT_INT8, ge::DT_FLOAT16, ge::DT_FLOAT, ge::DT_BF16, ge::DT_BOOL, ge::DT_INT64, ge::DT_INT32,
                        ge::DT_INT16, ge::DT_INT8})
@@ -122,6 +121,7 @@ public:
                                  ge::FORMAT_ND});
         aicoreConfigArch22.Output("var")
             .ParamType(REQUIRED)
+            .IgnoreContiguous()
             .DataType({ge::DT_FLOAT16, ge::DT_FLOAT, ge::DT_BF16, ge::DT_BOOL, ge::DT_INT64, ge::DT_INT32, ge::DT_INT16,
                        ge::DT_INT8, ge::DT_FLOAT16, ge::DT_FLOAT, ge::DT_BF16, ge::DT_BOOL, ge::DT_INT64, ge::DT_INT32,
                        ge::DT_INT16, ge::DT_INT8})
@@ -156,5 +156,5 @@ public:
     }
 };
 
-OP_ADD(SglScatterNdUpdateSk);
+OP_ADD(SglScatterNdUpdateHp);
 }  // namespace ops

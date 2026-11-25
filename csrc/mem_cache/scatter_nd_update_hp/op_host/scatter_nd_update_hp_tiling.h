@@ -91,7 +91,7 @@ TILING_DATA_FIELD_DEF_STRUCT(ScatterNdUpdateSkHpTiling, hpTiling)
 TILING_DATA_FIELD_DEF_STRUCT(ScatterNdUpdateSkViewTiling, viewTiling)
 END_TILING_DATA_DEF
 
-REGISTER_TILING_DATA_CLASS(SglScatterNdUpdateSk, ScatterNdUpdateSkArch22TilingData)
+REGISTER_TILING_DATA_CLASS(SglScatterNdUpdateHp, ScatterNdUpdateSkArch22TilingData)
 REGISTER_TILING_DATA_CLASS(ScatterNdUpdateSkTilingDataOp, ScatterNdUpdateSkArch22TilingData)
 
 struct ScatterNdUpdateSkArch22CompileInfo {

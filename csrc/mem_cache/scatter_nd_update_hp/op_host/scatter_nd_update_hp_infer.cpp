@@ -46,7 +46,7 @@ static ge::graphStatus InferShape4ScatterNdUpdateSk(gert::InferShapeContext *con
     return ge::GRAPH_SUCCESS;
 }
 
-// register infershape for SglScatterNdUpdateSk op
-IMPL_OP(SglScatterNdUpdateSk).InferShape(InferShape4ScatterNdUpdateSk).InferDataType(InferDataType4ScatterNdUpdateSk);
+// register infershape for SglScatterNdUpdateHp op
+IMPL_OP(SglScatterNdUpdateHp).InferShape(InferShape4ScatterNdUpdateSk).InferDataType(InferDataType4ScatterNdUpdateSk);
 
 }  // namespace ops

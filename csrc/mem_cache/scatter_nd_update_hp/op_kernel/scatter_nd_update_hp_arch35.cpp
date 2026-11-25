@@ -31,7 +31,7 @@ struct GetComputeType {
 
 using namespace ScatterNdUpdate;
 
-extern "C" __global__ __aicore__ void sgl_scatter_nd_update_sk(GM_ADDR var, GM_ADDR indices, GM_ADDR updates,
+extern "C" __global__ __aicore__ void sgl_scatter_nd_update_hp(GM_ADDR var, GM_ADDR indices, GM_ADDR updates,
                                                                GM_ADDR varRef, GM_ADDR workspace, GM_ADDR tiling)
 {
     REGISTER_TILING_DEFAULT(ScatterNdUpdateSkRegBaseTilingData);

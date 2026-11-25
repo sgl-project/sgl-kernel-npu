@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "aclnn_runtime.h"
-#include "aclnn_scatter_nd_update_hp.h"
+#include "aclnn_sgl_scatter_nd_update_hp.h"
 
 #include <c10/core/DeviceGuard.h>
-#include <c10/util/ScopeExit.h>
 #include <limits>
 #include <torch/library.h>
 #include <torch_npu/csrc/core/NPUStorageImpl.h>
@@ -12,49 +11,6 @@ namespace {
 
 using TensorDescriptor = std::unique_ptr<aclTensor, decltype(&aclDestroyTensor)>;
 using IntArrayDescriptor = std::unique_ptr<aclIntArray, decltype(&aclDestroyIntArray)>;
-
-class HostMemoryPool
-{
-    using InitFn = int (*)(void *, bool);
-    using VoidFn = void (*)(void *, bool);
-
-public:
-    HostMemoryPool()
-    {
-        // Resolve cleanup callbacks before activating the thread-local pool.
-        (void)Release();
-        (void)UnInit();
-        if (auto init = Init()) {
-            init(nullptr, false);
-        }
-    }
-    ~HostMemoryPool()
-    {
-        if (auto uninit = UnInit()) {
-            uninit(nullptr, false);
-        }
-    }
-    HostMemoryPool(const HostMemoryPool &) = delete;
-    HostMemoryPool &operator=(const HostMemoryPool &) = delete;
-
-    static VoidFn Release()
-    {
-        static auto fn = reinterpret_cast<VoidFn>(sgl_cann::try_op_api_symbol("ReleaseHugeMem"));
-        return fn;
-    }
-
-private:
-    static InitFn Init()
-    {
-        static auto fn = reinterpret_cast<InitFn>(sgl_cann::try_op_api_symbol("InitHugeMemThreadLocal"));
-        return fn;
-    }
-    static VoidFn UnInit()
-    {
-        static auto fn = reinterpret_cast<VoidFn>(sgl_cann::try_op_api_symbol("UnInitHugeMemThreadLocal"));
-        return fn;
-    }
-};
 
 aclDataType ToAclDataType(at::ScalarType dtype)
 {
@@ -84,6 +40,18 @@ aclDataType ToAclDataType(at::ScalarType dtype)
         default:
             TORCH_CHECK(false, "Unsupported dtype: ", dtype);
     }
+}
+
+void CheckDtypes(const at::Tensor &cache, const at::Tensor &indices, const at::Tensor &updates)
+{
+    const auto dtype = cache.scalar_type();
+    TORCH_CHECK(dtype == at::kFloat || dtype == at::kHalf || dtype == at::kBool || dtype == at::kBFloat16 ||
+                    dtype == at::kLong || dtype == at::kChar || dtype == at::kInt || dtype == at::kShort ||
+                    dtype == at::kFloat8_e4m3fn || dtype == at::kFloat8_e5m2,
+                "Unsupported cache dtype: ", dtype);
+    TORCH_CHECK(indices.scalar_type() == at::kLong || indices.scalar_type() == at::kInt,
+                "indices must be int32 or int64, got ", indices.scalar_type());
+    TORCH_CHECK(updates.scalar_type() == dtype, "updates dtype must match cache dtype");
 }
 
 TensorDescriptor Describe(const at::Tensor &tensor)
@@ -134,28 +102,8 @@ struct PreparedCall {
     TensorDescriptor index{nullptr, &aclDestroyTensor};
     TensorDescriptor update{nullptr, &aclDestroyTensor};
     IntArrayDescriptor strides{nullptr, &aclDestroyIntArray};
-    decltype(HostMemoryPool::Release()) release_memory = HostMemoryPool::Release();
     uint64_t workspace_size = 0;
     aclOpExecutor *executor = nullptr;
-
-    void Release()
-    {
-        // Destroy descriptors before returning their pooled memory.
-        // Initialize/uninitialize on the caller, release on the launch thread.
-        strides.reset();
-        update.reset();
-        index.reset();
-        self.reset();
-        if (release_memory != nullptr) {
-            release_memory(nullptr, false);
-            release_memory = nullptr;
-        }
-    }
-
-    ~PreparedCall()
-    {
-        Release();
-    }
 };
 
 void Scatter(at::Tensor &cache, const at::Tensor &indices, const at::Tensor &updates)
@@ -164,35 +112,40 @@ void Scatter(at::Tensor &cache, const at::Tensor &indices, const at::Tensor &upd
     TORCH_CHECK(indices.device() == cache.device() && updates.device() == cache.device(),
                 "All tensors must be on the same NPU");
     const c10::DeviceGuard guard(cache.device());
+    CheckDtypes(cache, indices, updates);
+    if (cache.numel() == 0 || indices.numel() == 0 || updates.numel() == 0) {
+        return;
+    }
+    auto contiguous_indices = indices.contiguous();
+    auto contiguous_updates = updates.contiguous();
     auto stream = c10_npu::getCurrentNPUStream();
     auto acl_stream = stream.stream(false);
     static auto query = reinterpret_cast<decltype(&aclnnSglScatterNdUpdateHpGetWorkspaceSize)>(
         sgl_cann::op_api_symbol("aclnnSglScatterNdUpdateHpGetWorkspaceSize"));
     static auto execute =
         reinterpret_cast<decltype(&aclnnSglScatterNdUpdateHp)>(sgl_cann::op_api_symbol("aclnnSglScatterNdUpdateHp"));
-    HostMemoryPool pool;
     auto prepared = std::make_shared<PreparedCall>();
     prepared->self = Describe(cache);
-    prepared->index = Describe(indices);
-    prepared->update = Describe(updates);
+    prepared->index = Describe(contiguous_indices);
+    prepared->update = Describe(contiguous_updates);
     prepared->strides.reset(aclCreateIntArray(cache.strides().data(), cache.dim()));
     TORCH_CHECK(prepared->strides, "aclCreateIntArray failed: ", aclGetRecentErrMsg());
     auto status = query(prepared->self.get(), prepared->index.get(), prepared->update.get(), prepared->strides.get(),
-                        &prepared->workspace_size, &prepared->executor);
+                        false, &prepared->workspace_size, &prepared->executor);
     TORCH_CHECK(status == ACL_SUCCESS, "Scatter HP prepare failed: ", aclGetRecentErrMsg());
     TORCH_CHECK(prepared->workspace_size <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max()),
                 "ACLNN workspace size exceeds the Tensor allocation limit");
     // Allocate on the caller: allocator retries may wait for the host queue,
     // which would deadlock if allocation ran inside its current handler.
     void *workspace_addr = nullptr;
+    at::Tensor workspace;
     if (prepared->workspace_size != 0) {
-        auto workspace = at::empty({static_cast<int64_t>(prepared->workspace_size)}, cache.options().dtype(at::kByte));
+        workspace = at::empty({static_cast<int64_t>(prepared->workspace_size)}, cache.options().dtype(at::kByte));
         workspace_addr = const_cast<void *>(workspace.storage().data());
     }
     // Capture converted descriptors and raw launch arguments, without retaining
     // the original tensors or workspace tensor.
     auto launch = [prepared, workspace_addr, acl_stream]() -> int {
-        auto cleanup = c10::make_scope_exit([&] { prepared->Release(); });
         auto status = execute(workspace_addr, prepared->workspace_size, prepared->executor, acl_stream);
         TORCH_CHECK(status == ACL_SUCCESS, "Scatter HP launch failed: ", aclGetRecentErrMsg());
         return status;
