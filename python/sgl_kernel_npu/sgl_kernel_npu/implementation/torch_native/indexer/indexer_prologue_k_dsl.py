@@ -118,6 +118,12 @@ def indexer_prologue_k_dsl(
         raise ValueError("storage_mode must be 0 or 1")
     if storage_mode == 1 and combined_block_size <= 0:
         raise ValueError("combined_block_size must be positive for combined storage")
+    if wk.device.type == "npu":
+        import torch_npu
+
+        # Unpack the projection weight to ND before copying it to CPU.
+        if torch_npu.get_npu_format(wk) != 2:
+            wk = torch_npu.npu_format_cast(wk, 2)
     tensors = [latent, wk, norm_weight, rope_sin, rope_cos, k_cache, cache_index]
     latent_cpu, wk_cpu, norm, sin, cos, cache, indices = [
         x.detach().cpu() for x in tensors
