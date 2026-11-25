@@ -427,16 +427,29 @@ struct ScatterInitInfo {
 };
 }  // namespace
 
-static ScatterInitInfo ParseScatterShapes(const gert::TilingContext *ctx, uint64_t scatterLengthInit)
+static ge::graphStatus ParseScatterShapes(const gert::TilingContext *ctx, uint64_t scatterLengthInit,
+                                          ScatterInitInfo &info)
 {
-    ScatterInitInfo info{};
+    const auto *varShape = ctx->GetInputShape(0);
+    const auto *indicesStorageShape = ctx->GetInputShape(1);
+    OP_CHECK_NULL_WITH_CONTEXT(ctx, varShape);
+    OP_CHECK_NULL_WITH_CONTEXT(ctx, indicesStorageShape);
+    const auto &varRefShape = varShape->GetStorageShape();
+    const auto &indicesShape = indicesStorageShape->GetStorageShape();
+    const auto varDimNum = varRefShape.GetDimNum();
+    const auto indicesDimNum = indicesShape.GetDimNum();
+    OP_CHECK_IF(indicesDimNum == 0, OP_LOGE(ctx, "indices must have a coordinate axis."), return ge::GRAPH_FAILED);
+    const auto indexDim = indicesShape.GetDim(indicesDimNum - 1);
+    const auto maxIndexDim = std::min<uint64_t>(varDimNum, MAX_DIM_NUM);
+    OP_CHECK_IF(indexDim <= 0 || static_cast<uint64_t>(indexDim) > maxIndexDim,
+                OP_LOGE(ctx, "indices coordinate length %ld must be in [1, %lu].", indexDim, maxIndexDim),
+                return ge::GRAPH_FAILED);
+    const auto *indicesDesc = ctx->GetInputDesc(1);
+    OP_CHECK_NULL_WITH_CONTEXT(ctx, indicesDesc);
+
     info.scatterLength = scatterLengthInit;
-    auto varRefShape = ctx->GetInputShape(0)->GetStorageShape();
-    auto indicesShape = ctx->GetInputShape(1)->GetStorageShape();
-    uint64_t varDimNum = varRefShape.GetDimNum();
-    info.indexDim = indicesShape.GetDim(indicesShape.GetDimNum() - 1);
-    auto indicesDtype = ctx->GetInputDesc(1)->GetDataType();
-    info.isInt64Indices = (indicesDtype == ge::DT_INT64);
+    info.indexDim = static_cast<uint64_t>(indexDim);
+    info.isInt64Indices = (indicesDesc->GetDataType() == ge::DT_INT64);
     info.totalLength = 1;
     for (uint64_t i = 0; i < info.indexDim; ++i) {
         info.totalLength *= varRefShape.GetDim(i);
@@ -447,15 +460,19 @@ static ScatterInitInfo ParseScatterShapes(const gert::TilingContext *ctx, uint64
         }
     }
     info.indexRow = 1;
-    for (uint64_t i = 0; i < indicesShape.GetDimNum() - 1; i++) {
+    for (uint64_t i = 0; i < indicesDimNum - 1; i++) {
         info.indexRow *= indicesShape.GetDim(i);
     }
-    return info;
+    return ge::GRAPH_SUCCESS;
 }
 
 ge::graphStatus ScatterNdUpdateSkArch22Tiling::Init()
 {
-    auto info = ParseScatterShapes(tilingContext_, scatterLength_);
+    ScatterInitInfo info{};
+    const auto status = ParseScatterShapes(tilingContext_, scatterLength_, info);
+    if (status != ge::GRAPH_SUCCESS) {
+        return status;
+    }
     indexDim_ = info.indexDim;
     isInt64Indices_ = info.isInt64Indices;
     scatterLength_ = info.scatterLength;
