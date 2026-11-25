@@ -15,7 +15,11 @@
 
 #include "scatter_nd_update_hp_tiling_arch35.h"
 #include "register/op_impl_registry.h"
-#include "tiling_base/error_log.h"
+#include <algorithm>
+#include <cinttypes>
+#include <climits>
+#include <set>
+#include <sstream>
 #include "tiling/platform/platform_ascendc.h"
 #include "op_common/log/log.h"
 #include "tiling/tiling_api.h"
@@ -102,6 +106,36 @@ static int64_t GetSkUbBlockSize()
     return 32;
 }
 
+ge::graphStatus ScatterNdUpdateSkTilingRegbase::DoTiling()
+{
+    auto status = GetShapeAttrsInfo();
+    if (status != ge::GRAPH_SUCCESS) {
+        return status;
+    }
+    status = GetPlatformInfo();
+    if (status != ge::GRAPH_SUCCESS) {
+        return status;
+    }
+    if (!IsCapable()) {
+        return ge::GRAPH_PARAM_INVALID;
+    }
+    status = DoOpTiling();
+    if (status != ge::GRAPH_SUCCESS) {
+        return status;
+    }
+    status = GetWorkspaceSize();
+    if (status != ge::GRAPH_SUCCESS) {
+        return status;
+    }
+    status = PostTiling();
+    if (status != ge::GRAPH_SUCCESS) {
+        return status;
+    }
+    context_->SetTilingKey(GetTilingKey());
+    DumpTilingInfo();
+    return ge::GRAPH_SUCCESS;
+}
+
 bool ScatterNdUpdateSkTilingRegbase::IsCapable()
 {
     auto platformInfo = context_->GetPlatformInfo();
@@ -141,7 +175,7 @@ ge::graphStatus ScatterNdUpdateSkTilingRegbase::ValidateVarInfo(const gert::Tens
         outputShapeSize *= varOriginShape.GetDim(i);
     }
     if (outputShapeSize <= 0) {
-        OP_LOGE(opName, "varShapeSize must be greater than 0, got %llu", outputShapeSize);
+        OP_LOGE(opName, "varShapeSize must be greater than 0, got %" PRIu64, outputShapeSize);
         return ge::GRAPH_FAILED;
     }
 
@@ -165,7 +199,7 @@ ge::graphStatus ScatterNdUpdateSkTilingRegbase::ValidateIndicesInfo(const gert::
 {
     indiceShapeSize = indices->GetShapeSize();
     if (indiceShapeSize < 0UL) {
-        OP_LOGE(opName, "indices shapeSize cannot be negative, got %llu", indiceShapeSize);
+        OP_LOGE(opName, "indices shapeSize cannot be negative, got %" PRIu64, indiceShapeSize);
         return ge::GRAPH_FAILED;
     }
     auto indicesDesc = context_->GetInputDesc(INPUT_IDX_INDICES);
@@ -177,12 +211,12 @@ ge::graphStatus ScatterNdUpdateSkTilingRegbase::ValidateIndicesInfo(const gert::
     indiceDims = indiceShape.GetDimNum();
     rankSize_ = indiceShape.GetDim(indiceDims - 1);
     if (indiceDims < TWO) {
-        OP_LOGE(opName, "indices dimNum must be >= 2, got %lld", indiceDims);
+        OP_LOGE(opName, "indices dimNum must be >= 2, got %" PRId64, indiceDims);
         return ge::GRAPH_FAILED;
     }
 
     if (RANK_MIN_VALUE > static_cast<uint16_t>(rankSize_) || static_cast<uint16_t>(rankSize_) > RANK_MAX_VALUE) {
-        OP_LOGE(opName, "rankSize must be in the range [1, 7], got %llu", rankSize_);
+        OP_LOGE(opName, "rankSize must be in the range [1, 7], got %u", rankSize_);
         return ge::GRAPH_FAILED;
     }
 
@@ -197,10 +231,10 @@ bool ScatterNdUpdateSkTilingRegbase::ReadStridesAttr(const gert::Shape &varOrigi
     OP_CHECK_NULL_WITH_CONTEXT(context_, attrs);
     auto stridesPtr = attrs->GetListInt(ATTR_IDX_STRIDES);
     OP_CHECK_NULL_WITH_CONTEXT(context_, stridesPtr);
-    OP_TILING_CHECK(
-        stridesPtr->GetSize() != static_cast<size_t>(shapeRank_),
-        OP_LOGE(opName, "strides attr size (%zu) must match var dimNum (%lld)", stridesPtr->GetSize(), shapeRank_),
-        return false);
+    OP_CHECK_IF(stridesPtr->GetSize() != static_cast<size_t>(shapeRank_),
+                OP_LOGE(opName, "strides attr size (%zu) must match var dimNum (%" PRId64 ")", stridesPtr->GetSize(),
+                        shapeRank_),
+                return false);
 
     bool isContiguous = true;
     int64_t expectedStride = 1;
@@ -219,7 +253,7 @@ ge::graphStatus ScatterNdUpdateSkTilingRegbase::HandleNonContiguousCase(const ge
 {
     constexpr uint16_t MAX_INDICES_RANK_FOR_VIEW = 4;
     if (static_cast<uint16_t>(rankSize_) > MAX_INDICES_RANK_FOR_VIEW) {
-        OP_LOGE(opName, "In non-contiguous scenarios, rankSize must be <= 4, got %llu", rankSize_);
+        OP_LOGE(opName, "In non-contiguous scenarios, rankSize must be <= 4, got %u", rankSize_);
         return ge::GRAPH_FAILED;
     }
 
@@ -245,12 +279,9 @@ ge::graphStatus ScatterNdUpdateSkTilingRegbase::HandleNonContiguousCase(const ge
 
     IsContiguous_ = 0;  // 非连续内存
 
-    // sk 场景 storage shape 已被 launcher 覆盖为 viewShape，无法从 GetStorageShape 取得
-    // 真实 storage 覆盖大小；由真实 strides 推导最大平坦偏移：
-    //   maxOffset = Σ_{d<rankSize} (varDim_d - 1) * stride_d，尾部 [rankSize_, shapeRank)
-    //   连续段贡献 afterAxis。kernel 侧以 outputStorageShapeSize 为写入守卫上界，
-    //   必须覆盖"最后一行的行尾"，旧公式 stride0 * afterAxis 把首轴 stride 当 dim 用，
-    //   当 var dim0 > afterAxis 时合法索引会被误拦（静默丢行）。
+    // The runtime supplies logical view dimensions. Derive the covered storage
+    // span from the indexed-axis strides and the contiguous trailing slice.
+    // Include the last row's tail in the kernel's write bound.
     int64_t afterAxis = 1;
     for (int64_t dim = static_cast<int64_t>(rankSize_); dim < shapeRank_; ++dim) {
         afterAxis *= varOriginShape.GetDim(dim);
@@ -276,7 +307,7 @@ ge::graphStatus ScatterNdUpdateSkTilingRegbase::ValidateUpdatesInfo(const gert::
 {
     updateShapeSize = updates->GetShapeSize();
     if (updateShapeSize < 0UL) {
-        OP_LOGE(opName, "updates shapeSize must not be negative, got %llu", updateShapeSize);
+        OP_LOGE(opName, "updates shapeSize must not be negative, got %" PRIu64, updateShapeSize);
         return ge::GRAPH_FAILED;
     }
 
@@ -298,7 +329,7 @@ ge::graphStatus ScatterNdUpdateSkTilingRegbase::CalculateDerivedParams(const ger
                                                                        gert::Shape &updateShape)
 {
     if (shapeRank_ < rankSize_) {
-        OP_LOGE(opName, "var dimNum must be >= rankSize, var: %lld, rankSize: %llu", shapeRank_, rankSize_);
+        OP_LOGE(opName, "var dimNum must be >= rankSize, var: %" PRId64 ", rankSize: %u", shapeRank_, rankSize_);
         return ge::GRAPH_FAILED;
     }
 
@@ -353,7 +384,7 @@ ge::graphStatus ScatterNdUpdateSkTilingRegbase::GetShapeAttrsInfo()
 
     // 验证和获取 var 的基本信息
     ge::graphStatus status = ValidateVarInfo(var, varOriginShape);
-    OP_TILING_CHECK(status != ge::GRAPH_SUCCESS, OP_LOGE(opName, "ValidateVarInfo failed"), return status);
+    OP_CHECK_IF(status != ge::GRAPH_SUCCESS, OP_LOGE(opName, "ValidateVarInfo failed"), return status);
 
     const gert::Tensor *indices = context_->GetInputTensor(INPUT_IDX_INDICES);
     OP_CHECK_NULL_WITH_CONTEXT(context_, indices);
@@ -362,17 +393,15 @@ ge::graphStatus ScatterNdUpdateSkTilingRegbase::GetShapeAttrsInfo()
 
     // 验证和获取 indices 的基本信息
     status = ValidateIndicesInfo(indices, indiceShape, indiceDims);
-    OP_TILING_CHECK(status != ge::GRAPH_SUCCESS, OP_LOGE(opName, "ValidateIndicesInfo failed"), return status);
+    OP_CHECK_IF(status != ge::GRAPH_SUCCESS, OP_LOGE(opName, "ValidateIndicesInfo failed"), return status);
 
-    // 处理内存连续性
-    // sk 场景 storage shape 已被 launcher 覆盖为 viewShape，连续性由 strides 属性判定：
-    // strided attr 与 viewShape 完全匹配连续 stride => 连续；否则为非连续 view
+    // Determine view contiguity from the explicit strides.
     if (ReadStridesAttr(varOriginShape)) {
         status = HandleContiguousCase();
-        OP_TILING_CHECK(status != ge::GRAPH_SUCCESS, OP_LOGE(opName, "HandleContiguousCase failed"), return status);
+        OP_CHECK_IF(status != ge::GRAPH_SUCCESS, OP_LOGE(opName, "HandleContiguousCase failed"), return status);
     } else {
         status = HandleNonContiguousCase(varOriginShape);
-        OP_TILING_CHECK(status != ge::GRAPH_SUCCESS, OP_LOGE(opName, "HandleNonContiguousCase failed"), return status);
+        OP_CHECK_IF(status != ge::GRAPH_SUCCESS, OP_LOGE(opName, "HandleNonContiguousCase failed"), return status);
     }
 
     const gert::Tensor *updates = context_->GetInputTensor(INPUT_IDX_UPDATES);
@@ -381,11 +410,11 @@ ge::graphStatus ScatterNdUpdateSkTilingRegbase::GetShapeAttrsInfo()
 
     // 验证和获取 updates 的基本信息
     status = ValidateUpdatesInfo(updates, updateShape);
-    OP_TILING_CHECK(status != ge::GRAPH_SUCCESS, OP_LOGE(opName, "ValidateUpdatesInfo failed"), return status);
+    OP_CHECK_IF(status != ge::GRAPH_SUCCESS, OP_LOGE(opName, "ValidateUpdatesInfo failed"), return status);
 
     // 计算派生参数
     status = CalculateDerivedParams(varOriginShape, indiceShape, updateShape);
-    OP_TILING_CHECK(status != ge::GRAPH_SUCCESS, OP_LOGE(opName, "CalculateDerivedParams failed"), return status);
+    OP_CHECK_IF(status != ge::GRAPH_SUCCESS, OP_LOGE(opName, "CalculateDerivedParams failed"), return status);
 
     return ge::GRAPH_SUCCESS;
 }
@@ -963,11 +992,6 @@ ge::graphStatus ScatterNdUpdateSkTilingRegbase::DoOpTiling()
     ge::graphStatus status = SetStride();
     OP_CHECK_IF(ge::GRAPH_SUCCESS != status, OP_LOGE(opName, "SetStride failed."), return ge::GRAPH_FAILED);
     SetTilingData();
-    return ge::GRAPH_SUCCESS;
-}
-
-ge::graphStatus ScatterNdUpdateSkTilingRegbase::DoLibApiTiling()
-{
     return ge::GRAPH_SUCCESS;
 }
 

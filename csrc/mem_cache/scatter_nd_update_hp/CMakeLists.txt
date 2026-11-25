@@ -16,6 +16,5 @@ sgl_register_operator_variant(
 sgl_register_operator_variant(
     ID scatter_nd_update_hp ARCH 3510
     TILING_SOURCES op_host/scatter_nd_update_hp_tiling_arch35.cpp
-    TILING_INCLUDE_DIRECTORIES op_host/compat
     KERNEL_SOURCES op_kernel/scatter_nd_update_hp_arch35.cpp
 )

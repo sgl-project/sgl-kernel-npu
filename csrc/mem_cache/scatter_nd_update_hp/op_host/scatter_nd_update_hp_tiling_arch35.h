@@ -16,26 +16,23 @@
 #ifndef SCATTER_ND_UPDATE_SK_TILING_REGBASE_H_
 #define SCATTER_ND_UPDATE_SK_TILING_REGBASE_H_
 
-#include "tiling_base/tiling_base.h"
+#include "exe_graph/runtime/tiling_context.h"
 #include "register/tilingdata_base.h"
 #include "tiling/tiling_api.h"
 #include "../op_kernel/arch35/scatter_nd_update_struct.h"
 
 namespace optiling {
 
-using namespace Ops::Transformer::OpTiling;
-class ScatterNdUpdateSkTilingRegbase : public TilingBaseClass
+class ScatterNdUpdateSkTilingRegbase
 {
 public:
-    explicit ScatterNdUpdateSkTilingRegbase(gert::TilingContext *context) : TilingBaseClass(context) {}
-    uint32_t maxThread_{1024};
-    uint64_t coreNum_{0};
-    uint64_t ubSize_{0};
+    explicit ScatterNdUpdateSkTilingRegbase(gert::TilingContext *context) : context_(context) {}
+    ge::graphStatus DoTiling();
 
-protected:
-    bool IsCapable() override;
-    ge::graphStatus GetPlatformInfo() override;
-    ge::graphStatus GetShapeAttrsInfo() override;
+private:
+    bool IsCapable();
+    ge::graphStatus GetPlatformInfo();
+    ge::graphStatus GetShapeAttrsInfo();
     uint32_t GetSortTmpSize(ge::DataType dataType, uint32_t lastAxisNum, bool isDescend);
     int64_t GetRestAvailableSize(int64_t sampleNum, int64_t valueTypeBytes, int64_t originalSize, int64_t postAxisSize,
                                  ge::DataType idType);
@@ -59,7 +56,7 @@ protected:
     void CalcDeterministicIndicesSplit(int64_t ubBlock);
     void CalculateMask();
     void UpdateSimdSortDecision();
-    uint64_t GetTilingKey() const override;
+    uint64_t GetTilingKey() const;
     void ComputeCoreSplitAfterAxis();
     void InitFactors(int64_t halfUbSize, int64_t indicesSize, int64_t alignNum);
     void HandleIndicesFactorGtOne(int64_t halfUbSize, int64_t indicesSize, int64_t alignNum, int64_t ubBlock);
@@ -69,12 +66,10 @@ protected:
     int64_t OccupyTotal(int64_t idxFactor, int64_t afterAxisFactor, int64_t ubBlock);
     int64_t RoughMaxIdxByUb(int64_t afterAxisFactor, int64_t halfUbSize, int64_t indicesSize);
     ge::graphStatus SortTiling();
-    ge::graphStatus DoOpTiling() override;
-    ge::graphStatus DoLibApiTiling() override;
-    ge::graphStatus GetWorkspaceSize() override;
-    ge::graphStatus PostTiling() override;
-    ge::graphStatus GenerateTilingKey();
-    void DumpTilingInfo() override;
+    ge::graphStatus DoOpTiling();
+    ge::graphStatus GetWorkspaceSize();
+    ge::graphStatus PostTiling();
+    void DumpTilingInfo();
 
 private:
     ge::graphStatus UbTiling();
@@ -83,6 +78,8 @@ private:
     ge::graphStatus SetStride();
 
 private:
+    gert::TilingContext *context_;
+    uint64_t ubSize_{0};
     int64_t attrStrides_[MAX_SHAPE_RANK] = {0};
     int64_t shapeRank_ = 0;
     int64_t totalCoreNum_{0};
