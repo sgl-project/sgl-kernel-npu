@@ -6,10 +6,10 @@
 | --- | --- | --- |
 | `cann_ops_transformers_cann920` | Supported | Supported |
 | `cann_recipes_infer_cann910` | Supported | Supported |
-| `cann_recipes_infer_cann920` | Unsupported | Supported |
+| `cann_recipes_infer_cann920` | Supported | Supported |
 | `torch_native` | Supported | Supported |
 
-`cann_recipes_infer_cann920` additionally requires an initialized CANN 9.2.x SDK and serves the DSV4.1 `pre_mix` input and pre output; it is registered on arch35 only, and selecting it on ARCH22 raises `UnsupportedGenerationError`.
+The DeepSeek V4.1 path requires a wheel that bundles `npu_hc_pre_v2`.
 
 ## Signature
 
@@ -21,7 +21,7 @@ def mhc_pre_dpskv4(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm
     ...
 ```
 
-`auto` selects the initialized SDK production path: original bindings on CANN 9.1, released bindings on CANN 9.2. Execution failures never trigger another backend. The DSV4.1 fused kernel must be selected explicitly as `cann_recipes_infer_cann920`.
+`auto` selects fused HcPre when the caller supplies `pre_mix` or requests `return_pre=True`. For calls with neither option, the initialized SDK selects the existing DeepSeek V4 path.
 
 ## Description
 
@@ -45,7 +45,7 @@ A supplied `pre_mix` is used directly to weight the y accumulation instead of th
 | rms_norm_eps | float | required | Internal projection RMS epsilon, not the model layernorm |
 | pre_mix | Tensor | None | Keyword-only; [T,n] FP32 weights for the y accumulation, requires `cann_recipes_infer_cann920` or `torch_native` |
 | return_pre | bool | False | Keyword-only; append the pre output when True |
-| impl | str | 'auto' | Registered implementation; auto selects the SDK path; never falls back to torch_native |
+| impl | str | 'auto' | Registered implementation, or `auto` for production dispatch |
 
 ## Return value
 
@@ -66,7 +66,7 @@ Source: [cann-recipes-infer; aclnnHcPre](https://gitcode.com/cann/cann-recipes-i
 
 ## cann_recipes_infer_cann920
 
-DSV4.1 fused path, CANN 9.2.x and A5 only; `npu_hc_pre_v2` is built for arch35. Calls the wheel-bundled `torch.ops.sgl_cann_recipes_infer.npu_hc_pre_v2`, supporting the `pre_mix` input and the pre output. A missing binding raises a clear error instead of falling back.
+Calls the wheel-bundled `torch.ops.sgl_cann_recipes_infer.npu_hc_pre_v2` for fused DeepSeek V4.1 pre-mix and coefficient prediction. The wheel builds [vLLM Ascend HcPre](https://github.com/vllm-project/vllm-ascend/tree/2b1a0514511b67b751580cef0fa11c9b053bce65/csrc/moe/hc_pre) on A3 and Recipes HcPre on A5.
 
 ## torch_native
 
@@ -79,16 +79,16 @@ import torch
 import torch_npu
 from sgl_kernel_npu.operators.hyper_conn import mhc_pre_dpskv4
 
-x = torch.randn(1, 4, 128, device="npu", dtype=torch.bfloat16)
-fn = torch.randn(24, 512, device="npu", dtype=torch.bfloat16)
+x = torch.randn(1, 4, 5120, device="npu", dtype=torch.bfloat16)
+fn = torch.randn(24, 4 * 5120, device="npu", dtype=torch.float32)
 scale = torch.ones(3, device="npu", dtype=torch.float32)
 base = torch.zeros(24, device="npu", dtype=torch.float32)
 y, post, comb = mhc_pre_dpskv4(x, fn, scale, base, 4, 20, 1e-6, 1e-6, impl="torch_native")
 
-# DSV4.1 fused kernel: needs a CANN 9.2.0 wheel with the recipes vendor.
+# DeepSeek V4.1 with a wheel that bundles HcPre.
 y, post, comb, pre = mhc_pre_dpskv4(
     x, fn, scale, base, 4, 20, 1e-6, 1e-6,
-    return_pre=True, impl="cann_recipes_infer_cann920",
+    return_pre=True,
 )
 ```
 
@@ -99,6 +99,6 @@ python3 -m pytest tests/python/operators/hyper_conn/test_mhc_pre_dpskv4.py \
   --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
 ```
 
-The `cann_recipes_infer_cann920` DSV4.1 cases run only on CANN 9.2.x with arch35 and are skipped elsewhere; the baseline cases use `auto`, whose backend follows the SDK version.
+The DeepSeek V4.1 cases run when the installed wheel bundles `npu_hc_pre_v2`.
 
 [Upstream operators](https://github.com/Ascend/ops-transformer)

@@ -6,10 +6,10 @@
 | --- | --- | --- |
 | `cann_ops_transformers_cann920` | 支持 | 支持 |
 | `cann_recipes_infer_cann910` | 支持 | 支持 |
-| `cann_recipes_infer_cann920` | 不支持 | 支持 |
+| `cann_recipes_infer_cann920` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
-`cann_recipes_infer_cann920` 还要求已初始化的 CANN SDK 为 9.2.x，用于 DSV4.1 的 `pre_mix` 输入与 pre 输出；该实现只在 arch35 注册，arch22 上显式选择会抛出 `UnsupportedGenerationError`。
+DeepSeek V4.1 路径需要安装包含 `npu_hc_pre_v2` 的 wheel。
 
 ## 接口
 
@@ -21,7 +21,7 @@ def mhc_pre_dpskv4(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm
     ...
 ```
 
-`auto` 根据初始化的 CANN SDK 选择生产路径：9.1 使用旧绑定，9.2 使用正式绑定；不在执行失败后重试其他后端。DSV4.1 的融合 kernel 需显式选择 `cann_recipes_infer_cann920`。
+传入 `pre_mix` 或设置 `return_pre=True` 时，`auto` 选择融合 HcPre。两项均未指定时，按初始化的 SDK 选择原有 DeepSeek V4 路径。
 
 ## 说明
 
@@ -45,7 +45,7 @@ def mhc_pre_dpskv4(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm
 | rms_norm_eps | float | 必填 | Internal projection RMS epsilon, not the model layernorm |
 | pre_mix | Tensor | None | 仅限关键字；参与 y 累加的 [T,n] FP32 权重，要求 `cann_recipes_infer_cann920` 或 `torch_native` |
 | return_pre | bool | False | 仅限关键字；为 True 时多返回一个 pre 输出 |
-| impl | str | 'auto' | Registered implementation; auto selects the SDK path; never falls back to torch_native |
+| impl | str | 'auto' | 已注册的实现，或用 `auto` 自动选择生产路径 |
 
 ## 返回值
 
@@ -66,7 +66,7 @@ Source: [cann-recipes-infer; aclnnHcPre](https://gitcode.com/cann/cann-recipes-i
 
 ## cann_recipes_infer_cann920
 
-DSV4.1 融合路径，仅 CANN 9.2.x + A5；`npu_hc_pre_v2` 只随 arch35 构建进入 wheel。调用 wheel 内捆绑的 `torch.ops.sgl_cann_recipes_infer.npu_hc_pre_v2`，支持 `pre_mix` 输入与 pre 输出；绑定缺失时明确报错，不回退其他后端。
+通过 wheel 内的 `torch.ops.sgl_cann_recipes_infer.npu_hc_pre_v2` 一次完成 DeepSeek V4.1 的 pre-mix 和系数计算。A3 打包 [vLLM Ascend HcPre](https://github.com/vllm-project/vllm-ascend/tree/2b1a0514511b67b751580cef0fa11c9b053bce65/csrc/moe/hc_pre)，A5 打包 Recipes HcPre。
 
 ## torch_native
 
@@ -79,16 +79,16 @@ import torch
 import torch_npu
 from sgl_kernel_npu.operators.hyper_conn import mhc_pre_dpskv4
 
-x = torch.randn(1, 4, 128, device="npu", dtype=torch.bfloat16)
-fn = torch.randn(24, 512, device="npu", dtype=torch.bfloat16)
+x = torch.randn(1, 4, 5120, device="npu", dtype=torch.bfloat16)
+fn = torch.randn(24, 4 * 5120, device="npu", dtype=torch.float32)
 scale = torch.ones(3, device="npu", dtype=torch.float32)
 base = torch.zeros(24, device="npu", dtype=torch.float32)
 y, post, comb = mhc_pre_dpskv4(x, fn, scale, base, 4, 20, 1e-6, 1e-6, impl="torch_native")
 
-# DSV4.1 融合 kernel：需要 CANN 9.2.0 wheel（含 recipes vendor）。
+# DeepSeek V4.1 需要包含 HcPre 的 wheel。
 y, post, comb, pre = mhc_pre_dpskv4(
     x, fn, scale, base, 4, 20, 1e-6, 1e-6,
-    return_pre=True, impl="cann_recipes_infer_cann920",
+    return_pre=True,
 )
 ```
 
@@ -99,6 +99,6 @@ python3 -m pytest tests/python/operators/hyper_conn/test_mhc_pre_dpskv4.py \
   --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
 ```
 
-`cann_recipes_infer_cann920` 的 DSV4.1 用例只在 CANN 9.2.x + arch35 上执行，其余环境自动跳过；基线用例走 `auto`，由 SDK 版本决定后端。
+安装的 wheel 包含 `npu_hc_pre_v2` 时，执行 DeepSeek V4.1 用例。
 
 [上游算子仓库](https://github.com/Ascend/ops-transformer)

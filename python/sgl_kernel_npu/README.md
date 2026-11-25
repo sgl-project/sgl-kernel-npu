@@ -126,8 +126,6 @@ python3 /workspace/sgl-kernel-npu/setup.py --arch-version 2201 \
 ```
 
 Omitting `--third-party` selects all profiles for the detected SDK version.
-On A3, `ops_transformer` also bundles the separate `mhc_pre_sinkhorn_v2`
-operator for DeepSeek-V4.1.
 No matching profiles, or an empty/missing operator list for the chosen
 architecture, produces an INFO message and skips that dependency. Explicitly
 requesting a profile that does not exist for the SDK version is an error.

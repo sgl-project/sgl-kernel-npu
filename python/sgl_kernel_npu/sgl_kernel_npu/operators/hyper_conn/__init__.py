@@ -6,7 +6,6 @@ from .mhc_post import mhc_post
 from .mhc_post_dpskv4 import mhc_post_dpskv4
 from .mhc_pre_dpskv4 import mhc_pre_dpskv4
 from .mhc_pre_sinkhorn import mhc_pre_sinkhorn
-from .mhc_pre_sinkhorn_v2 import mhc_pre_sinkhorn_v2
 
 __all__ = [
     "mhc_pre_dpskv4",
@@ -15,7 +14,6 @@ __all__ = [
     "hc_post",
     "mhc_post",
     "mhc_pre_sinkhorn",
-    "mhc_pre_sinkhorn_v2",
     "hc_mix",
     "hc_combine",
 ]

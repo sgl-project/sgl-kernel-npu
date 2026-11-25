@@ -140,38 +140,7 @@ def inspect_vendor(vendor, item):
             raise RuntimeError("No installed AICore/AICPU implementation for " + op)
 
 
-def isolate_mhc_pre_sinkhorn(source):
-    """Give the pinned V2 source a private OPP type, ACLNN API and Torch schema."""
-    op = source / "mhc/mhc_pre_sinkhorn"
-
-    def rename(text):
-        changes = (
-            (r"mhc_pre_sinkhorn(?!_backward)", "sgl_mhc_pre_sinkhorn"),
-            (r"MhcPreSinkhorn(?!Backward)", "SglMhcPreSinkhorn"),
-            (r"MHC_PRE_SINKHORN(?!_BACKWARD)", "SGL_MHC_PRE_SINKHORN"),
-        )
-        for original, private in changes:
-            text = re.sub(original, private, text)
-        return text
-
-    for path in sorted(op.rglob("*"), key=lambda path: len(path.parts), reverse=True):
-        if path.is_file() and (
-            path.suffix in (".cpp", ".h", ".py", ".json", ".ini")
-            or path.name == "CMakeLists.txt"
-        ):
-            path.write_text(rename(path.read_text(encoding="utf-8")), encoding="utf-8")
-        name = rename(path.name)
-        if name != path.name:
-            path.rename(path.with_name(name))
-    op.rename(op.with_name("sgl_mhc_pre_sinkhorn"))
-
-    exports = source / "torch_extension/cann_ops_transformer/ops/__init__.py"
-    exports.write_text(rename(exports.read_text(encoding="utf-8")), encoding="utf-8")
-
-
 def build(item, source, directory):
-    if item["name"] == "sgl_ops_transformer_mhc_v2":
-        isolate_mhc_pre_sinkhorn(source)
     for index, command in enumerate(item["commands"]):
         run(command, directory / ("build-{}.log".format(index)), cwd=source)
     # The pinned 9.1 build.sh has no --torch_extension option.

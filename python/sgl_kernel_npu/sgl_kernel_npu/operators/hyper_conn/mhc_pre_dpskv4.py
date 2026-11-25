@@ -88,7 +88,7 @@ def _cann_9_1_mhc_pre(
 @register_impl(
     "hyper_conn.mhc_pre_dpskv4",
     "cann_recipes_infer_cann920",
-    supported_generations={Generation.ARCH35},
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 def _cann_9_2_mhc_pre_v2(
     x,
@@ -104,11 +104,6 @@ def _cann_9_2_mhc_pre_v2(
     return_pre=False,
 ):
     global _cann_920_v2_fn
-    cann_version = detect_cann_version()
-    if not cann_version.startswith("9.2."):
-        raise RuntimeError(
-            f"This implementation requires CANN 9.2.x, got {cann_version}"
-        )
     if _cann_920_v2_fn is None:
         from ..._third_party.sgl_cann_recipes_infer import npu_hc_pre_v2
 
@@ -182,9 +177,9 @@ def mhc_pre_dpskv4(
     """Return mixed activation, post weights and residual mixing matrix; input layernorm remains separate.
 
     pre_mix optionally supplies the [T,n] FP32 weights used to accumulate y, and
-    return_pre appends the computed pre weights as a fourth output. Both need impl
-    "cann_recipes_infer_cann920" (DSV4.1 fused kernel) or "torch_native"; auto stays
-    on the DSV4 backend.
+    return_pre appends the computed pre weights as a fourth output. Auto selects
+    the fused HcPre backend when either is requested, and otherwise uses the DSV4
+    backend.
     torch_native is an eager correctness reference, not a graph fallback.
 
     impl: auto (SDK-selected), cann_ops_transformers_cann920,
@@ -193,6 +188,8 @@ def mhc_pre_dpskv4(
     if not isinstance(return_pre, bool):
         raise TypeError("return_pre must be bool")
     needs_pre = pre_mix is not None or return_pre
+    if needs_pre and impl == "auto":
+        impl = "cann_recipes_infer_cann920"
     if needs_pre and impl not in ("cann_recipes_infer_cann920", "torch_native"):
         raise ValueError(
             "pre_mix and return_pre require impl 'cann_recipes_infer_cann920' or "
