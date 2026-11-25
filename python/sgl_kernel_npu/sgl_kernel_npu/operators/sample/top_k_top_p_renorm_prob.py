@@ -37,7 +37,9 @@ def top_k_top_p_renorm_prob(probs, top_ks, top_ps, max_keep=None, *, impl="auto"
     ranks, so the surviving columns are the intersection of the two prefix
     masks. max_keep lets the kernel select only that many leading columns; it
     must be an upper bound on every row top-k. Rows whose top-k exceeds
-    max_keep are truncated to max_keep columns.
+    max_keep are truncated to max_keep columns. top_ks are clamped to
+    [1,vocab] and capped at max_keep, top_ps are clamped to [0,1], and probs
+    is not modified.
 
     Args:
         probs (Tensor): FP32 NPU [batch,vocab], 1<=vocab<=2**23. Default: Required.
