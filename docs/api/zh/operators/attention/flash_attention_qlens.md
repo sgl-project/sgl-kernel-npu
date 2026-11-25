@@ -4,10 +4,10 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `ascend-transformer-boost` | 支持 | 不支持 |
+| `ascend-transformer-boost` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
-旧版 ATB 入口在 A2/A3 上注册，采用主机侧长度参数。
+A2/A3 和 A5 的默认实现均调用 TorchNPU 的 ATB 入口，查询长度和上下文长度位于主机侧。
 
 ## 函数原型
 
@@ -45,13 +45,13 @@ def flash_attention_qlens(
 
 | 参数 | 类型 | 形状 / dtype | 默认值 | 说明与约束 |
 | --- | --- | --- | --- | --- |
-| `query` | Tensor | [T, H, D], FP16/BF16 | 必传 | NPU 上每个 query token 对应一行。 |
+| `query` | Tensor | [T, H * Dk] 或 [T, H, Dk]，FP16/BF16 | 必传 | 按请求依次拼接查询。SGLang 使用展平的二维布局，T 为 seq_len 之和。 |
 | `key_cache`, `value_cache` | Tensor | [P, L, Hkv, Dk] 与 [P, L, Hkv, Dv] | 必传 | 分页键值缓存。P 是物理页数，L 是页大小。 |
 | `num_heads`, `num_kv_heads` | int | - | 必传 | query 与 KV 的头数。H 须能被 Hkv 整除。 |
 | `scale_value` | float | - | 必传 | 注意力 logit 尺度，通常取 Dk**-0.5。 |
 | `block_table` | Tensor | [B, max_pages], INT32, NPU | 必传 | 将每个请求的逻辑页映射到物理页。 |
 | `context_lens` | Tensor | [B], INT32 CPU 在示例中 | 必传 | 每个请求可见的缓存 token 数。 |
-| `out` | Tensor | [T, H, Dv], same dtype 与 NPU as query | 必传 | 由调用方分配，原地写入。 |
+| `out` | Tensor | [T, H * Dv] 或 [T, H, Dv]，与 query 的 dtype 和设备相同 | 必传 | 由调用方按 query 的对应布局分配，原地写入。 |
 | `mask` | Tensor | [128, 128], BF16 在示例中 | 必传 | 厂商因果路径使用的压缩上三角掩码。 |
 | `seq_len` | Tensor | [B], INT32 CPU 在示例中 | 必传 | 每个请求打包的 query token 数。 |
 | `impl` | str | - | `"auto"` | `auto`, `ascend-transformer-boost`, `torch_native`. |

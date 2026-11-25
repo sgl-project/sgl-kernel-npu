@@ -4,10 +4,10 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `ascend-transformer-boost` | Supported | Unsupported |
+| `ascend-transformer-boost` | Supported | Supported |
 | `torch_native` | Supported | Supported |
 
-The legacy ATB binding is registered for the A2/A3 host-length path.
+On A2/A3 and A5, the default implementation calls the TorchNPU ATB binding with query and context lengths on the host.
 
 ## Signature
 
@@ -45,13 +45,13 @@ Tensor arguments use the same NPU device unless the table specifies host metadat
 
 | Parameter | Type | Shape / dtype | Default | Description and constraints |
 | --- | --- | --- | --- | --- |
-| `query` | Tensor | [T, H, D], FP16/BF16 | Required | Queries packed across requests on NPU. T is the sum of seq_len. |
+| `query` | Tensor | [T, H * Dk] or [T, H, Dk], FP16/BF16 | Required | Queries packed across requests on NPU. SGLang uses the flattened layout. T is the sum of seq_len. |
 | `key_cache`, `value_cache` | Tensor | [P, L, Hkv, Dk] and [P, L, Hkv, Dv] | Required | Paged key and value storage. P is the number of physical pages and L is the page size. |
 | `num_heads`, `num_kv_heads` | int | - | Required | Query and KV head counts. H must be divisible by Hkv. |
 | `scale_value` | float | - | Required | Attention logit scale, commonly Dk**-0.5. |
 | `block_table` | Tensor | [B, max_pages], INT32, NPU | Required | Maps logical pages of each request to physical pages. |
 | `context_lens` | Tensor | [B], INT32 CPU in the example | Required | Number of visible cached tokens per request. |
-| `out` | Tensor | [T, H, Dv], same dtype and NPU as query | Required | Caller-owned output buffer, written in place. |
+| `out` | Tensor | [T, H * Dv] or [T, H, Dv], same dtype and NPU as query | Required | Caller-owned output buffer in the corresponding query layout, written in place. |
 | `mask` | Tensor | [128, 128], BF16 in the example | Required | Compressed upper-triangular mask for the vendor causal path. |
 | `seq_len` | Tensor | [B], INT32 CPU in the example | Required | Number of packed query tokens for each request. |
 | `impl` | str | - | `"auto"` | `auto`, `ascend-transformer-boost`, `torch_native`. |

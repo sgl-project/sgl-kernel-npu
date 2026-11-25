@@ -5,18 +5,19 @@ import torch_npu
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
-_ARCH22 = {Generation.ARCH22}
-_DECODE_GENERATIONS = {Generation.ARCH22, Generation.ARCH35}
+_ATB_GENERATIONS = {Generation.ARCH22, Generation.ARCH35}
 _native_flash_attention_qlens = None
 _native_paged_attention = None
 _native_paged_attention_mla = None
 
 
-@register_impl("attention.flash_attention_qlens", "auto", supported_generations=_ARCH22)
+@register_impl(
+    "attention.flash_attention_qlens", "auto", supported_generations=_ATB_GENERATIONS
+)
 @register_impl(
     "attention.flash_attention_qlens",
     "ascend-transformer-boost",
-    supported_generations=_ARCH22,
+    supported_generations=_ATB_GENERATIONS,
 )
 def _flash_attention_qlens_impl(**kwargs):
     return torch_npu._npu_flash_attention_qlens(**kwargs)
@@ -76,12 +77,12 @@ def flash_attention_qlens(
 @register_impl(
     "attention.paged_attention",
     "auto",
-    supported_generations=_DECODE_GENERATIONS,
+    supported_generations=_ATB_GENERATIONS,
 )
 @register_impl(
     "attention.paged_attention",
     "ascend-transformer-boost",
-    supported_generations=_DECODE_GENERATIONS,
+    supported_generations=_ATB_GENERATIONS,
 )
 def _paged_attention_impl(**kwargs):
     return torch_npu._npu_paged_attention(**kwargs)
@@ -135,12 +136,12 @@ def paged_attention(
 
 
 @register_impl(
-    "attention.paged_attention_mla", "auto", supported_generations=_DECODE_GENERATIONS
+    "attention.paged_attention_mla", "auto", supported_generations=_ATB_GENERATIONS
 )
 @register_impl(
     "attention.paged_attention_mla",
     "ascend-transformer-boost",
-    supported_generations=_DECODE_GENERATIONS,
+    supported_generations=_ATB_GENERATIONS,
 )
 def _paged_attention_mla_impl(**kwargs):
     return torch_npu._npu_paged_attention_mla(**kwargs)

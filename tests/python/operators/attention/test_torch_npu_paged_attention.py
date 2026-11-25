@@ -5,7 +5,6 @@ import math
 import pytest
 
 from tests.python.utils.accuracy import check_accuracy
-from tests.python.utils.common import get_test_impls, require_test_impl
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
@@ -86,6 +85,17 @@ def generate_data(
             None,
             id="qwen3-8b-tp2-prefix-cache-prefill",
         ),
+        # SGLang packs the two query suffixes after 128 and 256 cached tokens.
+        pytest.param(
+            "flash_attention_qlens",
+            16,
+            4,
+            128,
+            (145, 385),
+            (17, 129),
+            None,
+            id="qwen3-8b-tp2-ragged-prefix-extend",
+        ),
         pytest.param(
             "paged_attention",
             16,
@@ -131,19 +141,11 @@ def generate_data(
 def test_legacy_atb_attention(
     name, q_heads, kv_heads, head_dim, context_lengths, query_lengths, mla_vheadsize
 ):
-    import torch_npu
     from sgl_kernel_npu.operators import attention
     from sgl_kernel_npu.operators.utils.registry import get_impl
 
     operator = getattr(attention, name)
-    if name == "flash_attention_qlens":
-        require_test_impl(operator, get_test_impls()[0])
-        if not callable(getattr(torch_npu, f"_npu_{name}", None)):
-            pytest.skip(f"Installed TorchNPU lacks _npu_{name}")
-    else:
-        assert get_impl(operator, "auto") is get_impl(
-            operator, "ascend-transformer-boost"
-        )
+    assert get_impl(operator, "auto") is get_impl(operator, "ascend-transformer-boost")
     kwargs = generate_data(
         q_heads, kv_heads, head_dim, context_lengths, query_lengths, mla_vheadsize
     )
