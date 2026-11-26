@@ -233,6 +233,7 @@ installation steps; see
 | [unidex_copy_inplace](operators/mem_cache/unidex_copy_inplace.md) | `ascendc` (ARCH22), `torch_native` (ARCH22) |
 | [split_qkv_rmsnorm_mrope](operators/norm/split_qkv_rmsnorm_mrope.md) | `triton`, `torch_native` |
 | [top_k_renorm_prob](operators/sample/top_k_renorm_prob.md) | `triton`, `torch_native` |
+| [top_k_top_p_renorm_prob](operators/sample/top_k_top_p_renorm_prob.md) | `triton`, `torch_native` |
 | [top_p_renorm_prob](operators/sample/top_p_renorm_prob.md) | `triton`, `torch_native` |
 | [zero_experts_compute_identity](operators/moe/zero_experts_compute_identity.md) | `triton`, `torch_native` |
 | [flash_prefill_bnsd_blockq_sparse_fia](operators/attention/flash_prefill_bnsd_blockq_sparse_fia.md) | `triton`, `torch_native` |
