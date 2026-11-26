@@ -4,7 +4,8 @@ import math
 
 import pytest
 import torch
-from test_copy_sfa_dynamic_tnd import _DynamicTndCase, _require_npu
+
+from tests.test_copy_sfa_dynamic_tnd import _DynamicTndCase, _require_npu
 
 
 @pytest.mark.parametrize("width", [1, 2, 3, 4, 5, 8, 14])

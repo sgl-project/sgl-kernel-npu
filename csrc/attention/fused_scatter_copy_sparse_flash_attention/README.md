@@ -29,10 +29,17 @@ For separate CKV and KPE tensors in HBM, use
 - The combined HBM entry can also consume separate registered host CKV/KPE
   addresses and token strides.
 
-The schema and native validation are defined in `csrc/pytorch_extensions.cpp`
-and `op_host/fused_copy_sfa.cpp`. SGLang selects the fused runtime with
-`SGLANG_NPU_ENABLE_SPARSE_KV_OFFLOAD=1` and
-`SGLANG_NPU_ENABLE_FUSED_LIM_COPYSFA=1`.
+The refactored wheel registers both Torch schemas in `torch_adapter.cpp`.
+Both use the checks in `op_host/fused_copy_sfa.cpp` and dispatch to
+`SglFusedCopySfa` through ACLNN. To build the two layouts and the registered
+host-memory allocator from the repository root:
+
+```bash
+python3 setup.py --arch-version 2201 --ops fused_scatter_copy_sparse_flash_attention_split,fused_shm_allocator --without-third-party
+```
+
+SGLang selects the fused runtime with `SGLANG_NPU_ENABLE_SPARSE_KV_OFFLOAD=1`
+and `SGLANG_NPU_ENABLE_FUSED_LIM_COPYSFA=1`.
 
 ## Tests
 
@@ -49,6 +56,6 @@ remain in `tests/test_sparsity_driven_kv_cache_planner.py`.
 ## Upstream provenance
 
 The inherited MLA implementation originates from `vllm-project/vllm-ascend`
-commit `85910cd528e2e260848e58e6337adf35cfd5d982`, under the CANN Open Software
-License Agreement 2.0. `UPSTREAM_PROVENANCE.json` records original source hashes
+commit `85910cd528e2e260848e58e6337adf35cfd5d982`, under the
+[CANN Open Software License Agreement 2.0](https://github.com/hicann/ops-transformer/blob/91de0d9959ab57be7fcbef8b0592d16c242c5955/LICENSE). `UPSTREAM_PROVENANCE.json` records original source hashes
 and retained paths. Source copyright and license notices remain with the files.

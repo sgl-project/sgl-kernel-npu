@@ -4,7 +4,8 @@ import math
 
 import pytest
 import torch
-from test_copy_sfa_dynamic_tnd import _DynamicTndCase, _require_npu
+
+from tests.test_copy_sfa_dynamic_tnd import _DynamicTndCase, _require_npu
 
 
 def _split_copy_sfa(*args, **kwargs):

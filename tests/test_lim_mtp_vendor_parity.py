@@ -9,7 +9,12 @@ import torch
 torch_npu = pytest.importorskip("torch_npu")
 pytest.importorskip("sgl_kernel_npu")
 
-from test_lim_mtp_full_visible import CAPACITY, ROUTES, TOPK, _lim_case  # noqa: E402
+from tests.test_lim_mtp_full_visible import (  # noqa: E402
+    CAPACITY,
+    ROUTES,
+    TOPK,
+    _lim_case,
+)
 
 
 @pytest.mark.parametrize("length", [16385, 64000])

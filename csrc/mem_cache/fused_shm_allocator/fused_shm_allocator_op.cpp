@@ -10,9 +10,9 @@
 
 #include "fused_shm_allocator.h"
 
-#include "torch_helper.h"
-
 #include <atomic>
+#include <c10/util/Exception.h>
+#include <c10/util/string_view.h>
 #include <cstdint>
 #include <string>
 #include <tuple>

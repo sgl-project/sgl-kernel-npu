@@ -33,3 +33,8 @@ jobs:
             tests/python/sgl_kernel_npu/test_build_targets.py \
             tests/python/sgl_kernel_npu/test_gemma_rmsnorm_provider.py \
             tests/python/sgl_kernel_npu/test_target_provider.py
+
+      - name: Copy SFA address math host test
+        run: |
+          c++ -std=c++17 -O2 -UNDEBUG tests/test_copy_sfa_address_math.cpp -o /tmp/test_copy_sfa_address_math
+          /tmp/test_copy_sfa_address_math

@@ -1,7 +1,17 @@
 default_stages: [pre-commit, pre-push, manual]
 
-# Preserve imported device snapshots; local adaptations are tracked in upstream.json.
-exclude: ^csrc/indexer/fused_lightning_indexer_manage/op_kernel/upstream/
+# Preserve only the device headers whose hashes are tracked in upstream.json.
+exclude: |
+  (?x)^csrc/indexer/fused_lightning_indexer_manage/op_kernel/upstream/(
+    fused_lightning_indexer_manage_constants |
+    fused_lightning_indexer_manage_union |
+    fused_lightning_indexer_manage_workspace |
+    lightning_indexer_common |
+    lightning_indexer_kernel |
+    lightning_indexer_service_cube |
+    lightning_indexer_service_vector |
+    lightning_indexer_vector
+  )\.h$
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks

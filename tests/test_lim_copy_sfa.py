@@ -2,7 +2,8 @@
 
 import pytest
 import torch
-from test_copy_sfa_combined import _CopySfaCase
+
+from tests.test_copy_sfa_combined import _CopySfaCase
 
 
 @pytest.mark.parametrize("graph_replay", [False, True])

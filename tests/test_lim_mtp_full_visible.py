@@ -13,7 +13,7 @@ import torch
 pytest.importorskip("torch_npu")
 pytest.importorskip("sgl_kernel_npu")
 
-from test_copy_sfa_dynamic_tnd import _DynamicTndCase
+from tests.test_copy_sfa_dynamic_tnd import _DynamicTndCase
 
 CAPACITY = 12288
 TOPK = 2048

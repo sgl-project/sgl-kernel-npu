@@ -15,7 +15,11 @@ _PAGE_SIZE = 128
 
 
 def validate_pd_split_copy_sfa_layout(ckv_dim, kpe_dim, page_size, dtype) -> None:
-    """Check the native geometry and the BF16 PD transfer layout."""
+    """Validate the BF16 KV pool allocated by SGLang disaggregated decode workers.
+
+    The standalone Copy-SFA operator also accepts FP16. It checks its tensor
+    layouts in the native binding at launch.
+    """
     if (ckv_dim, kpe_dim, page_size, dtype) != (
         _CKV_DIM,
         _KPE_DIM,

@@ -1,1 +1,8 @@
-op_kernel/upstream/** -text
+op_kernel/upstream/fused_lightning_indexer_manage_constants.h -text
+op_kernel/upstream/fused_lightning_indexer_manage_union.h -text
+op_kernel/upstream/fused_lightning_indexer_manage_workspace.h -text
+op_kernel/upstream/lightning_indexer_common.h -text
+op_kernel/upstream/lightning_indexer_kernel.h -text
+op_kernel/upstream/lightning_indexer_service_cube.h -text
+op_kernel/upstream/lightning_indexer_service_vector.h -text
+op_kernel/upstream/lightning_indexer_vector.h -text

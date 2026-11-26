@@ -1,7 +1,7 @@
 # Fused Lightning Indexer and cache management (LIM)
 
-LIM is compiled into the normal `libsgl_kernel_npu.so` and shipped by the
-`sgl_kernel_npu` wheel. Its Python entry is:
+The ARCH22 wheel exposes LIM through a Torch adapter and bundles its CANN
+operator package. Its Python entry is:
 
 ```python
 from sgl_kernel_npu.operators.indexer import fused_lightning_indexer_manage
@@ -14,19 +14,17 @@ copies and sparse attention remain separate operations.
 
 ## Build and install
 
-Use the repository's normal build in a Linux Ascend development environment:
-initialize the normal project submodules as described in the root README.
+Build from the repository root in an initialized Linux Ascend environment:
 
 ```bash
-source /usr/local/Ascend/ascend-toolkit/set_env.sh
-bash build.sh -a kernels Ascend910_9382
-pip install --no-deps --force-reinstall output/sgl_kernel_npu*.whl
+source /usr/local/Ascend/cann/set_env.sh
+python3 setup.py --arch-version 2201 --ops fused_lightning_indexer_manage --without-third-party
+python3 -m pip install --no-deps output/sgl_kernel_npu-*.whl
 ```
 
-No vLLM checkout, custom LIM vendor installation, `libcust_opapi.so`, external
-LIM library path or separate operator installer is needed. The normal project
-requirements (CANN, driver, torch_npu and its build tools) still apply. LIM is
-built with the other A2/A3-only operators and is absent from an A5 build.
+The native operator targets Ascend 910B and 910_93. The wheel includes its
+ACLNN API, tiling library and AI Core kernels. The adapter exposes
+`lim_full_visible_max_query_width` from the same compiled limits as the kernel.
 
 ## Contract
 
@@ -60,15 +58,11 @@ retaining the valid miss prefix in `[B,32768]` buffers. A cold fill may
 contain C misses, including residents outside the K selected tokens. No second
 residency planner may operate on the LIM slot map.
 
-The host performs shape/dtype checks without reading device scalar values.
-It chooses the same core schedule and workspace layout as the upstream MTP
-tiler, allocates workspace through torch_npu and directly launches Ascend C.
-The ten original uint32 tiling fields retain their layout; an appended dtype
-selects the two compiled implementations instead of aclnn template dispatch.
-Explicit zeroed reserved fields pad each serialized record to 64 bytes.
-Tiling storage uses the shared per-device `TilingTensorCache`; warm up each
-shape/dtype configuration eagerly before graph capture. Device metadata may
-change during replay without a host read or retiling.
+The Torch adapter checks tensor shapes and dtypes before calling ACLNN.
+CANN tiling selects the core schedule and reports the workspace size for
+that launch. The adapter keeps the tensors and their descriptors alive on
+the current stream. The legacy wheel uses the same device computation
+through its direct-launch entry.
 
 ## Tests
 
@@ -90,5 +84,7 @@ Git blob IDs and SHA256 hashes, and current LF-normalized hashes are recorded
 in `upstream.json`. The original entry hash is also verified against that
 fixed upstream commit; its launch adaptations are listed in the same file.
 The new host path replaces the aclnn adapter,
-generated operator package, and generated tiling registration. Upstream
-copyright notices are retained; Apache-2.0 and CANN-2.0 texts are in `licenses/`.
+generated operator package, and generated tiling registration. The imported files retain their copyright notices. See the
+[upstream Apache-2.0 license](https://github.com/vllm-project/vllm-ascend/blob/3326f350c0de30a5170b86ecfce851322e3216e6/LICENSE)
+and the [CANN Open Software License Agreement 2.0](https://github.com/hicann/ops-transformer/blob/91de0d9959ab57be7fcbef8b0592d16c242c5955/LICENSE)
+named in the Lightning Indexer headers.

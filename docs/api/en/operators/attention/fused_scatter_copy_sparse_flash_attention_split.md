@@ -59,6 +59,49 @@ Uses the wheel’s native split Copy-SFA binding. The correctness suite allocate
 
 ## Runnable example
 
-```bash
-python -m pytest tests/test_copy_sfa_split_hbm_resident.py -q
+```python
+import math
+import torch
+import torch_npu
+import sgl_kernel_npu
+from sgl_kernel_npu.operators.attention import fused_scatter_copy_sparse_flash_attention_split
+from sgl_kernel_npu.sparsity_driven_kv_offload.fused_shm import create_fused_shm_tensor, free_fused_shm
+
+torch.npu.set_device(0)
+device, dtype = "npu:0", torch.bfloat16
+npu = lambda value: value.to(device)
+try:
+    host_k, _, host_ptr = create_fused_shm_tensor((2048, 512), dtype, device_id=0)
+    host_rope, _, rope_ptr = create_fused_shm_tensor((2048, 64), dtype, device_id=0)
+    host_k.fill_(1)
+    host_rope.fill_(1)
+    hbm_k = torch.zeros((16, 128, 1, 512), dtype=dtype, device=device)
+    hbm_rope = torch.zeros((16, 128, 1, 64), dtype=dtype, device=device)
+    query = torch.zeros((1, 8, 512), dtype=dtype, device=device)
+    query_rope = torch.zeros((1, 8, 64), dtype=dtype, device=device)
+    output = torch.empty_like(query)
+    zero = npu(torch.zeros(1, dtype=torch.int32))
+    src = npu(torch.full((1, 2048), -1, dtype=torch.int32))
+    dst_cpu = torch.full((1, 2048), -1, dtype=torch.int32)
+    dst_cpu[0, :130] = torch.arange(130, dtype=torch.int32)
+    dst = npu(dst_cpu)
+    misses = npu(torch.full((1, 32768), -1, dtype=torch.int32))
+    req_to_token = npu(torch.arange(2048, dtype=torch.int32).repeat(2, 1))
+    resident_end = npu(torch.tensor([-1, -1], dtype=torch.int32))
+    fused_scatter_copy_sparse_flash_attention_split(
+        query, query_rope, hbm_k, hbm_rope, npu(torch.tensor([1], dtype=torch.int32)),
+        npu(torch.tensor([130], dtype=torch.int32)), zero, src, dst, zero,
+        misses, misses, zero, npu(torch.arange(16, dtype=torch.int32).view(1, -1)),
+        npu(torch.zeros((1, 16), dtype=torch.int32)), host_ptr, output, 1 / math.sqrt(576),
+        full_visible=True, current=torch.ones((1, 1, 576), dtype=dtype, device=device),
+        positions=npu(torch.tensor([129], dtype=torch.int64)), valid=npu(torch.tensor([True])),
+        request_slots=npu(torch.tensor([1], dtype=torch.int32)), req_to_token=req_to_token,
+        resident_end=resident_end, host_token_capacity=2048, dram_rope_dev_ptr=rope_ptr,
+    )
+    torch.npu.synchronize()
+    torch.testing.assert_close(output.cpu(), torch.ones_like(output.cpu()), atol=0.003, rtol=0.02)
+    assert resident_end.cpu().tolist() == [-1, 130]
+finally:
+    torch.npu.synchronize()
+    free_fused_shm(0)
 ```

@@ -52,6 +52,39 @@ Uses the wheel’s native LIM binding. The correctness suite compares the emitte
 
 ## Runnable example
 
-```bash
-python -m pytest tests/python/sgl_kernel_npu/test_fused_lightning_indexer_manage.py -q
+```python
+import torch
+import torch_npu
+import sgl_kernel_npu
+from sgl_kernel_npu.operators.indexer import fused_lightning_indexer_manage
+
+def main():
+    torch.npu.set_device(0)
+    device, dtype = "npu:0", torch.bfloat16
+    batch, heads, source_capacity = 1, 32, 8320
+    weights = torch.full((batch, heads), 1 / heads, dtype=dtype, device=device)
+    query = torch.zeros((batch, heads, 128), dtype=dtype, device=device)
+    query[..., 0] = 1
+    keys = torch.zeros((source_capacity // 128, 128, 1, 128), dtype=dtype, device=device)
+    keys.view(-1, 128)[:, 0] = -8
+    keys.view(-1, 128)[:2048, 0] = 8
+    table = torch.arange(source_capacity // 128, dtype=torch.int32, device=device).view(1, -1)
+    def vec(value):
+        return torch.tensor([value], dtype=torch.int32, device=device)
+    pool = torch.full((batch, source_capacity), -1, dtype=torch.int32, device=device)
+    ids = torch.empty((batch, 2048), dtype=torch.int32, device=device)
+    slots = torch.empty_like(ids)
+    miss_src = torch.empty((batch, 32768), dtype=torch.int32, device=device)
+    miss_dst = torch.empty_like(miss_src)
+    miss_counts = vec(0)
+    fused_lightning_indexer_manage(
+        weights, query, keys, table, vec(1), vec(8193), vec(8192), vec(4096),
+        vec(-2), vec(0), pool, ids, slots, vec(0), miss_src, miss_dst, miss_counts,
+    )
+    torch.npu.synchronize()
+    assert torch.equal(ids.cpu().sort().values[0], torch.arange(2048, dtype=torch.int32))
+    assert int(miss_counts.cpu()[0]) == 4096  # Cold fill populates the full resident capacity.
+
+if __name__ == "__main__":
+    main()
 ```

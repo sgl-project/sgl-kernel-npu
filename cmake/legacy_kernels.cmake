@@ -105,8 +105,9 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator_op.cpp
         ${PROJECT_OP_SRC_BASE}/mem_cache/cache_planner/op_host/cache_planner.cpp
         ${PROJECT_OP_SRC_BASE}/attention/fused_scatter_copy_sparse_flash_attention/op_host/fused_copy_sfa.cpp
-        ${PROJECT_OP_SRC_BASE}/attention/fused_scatter_copy_sparse_flash_attention/op_host/fused_shm_allocator.cpp
-        ${PROJECT_OP_SRC_BASE}/attention/fused_scatter_copy_sparse_flash_attention/op_host/fused_shm_allocator_op.cpp
+        ${PROJECT_OP_SRC_BASE}/attention/fused_scatter_copy_sparse_flash_attention/op_host/fused_copy_sfa_legacy.cpp
+        ${PROJECT_OP_SRC_BASE}/mem_cache/fused_shm_allocator/fused_shm_allocator.cpp
+        ${PROJECT_OP_SRC_BASE}/mem_cache/fused_shm_allocator/fused_shm_allocator_op.cpp
     )
 endif()
 # A5-only host sources

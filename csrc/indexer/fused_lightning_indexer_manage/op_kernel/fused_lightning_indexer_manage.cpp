@@ -6,14 +6,14 @@
 #include "kernel_operator.h"
 #include "lib/matmul_intf.h"
 #include "fused_lightning_indexer_manage_tiling_data.h"
-#include "fused_lightning_indexer_manage_constants.h"
+#include "upstream/fused_lightning_indexer_manage_constants.h"
 // CANN's host-only AscendC pass omits EVENT_ID5. The existing LI kernel
 // uses the same literal event ID; keep the pinned upstream headers intact.
 #define EVENT_ID5 5U
-#include "lightning_indexer_kernel.h"
+#include "upstream/lightning_indexer_kernel.h"
 #undef EVENT_ID5
-#include "fused_lightning_indexer_manage_union.h"
-#include "fused_lightning_indexer_manage_workspace.h"
+#include "upstream/fused_lightning_indexer_manage_union.h"
+#include "upstream/fused_lightning_indexer_manage_workspace.h"
 
 using namespace LIKernel;
 using namespace AscendC;
@@ -264,6 +264,9 @@ __aicore__ inline bool FinalizeStandardCounts(__gm__ uint8_t *requestStateAddr, 
         }                                                                                                              \
     } while (0)
 
+#ifdef ASCENDC_TPL_KERNEL
+#define fused_lightning_indexer_manage sgl_fused_lightning_indexer_manage
+#endif
 extern "C" __global__ __aicore__ void fused_lightning_indexer_manage(
     GM_ADDR weights, GM_ADDR query, GM_ADDR key, GM_ADDR blockTable, GM_ADDR actualSeqLengthsQuery,
     GM_ADDR actualSeqLengthsKey, GM_ADDR offloadSeqLengthsKey, GM_ADDR cacheTokens, GM_ADDR requestState,
@@ -271,6 +274,7 @@ extern "C" __global__ __aicore__ void fused_lightning_indexer_manage(
     GM_ADDR missSrcIds, GM_ADDR missDstSlots, GM_ADDR missCount, GM_ADDR cacheSlotsOut, GM_ADDR workspace,
     GM_ADDR tiling)
 {
+    REGISTER_TILING_DEFAULT(FusedLightningIndexerManageTilingData);
 #if (__CCE_AICORE__ == 310) || (defined __DAV_310R6__) || (__CCE_AICORE__ == 200)
 #else
     TPipe tPipe;

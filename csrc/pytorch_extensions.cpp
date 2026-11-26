@@ -12,6 +12,7 @@
 // limitations under the License.
 
 #include "version.h"
+#include "attention/fused_scatter_copy_sparse_flash_attention/op_host/fused_copy_sfa.h"
 #include "indexer/fused_lightning_indexer_manage/op_kernel/upstream/fused_lightning_indexer_manage_constants.h"
 
 #include "torch_helper.h"

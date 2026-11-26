@@ -6,7 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "sparse_flash_attention_tiling_data.h"
+#include "../../sparse_flash_attention/op_kernel/sparse_flash_attention_tiling_data.h"
 
 // Direct-launch ABI: the first 144 bytes are byte-for-byte the SGLang SFA
 // tiling POD; the suffix describes source-aware gather capacities and mode.
