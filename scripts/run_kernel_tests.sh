@@ -6,7 +6,6 @@ export ACL_OP_SELECT_IMPL_MODE=high_precision
 WORKSPACE="$(cd "${GITHUB_WORKSPACE:-$(dirname "${BASH_SOURCE[0]}")/..}" && pwd -P)"
 TEST_ROOT="$WORKSPACE/tests/python"
 TEST_GROUP="${1:-all}"
-MEMFABRIC_METADATA_TEST="tests/python/operators/mem_cache/test_build_kv_sparse_metadata.py"
 
 case "$TEST_GROUP" in
     speculative) TEST_DIRS=("$TEST_ROOT/operators/speculative") ;;
@@ -47,43 +46,14 @@ PASSED=()
 FAILED=()
 
 discover_tests() {
-    local discovered test_file relative_path memfabric_test=""
+    local discovered test_file relative_path
     discovered=$(find "$@" -type f -name 'test_*.py' | LC_ALL=C sort) || return 1
 
     while IFS= read -r test_file; do
         [[ -n "$test_file" ]] || continue
         relative_path="${test_file#"$WORKSPACE"/}"
-        if [[ "${GITHUB_EVENT_NAME:-}" == pull_request && "$relative_path" == "$MEMFABRIC_METADATA_TEST" ]]; then
-            memfabric_test="$relative_path"
-        else
-            TESTS+=("$relative_path")
-        fi
+        TESTS+=("$relative_path")
     done <<< "$discovered"
-
-    # Installation changes the test container, so run this file after its peers.
-    if [[ -n "$memfabric_test" ]]; then
-        TESTS+=("$memfabric_test")
-    fi
-}
-
-install_memfabric_kernels() {
-    local soc_version
-    if ! command -v mfcli >/dev/null; then
-        if python3 -c 'from importlib.util import find_spec; raise SystemExit(find_spec("memfabric_hybrid") is None)'; then
-            echo "MemFabric Hybrid is installed but mfcli is not on PATH" >&2
-            return 1
-        fi
-        echo "MemFabric Hybrid is not installed; leaving the dependency skip to pytest"
-        return 0
-    fi
-
-    case "${NPU_HARDWARE:-}" in
-        a3) soc_version=A3 ;;
-        950) soc_version=A5 ;;
-        *) echo "Unsupported NPU_HARDWARE for MemFabric: ${NPU_HARDWARE:-unset}" >&2; return 1 ;;
-    esac
-    echo "Installing MemFabric kernels: mfcli kernel install --soc-version $soc_version"
-    mfcli kernel install --soc-version "$soc_version"
 }
 
 run_test() {
@@ -94,15 +64,7 @@ run_test() {
     echo "Running: $test_file"
     echo "=========================================="
 
-    if [[ "${GITHUB_EVENT_NAME:-}" == pull_request && "$test_file" == "$MEMFABRIC_METADATA_TEST" ]]; then
-        install_memfabric_kernels || exit_code=$?
-        if [[ "$exit_code" -ne 0 ]]; then
-            echo "MemFabric kernel installation failed (exit code: $exit_code)" >&2
-        fi
-    fi
-    if [[ "$exit_code" -eq 0 ]]; then
-        python3 -m pytest "$test_file" -q -x --enable-perf=false || exit_code=$?
-    fi
+    python3 -m pytest "$test_file" -q -x --enable-perf=false || exit_code=$?
 
     if [[ "$exit_code" -eq 0 ]]; then
         PASSED+=("$test_file")
