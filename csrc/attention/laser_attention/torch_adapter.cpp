@@ -88,6 +88,13 @@ std::tuple<at::Tensor, at::Tensor> la(const at::Tensor &query, const at::Tensor 
     auto outDesc = sgl_cann::tensor_descriptor(attentionOut, ACL_FLOAT);
     uint64_t workspaceSize = 0;
     aclOpExecutor *executor = nullptr;
+    auto initMemFunc = reinterpret_cast<int (*)(void *, bool)>(sgl_cann::try_op_api_symbol("InitHugeMemThreadLocal"));
+    auto unInitMemFunc =
+        reinterpret_cast<void (*)(void *, bool)>(sgl_cann::try_op_api_symbol("UnInitHugeMemThreadLocal"));
+    auto releaseMemFunc = reinterpret_cast<void (*)(void *, bool)>(sgl_cann::try_op_api_symbol("ReleaseHugeMem"));
+    if (initMemFunc) {
+        initMemFunc(nullptr, false);
+    }
     const auto status =
         queryWorkspace(qDesc.get(), kDesc.get(), vDesc.get(), attenMaskDesc.get(), alibiMaskDesc.get(),
                        dropMaskDesc.get(), scale_value, head_num, input_layout.data(), keep_prob, pre_tokens,
@@ -95,24 +102,30 @@ std::tuple<at::Tensor, at::Tensor> la(const at::Tensor &query, const at::Tensor 
     TORCH_CHECK(status == ACL_SUCCESS, "laser attention workspace query failed: ", aclGetRecentErrMsg());
     TORCH_CHECK(workspaceSize <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max()),
                 "ACLNN workspace size exceeds the Tensor allocation limit");
-    auto workspace = at::empty({static_cast<int64_t>(workspaceSize)}, q.options().dtype(at::kByte));
 
-    std::vector<at::Tensor> tensors{q, k, v, softmaxLogMaxSum, attentionOut, workspace};
-    if (hasAttenMask) tensors.push_back(attenMask);
-    if (hasAlibiMask) tensors.push_back(alibiMask);
-    if (hasDropMask) tensors.push_back(dropMask);
+    auto stream = c10_npu::getCurrentNPUStream();
+    auto aclStream = stream.stream(false);
+    at::Tensor workspace = at::empty({static_cast<int64_t>(workspaceSize)}, q.options().dtype(at::kByte));
+    void *workspaceAddr = workspaceSize ? workspace.data_ptr() : nullptr;
+
     std::vector<std::shared_ptr<aclTensor>> descriptors{qDesc,         kDesc,        vDesc,       attenMaskDesc,
                                                         alibiMaskDesc, dropMaskDesc, softmaxDesc, outDesc};
-    auto stream = c10_npu::getCurrentNPUStream();
-    for (const auto &tensor : tensors)
-        tensor.record_stream(stream);
-    auto aclStream = stream.stream(false);
-    auto launch = [tensors, descriptors, input_layout, workspace, workspaceSize, executor, aclStream]() -> int {
-        const auto result = execute(workspaceSize ? workspace.data_ptr() : nullptr, workspaceSize, executor, aclStream);
+    auto launch = [descriptors, releaseMemFunc, workspaceAddr, workspaceSize, executor, aclStream]() mutable -> int {
+        const auto result = execute(workspaceAddr, workspaceSize, executor, aclStream);
         TORCH_CHECK(result == ACL_SUCCESS, "laser attention ACLNN execution failed: ", aclGetRecentErrMsg());
+        descriptors.clear();
+        if (releaseMemFunc) {
+            releaseMemFunc(nullptr, false);
+        }
         return result;
     };
-    at_npu::native::OpCommand::RunOpApi("aclnnSglLaserAttention", launch);
+    at_npu::native::OpCommand cmd;
+    cmd.Name("aclnnSglLaserAttention");
+    cmd.SetCustomHandler(launch);
+    cmd.Run();
+    if (unInitMemFunc) {
+        unInitMemFunc(nullptr, false);
+    }
     return std::make_tuple(softmaxLogMaxSum, attentionOut);
 }
 

@@ -4,13 +4,15 @@ set(SGL_OPERATOR_DOMAIN_ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
 # HOST declarations are discovered before the legacy CANN declarations so the
 # unified request can be partitioned without exposing HOST IDs to CANN helpers.
 function(sgl_add_host_operator_domains)
-    foreach(domain IN ITEMS data_move)
+    foreach(domain IN ITEMS data_move norm)
         add_subdirectory("${SGL_OPERATOR_DOMAIN_ROOT}/${domain}" "declarations/${domain}")
     endforeach()
+    # CCE declarations use the direct-launch HOST archive.
+    add_subdirectory("${SGL_OPERATOR_DOMAIN_ROOT}/cce" "declarations/cce")
 endfunction()
 
 function(sgl_add_cann_operator_domains)
-    foreach(domain IN ITEMS sampler attention mem_cache lora examples activation matmul)
+    foreach(domain IN ITEMS sampler attention mem_cache lora examples activation matmul embedding indexer speculative mamba)
         add_subdirectory("${SGL_OPERATOR_DOMAIN_ROOT}/${domain}" "declarations/${domain}")
     endforeach()
 endfunction()

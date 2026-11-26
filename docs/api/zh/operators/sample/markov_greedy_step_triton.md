@@ -16,9 +16,13 @@
 ```python
 from sgl_kernel_npu.operators.sample import markov_greedy_step_triton
 
-def markov_greedy_step_triton(*, base_logits, prev_embeds, w2_weight, impl="auto"):
+def markov_greedy_step_triton(
+    *, base_logits, prev_embeds, w2_weight, impl="auto", **kwargs
+):
     ...
 ```
+
+为兼容上游调用，接口接受额外关键字参数，无论取值都忽略，不传给后端。
 
 ## 功能说明
 

@@ -40,7 +40,7 @@ The facade forwards inputs without imposing additional dtype, stride, device, sh
 
 ## cann_ops_transformer
 
-Requires CANN 9.1's `cann_ops_transformer.ops.mhc_post` public API. Imported and cached on first execution. Missing dependency and execution errors propagate; legacy custom_ops is never used. No additional architecture whitelist is imposed.
+Uses `sgl_kernel_npu._third_party.sgl_ops_transformer.ops.mhc_post` bundled in a wheel built with the matching CANN 9.1 or 9.2 third-party profile. A separately installed `cann_ops_transformer` package is not required. Imported and cached on first execution. Missing dependency and execution errors propagate; legacy custom_ops is never used. No additional architecture whitelist is imposed.
 
 Argument order matches the vendor API: residual streams, residual matrix, layer output, post gates.
 

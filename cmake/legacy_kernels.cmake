@@ -361,7 +361,7 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/attention/fused_scatter_copy_sparse_flash_attention/op_kernel/fused_scatter_copy_sparse_flash_attention_combined.cpp
     )
     ascendc_include_directories(fused_scatter_copy_sparse_flash_attention_combined_kernel PRIVATE
-        ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention
+        ${PROJECT_OP_SRC_BASE}/attention/fused_scatter_copy_sparse_flash_attention
         ${PROJECT_OP_SRC_BASE}/attention/fused_scatter_copy_sparse_flash_attention/op_kernel
         ${PROJECT_OP_SRC_BASE}/attention/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl
         ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel
@@ -378,7 +378,7 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/attention/fused_scatter_copy_sparse_flash_attention/op_kernel/fused_scatter_copy_sparse_flash_attention_split.cpp
     )
     ascendc_include_directories(fused_scatter_copy_sparse_flash_attention_split_kernel PRIVATE
-        ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention
+        ${PROJECT_OP_SRC_BASE}/attention/fused_scatter_copy_sparse_flash_attention
         ${PROJECT_OP_SRC_BASE}/attention/fused_scatter_copy_sparse_flash_attention/op_kernel
         ${PROJECT_OP_SRC_BASE}/attention/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl
         ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel
@@ -486,7 +486,7 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_host/tiling
         ${PROJECT_OP_SRC_BASE}/attention/fused_scatter_copy_sparse_flash_attention/op_host
-        ${PROJECT_OP_SRC_BASE}/fused_scatter_copy_sparse_flash_attention
+        ${PROJECT_OP_SRC_BASE}/attention/fused_scatter_copy_sparse_flash_attention
         ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling

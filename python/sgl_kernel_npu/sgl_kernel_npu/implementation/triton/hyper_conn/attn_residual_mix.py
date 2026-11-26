@@ -56,6 +56,12 @@ def validate_mix_inputs(
     ), f"variance_epsilon must be finite and positive, got {variance_epsilon!r}"
 
 
+@triton.autotune(
+    configs=[
+        triton.Config({"multibuffer": multibuffer}) for multibuffer in (False, True)
+    ],
+    key=["H", "NB", "NUM_CORES"],
+)
 @triton.jit(do_not_specialize=["N", "B"])
 def _attn_res_mix_fused_kernel(
     prefix_ptr,
@@ -147,6 +153,8 @@ def attn_res_mix_fused(
     Keep scoring, softmax, and mixing in one persistent vector-core kernel to
     avoid materializing the score matrix and launching a second kernel.  N and
     B stay dynamic so prefill/decode shapes reuse the same compilation.
+
+    Warm up each input configuration before NPU graph capture to finish tuning.
     """
     validate_mix_inputs(
         prefix_sum, bank, num_valid_blocks, combined_weight, variance_epsilon
@@ -186,6 +194,5 @@ def attn_res_mix_fused(
         EPS=variance_epsilon,
         NUM_CORES=num_vector_cores,
         NB=triton.next_power_of_2(num_valid_blocks + 1),
-        multibuffer=True,
     )
     return output

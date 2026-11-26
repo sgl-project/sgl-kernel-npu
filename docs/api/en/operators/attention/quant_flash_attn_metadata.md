@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `cann_ops_transformer` (`auto`) | Not supported | Supported |
 
-Requires CANN 9.2.0, matching PyTorch/torch_npu, and the `cann_ops_transformer` Python extension exposing QFA and its metadata producer. These dependencies are separate from the `sgl_kernel_npu` wheel.
+Requires CANN 9.2.0 or later, matching PyTorch/torch_npu, and the `cann_ops_transformer` Python extension exposing QFA and its metadata producer. These dependencies are separate from the `sgl_kernel_npu` wheel. This operator has been tested with CANN 9.2.0.
 
 ## Signature
 
@@ -50,13 +50,13 @@ Generate the schedule before calling QFA and reuse it across layers with identic
 
 ## Parameters and return value
 
-`B` is request count. Tensor arguments are contiguous int32 NPU tensors on the consumer's device. TND Q uses cumulative Q boundaries; PA_BNBD KV uses valid KV lengths.
+`B` is request count. Tensor arguments are contiguous int32 NPU tensors on the consumer's device. TND Q uses cumulative Q boundaries; PA_BBND KV uses valid KV lengths.
 
 | Parameter | Type / default | Description and constraints |
 | --- | --- | --- |
 | `num_heads_q` | int; required | Local Q head count. |
 | `num_heads_kv` | int; required | Local KV head count; must divide the Q head count. |
-| `head_dim` | int; required | Q/K head dimension; this integration covers 64/128/256. |
+| `head_dim` | int; required | Q/K head dimension; the Qwen3.6-27B tests use 256. |
 | `quant_mode` | int; required | `1` for the covered MXFP8 inference path. Other values are forwarded unchanged. |
 | `cu_seqlens_q`, `cu_seqlens_kv` | Tensor or None; `None` | `[B+1]` cumulative lengths, beginning with zero. |
 | `seqused_q`, `seqused_kv` | Tensor or None; `None` | `[B]` effective lengths; paged KV uses `seqused_kv`. |
@@ -67,7 +67,7 @@ Generate the schedule before calling QFA and reuse it across layers with identic
 | `win_left`, `win_right` | int; `-1`, `-1` | Upstream window attributes; retain defaults for the covered path. |
 | `layout_q`, `layout_out` | str; `"BSND"` | Set both to `"TND"` for the covered MXFP8 path. |
 | `layout_q_descale` | str; `"BSND"` | `"TND"` or `"N2TGD"` for MXFP8; must match QFA's actual descale layout. |
-| `layout_kv` | str; `"BSND"` | Set to `"PA_BNBD"` for the covered paged path. |
+| `layout_kv` | str; `"BSND"` | Set to `"PA_BBND"` for the covered paged path. |
 | `is_grad_enabled` | bool; `False` | CANN backward-schedule option; inference uses False. |
 | `impl` | str; `"auto"` | Keyword-only `"auto"` or `"cann_ops_transformer"`. |
 
@@ -94,9 +94,9 @@ from sgl_kernel_npu.operators.attention import quant_flash_attn_metadata
 cu_q = torch.tensor([0, 1, 2], dtype=torch.int32, device="npu")
 used_kv = torch.tensor([128, 257], dtype=torch.int32, device="npu")
 metadata = quant_flash_attn_metadata(
-    num_heads_q=4,
+    num_heads_q=12,
     num_heads_kv=2,
-    head_dim=128,
+    head_dim=256,
     quant_mode=1,
     cu_seqlens_q=cu_q,
     seqused_kv=used_kv,
@@ -104,7 +104,7 @@ metadata = quant_flash_attn_metadata(
     mask_mode=0,
     layout_q="TND",
     layout_q_descale="N2TGD",
-    layout_kv="PA_BNBD",
+    layout_kv="PA_BBND",
     layout_out="TND",
     impl="cann_ops_transformer",
 )

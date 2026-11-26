@@ -19,10 +19,12 @@ from sgl_kernel_npu.operators.sample import markov_sample_step_triton
 def markov_sample_step_triton(
     *, base_logits, bias, temperatures, key, offset, step, step_dtype,
     vocab_start=0, gather=None, gather_logits=None, logits_out=None,
-    has_sampled_rows=None, exp_noise=None, impl="auto"
+    has_sampled_rows=None, exp_noise=None, impl="auto", **kwargs
 ):
     ...
 ```
+
+为兼容上游调用，接口接受额外关键字参数，无论取值都忽略，不传给后端。
 
 ## 功能说明
 

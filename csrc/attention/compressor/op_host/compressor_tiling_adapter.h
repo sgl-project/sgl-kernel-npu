@@ -14,6 +14,14 @@
 #include <cstring>
 
 namespace optiling {
+#ifndef SGL_COMPRESSOR_HAS_CANN_KEY
+// A3 keeps selecting the legacy device entry.
+static uint64_t GetCompressorCANNKey(uint64_t)
+{
+    return 0;
+}
+#endif
+
 static ge::graphStatus TilingCompressor(gert::TilingContext *context)
 {
     if (!context) return ge::GRAPH_FAILED;
@@ -34,8 +42,8 @@ static ge::graphStatus TilingCompressor(gert::TilingContext *context)
     std::memcpy(raw->GetData(), &data, sizeof(data));
     raw->SetDataSize(sizeof(data));
     context->SetBlockDim(compressorContext.blockDim);
-    // The unchanged legacy dispatch key is in the payload; CANN has one entry.
-    context->SetTilingKey(0);
+    // The CANN dispatch key is separate from the unchanged TilingData payload.
+    context->SetTilingKey(GetCompressorCANNKey(compressorContext.tilingKey));
     return ge::GRAPH_SUCCESS;
 }
 
