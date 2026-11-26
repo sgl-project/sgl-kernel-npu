@@ -140,7 +140,7 @@ def test_fia_mla_paged_decode_4q1kv(name):
     generator = torch.Generator(device="cpu").manual_seed(42)
     page_size, heads, latent_dim, rope_dim = 128, 4, 512, 64
     lengths = [255, 129]
-    # Match the packed paged_attention_mla case: page 0 is reserved.
+    # Reserve page 0 and visit each request's two pages in reverse order.
     table = torch.tensor([[2, 1], [4, 3]], dtype=torch.int32, device="cpu")
     query = torch.randn(
         (2, 1, heads, latent_dim + rope_dim), generator=generator, device="cpu"

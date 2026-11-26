@@ -2,9 +2,10 @@
 
 import torch_npu
 
-from ..utils.generation import Generation, get_hardware
+from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
+# The legacy ATB bindings here use the A2/A3 host-length interface.
 _ARCH22 = {Generation.ARCH22}
 _native_flash_attention_qlens = None
 _native_paged_attention = None
@@ -129,17 +130,13 @@ def paged_attention(
     )
 
 
-@register_impl("attention.paged_attention_mla", "auto")
-@register_impl("attention.paged_attention_mla", "ascend-transformer-boost")
+@register_impl("attention.paged_attention_mla", "auto", supported_generations=_ARCH22)
+@register_impl(
+    "attention.paged_attention_mla",
+    "ascend-transformer-boost",
+    supported_generations=_ARCH22,
+)
 def _paged_attention_mla_impl(**kwargs):
-    if (
-        get_hardware().generation is Generation.ARCH35
-        and kwargs["num_heads"] >= 8 * kwargs["num_kv_heads"]
-    ):
-        raise ValueError(
-            "Ascend 950 ATB MLA decode is enabled for fewer than 8 query heads per KV head; "
-            "use FIA for larger head ratios"
-        )
     return torch_npu._npu_paged_attention_mla(**kwargs)
 
 

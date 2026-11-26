@@ -106,16 +106,6 @@ def generate_data(
             512,
             id="deepseek-v2-tp8-paged-mla-decode",
         ),
-        pytest.param(
-            "paged_attention_mla",
-            4,
-            1,
-            576,
-            (255, 129),
-            None,
-            512,
-            id="deepseek-v2-tp32-4q1kv-paged-mla-decode",
-        ),
     ],
 )
 def test_legacy_atb_attention(
@@ -123,29 +113,14 @@ def test_legacy_atb_attention(
 ):
     import torch_npu
     from sgl_kernel_npu.operators import attention
-    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
-    from sgl_kernel_npu.operators.utils.registry import get_impl
 
     operator = getattr(attention, name)
-    if name == "paged_attention_mla":
-        assert get_impl(operator, "auto") is get_impl(
-            operator, "ascend-transformer-boost"
-        )
-    else:
-        require_test_impl(operator, get_test_impls()[0])
-        if not callable(getattr(torch_npu, f"_npu_{name}", None)):
-            pytest.skip(f"Installed TorchNPU lacks _npu_{name}")
+    require_test_impl(operator, get_test_impls()[0])
+    if not callable(getattr(torch_npu, f"_npu_{name}", None)):
+        pytest.skip(f"Installed TorchNPU lacks _npu_{name}")
     kwargs = generate_data(
         q_heads, kv_heads, head_dim, context_lengths, query_lengths, mla_vheadsize
     )
-    if (
-        name == "paged_attention_mla"
-        and get_hardware().generation is Generation.ARCH35
-        and q_heads >= 8 * kv_heads
-    ):
-        with pytest.raises(ValueError, match="use FIA"):
-            operator(**kwargs)
-        return
     executor = check_accuracy(
         operator,
         kwargs=kwargs,
