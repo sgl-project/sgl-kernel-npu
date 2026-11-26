@@ -20,21 +20,24 @@ def generate_data(mode, q, batch):
         loc[3] = 100
     ext = torch.tensor(lengths, dtype=torch.int32)
     prefix = torch.tensor([3, 4], dtype=torch.int32)
-    return dict(
-        tokens=tokens,
-        device=req.device,
-        request_ids=req,
-        seq_lens=seq,
-        positions=positions,
-        out_cache_loc=loc,
-        request_rows=20,
-        context_len=20,
-        host_capacity=50,
-        query_width=q,
-        extend_seq_lens=ext if prefill else None,
-        extend_prefix_lens=prefix if prefill else None,
-        compact_prefill=mode == "compact",
-    ), lengths
+    return (
+        dict(
+            tokens=tokens,
+            device=req.device,
+            request_ids=req,
+            seq_lens=seq,
+            positions=positions,
+            out_cache_loc=loc,
+            request_rows=20,
+            context_len=20,
+            host_capacity=50,
+            query_width=q,
+            extend_seq_lens=ext if prefill else None,
+            extend_prefix_lens=prefix if prefill else None,
+            compact_prefill=mode == "compact",
+        ),
+        lengths,
+    )
 
 
 def expected_rows(data, lengths, mode, q):
