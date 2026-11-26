@@ -111,10 +111,7 @@ length metadata, so rows with no visible key are masked back to -1 afterwards.
 Four-query batching engages when `group4=True`, `rows >= 1024`, and
 `keys >= 512`, reducing per-query page-table duplication and improving long
 prefill latency; below either threshold, `group4=True` and `group4=False`
-dispatch the same independent-query work. Benchmark details and reproduction
-instructions live in
-[`benchmark/indexer/README.md`](../../../../../benchmark/indexer/README.md) and
-[`benchmark/indexer/bench_lightning_indexer_prefill.py`](../../../../../benchmark/indexer/bench_lightning_indexer_prefill.py).
+dispatch the same independent-query work.
 
 ## torch_native backend
 

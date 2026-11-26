@@ -100,10 +100,7 @@ query 共享同一段可见 key 范围；首尾的哑 query 被丢弃。CANN 要
 
 当 `group4=True` 且 `rows >= 1024`、`keys >= 512` 时启用四 query 分组批处理，
 可减少逐 query 复制 page table 带来的开销并降低长序列 prefill 延迟；低于任一
-阈值时，`group4=True` 与 `group4=False` 下发相同的独立 query 计算。详细
-benchmark 数据与复现方式见
-[`benchmark/indexer/README.md`](../../../../../benchmark/indexer/README.md) 与
-[`benchmark/indexer/bench_lightning_indexer_prefill.py`](../../../../../benchmark/indexer/bench_lightning_indexer_prefill.py)。
+阈值时，`group4=True` 与 `group4=False` 下发相同的独立 query 计算。
 
 ## torch_native 后端
 
