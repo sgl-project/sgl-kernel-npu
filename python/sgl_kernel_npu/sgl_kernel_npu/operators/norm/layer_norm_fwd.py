@@ -2,23 +2,11 @@
 
 import torch
 
+from ...utils.norm_utils import SUPPORTED_GATE_ACTIVATIONS, validate_gate_activation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _triton_fn = None
 _torch_native_fn = None
-
-SUPPORTED_GATE_ACTIVATIONS = ("swish", "silu", "sigmoid")
-
-
-def _check_activation(activation):
-    if activation is None:
-        return "swish"
-    if activation not in SUPPORTED_GATE_ACTIVATIONS:
-        raise ValueError(
-            f"Unsupported gated RMSNorm activation on NPU: {activation!r}; "
-            f"expected one of {SUPPORTED_GATE_ACTIVATIONS}"
-        )
-    return activation
 
 
 @register_impl("norm.layer_norm_fwd", "auto")
@@ -126,7 +114,7 @@ def layer_norm_fwd(
     Return (out, mean, rstd), with FP32 statistics flattened in group-major
     order. mean is None for RMSNorm. A supplied out is written in place and
     returned by identity. impl selects auto (Triton), triton, or torch_native."""
-    activation = _check_activation(activation)
+    activation = validate_gate_activation(activation)
     rows, hidden = x.shape
     size = hidden if group_size is None else group_size
     assert hidden % size == 0

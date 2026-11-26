@@ -10,6 +10,8 @@ from sgl_kernel_npu.implementation.triton.utils.triton_utils import (
     get_device_properties,
 )
 
+from ....utils.norm_utils import validate_gate_activation
+
 
 @triton.heuristics({"HAS_BIAS": lambda args: args["B"] is not None})
 @triton.heuristics({"HAS_Z": lambda args: args["Z"] is not None})
@@ -121,8 +123,7 @@ def layer_norm_fwd(
     is_rms_norm=False,
     activation=None,
 ):
-    if activation is None:
-        activation = "swish"
+    activation = validate_gate_activation(activation)
     M, N = x.shape
     if group_size is None:
         group_size = N

@@ -162,8 +162,10 @@ def test_default_activation_is_swish(impl):
         is_rms_norm=True,
     )
     default = impl(**args)[0]
+    none_act = _run(impl, activation=None, **args)
     swish = _run(impl, activation="swish", **args)
     torch.testing.assert_close(default.float(), swish.float(), rtol=0, atol=0)
+    torch.testing.assert_close(none_act.float(), swish.float(), rtol=0, atol=0)
 
 
 @pytest.mark.parametrize("impl", _IMPLS, ids=lambda f: f.__name__)

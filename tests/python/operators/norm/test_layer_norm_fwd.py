@@ -197,12 +197,24 @@ def test_layer_norm_fwd_activations(dtype, before, rms, activation):
 
 
 def test_layer_norm_fwd_activation_aliases_and_validation():
+    from sgl_kernel_npu.fla import layernorm_gated as fla_layernorm_gated
+    from sgl_kernel_npu.implementation.triton.norm.layer_norm_fwd import (
+        layer_norm_fwd as triton_layer_norm_fwd,
+    )
     from sgl_kernel_npu.operators.norm import layer_norm_fwd
     from sgl_kernel_npu.operators.norm.layer_norm_fwd import SUPPORTED_GATE_ACTIVATIONS
+    from sgl_kernel_npu.utils.norm_utils import (
+        SUPPORTED_GATE_ACTIVATIONS as SHARED_GATE_ACTIVATIONS,
+    )
 
     assert SUPPORTED_GATE_ACTIVATIONS == ("swish", "silu", "sigmoid")
+    assert fla_layernorm_gated.SUPPORTED_GATE_ACTIVATIONS is SHARED_GATE_ACTIVATIONS
+    assert SUPPORTED_GATE_ACTIVATIONS is SHARED_GATE_ACTIVATIONS
     x, weight, _, z = generate_test_data(torch.bfloat16, 32, True, False, True)
     default_out, _, _ = layer_norm_fwd(x, weight, None, 1e-6, z=z, is_rms_norm=True)
+    none_out, _, _ = layer_norm_fwd(
+        x, weight, None, 1e-6, z=z, is_rms_norm=True, activation=None
+    )
     swish_out, _, _ = layer_norm_fwd(
         x, weight, None, 1e-6, z=z, is_rms_norm=True, activation="swish"
     )
@@ -210,7 +222,14 @@ def test_layer_norm_fwd_activation_aliases_and_validation():
         x, weight, None, 1e-6, z=z, is_rms_norm=True, activation="silu"
     )
     torch.testing.assert_close(default_out, swish_out, atol=0, rtol=0)
+    torch.testing.assert_close(none_out, swish_out, atol=0, rtol=0)
     torch.testing.assert_close(swish_out, silu_out, atol=0, rtol=0)
 
-    with pytest.raises(ValueError, match="Unsupported gated RMSNorm activation"):
-        layer_norm_fwd(x, weight, None, 1e-6, z=z, is_rms_norm=True, activation="gelu")
+    for fn in (
+        layer_norm_fwd,
+        triton_layer_norm_fwd,
+        fla_layernorm_gated.layer_norm_fwd_npu,
+        fla_layernorm_gated.layer_norm_fwd_npu_simd,
+    ):
+        with pytest.raises(ValueError, match="Unsupported gated RMSNorm activation"):
+            fn(x, weight, None, 1e-6, z=z, is_rms_norm=True, activation="gelu")

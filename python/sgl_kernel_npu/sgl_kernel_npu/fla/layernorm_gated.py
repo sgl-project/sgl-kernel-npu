@@ -7,22 +7,11 @@
 import torch
 import triton
 import triton.language as tl
+from sgl_kernel_npu.utils.norm_utils import (
+    SUPPORTED_GATE_ACTIVATIONS,
+    validate_gate_activation,
+)
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
-
-# Gate activations implemented by the kernels below. Keep in sync with the
-# reference implementation in sglang's layernorm_gated.py.
-SUPPORTED_GATE_ACTIVATIONS = ("swish", "silu", "sigmoid")
-
-
-def _check_activation(activation):
-    if activation is None:
-        return "swish"
-    if activation not in SUPPORTED_GATE_ACTIVATIONS:
-        raise ValueError(
-            f"Unsupported gated RMSNorm activation on NPU: {activation!r}; "
-            f"expected one of {SUPPORTED_GATE_ACTIVATIONS}"
-        )
-    return activation
 
 
 # TODO:
@@ -115,7 +104,7 @@ def layer_norm_fwd_npu_simd(
     is_rms_norm=False,
     activation=None,
 ):
-    activation = _check_activation(activation)
+    activation = validate_gate_activation(activation)
     M, N = x.shape
     if group_size is None:
         group_size = N
@@ -283,7 +272,7 @@ def layer_norm_fwd_npu(
     is_rms_norm=False,
     activation=None,
 ):
-    activation = _check_activation(activation)
+    activation = validate_gate_activation(activation)
     M, N = x.shape
     if group_size is None:
         group_size = N
