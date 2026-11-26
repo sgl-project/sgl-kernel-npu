@@ -22,6 +22,13 @@ SPLIT_HEAD_LAYOUTS = ((24, 2), (12, 1))
 SUPPORTED_HEAD_LAYOUTS = NATIVE_HEAD_LAYOUTS + SPLIT_HEAD_LAYOUTS
 SELECTED_BLOCKS = 512
 HEAD_DIM = 256
+_INT32_MIN = -(2**31)
+_INT32_MAX = 2**31 - 1
+_MAX_QUERY_ROWS = _INT32_MAX // 16
+
+
+def _is_host_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _check_inputs(q, k, v, blocks, request_table, request_row, length, base, scale):
@@ -59,12 +66,19 @@ def _check_inputs(q, k, v, blocks, request_table, request_row, length, base, sca
     if request_row.shape != (1,) or request_row.dtype != torch.int64:
         raise ValueError("request row must be int64 [1]")
     if (
-        not isinstance(length, int)
-        or not isinstance(base, int)
+        not _is_host_int(length)
+        or not _is_host_int(base)
         or not 0 <= length <= request_table.shape[1]
     ):
         raise ValueError("invalid CPU length/base metadata")
-    if not -(2**31) <= base or base + q.shape[0] >= 2**31 or k.shape[0] >= 2**31:
+    if (
+        q.shape[0] > _MAX_QUERY_ROWS
+        or request_table.stride(0) > _INT32_MAX
+        or length > _INT32_MAX
+        or base < _INT32_MIN
+        or base + q.shape[0] >= _INT32_MAX
+        or k.shape[0] > _INT32_MAX
+    ):
         raise ValueError("metadata exceeds int32 indexing")
     if not math.isfinite(scale) or scale <= 0:
         raise ValueError("scale must be positive and finite")
@@ -91,9 +105,8 @@ def _native_launch(q, k, v, blocks, request_table, request_row, length, base, sc
 
     Query packing, the selection equality check and the per-query causal tail
     merge are Triton kernels; the QK, online-softmax, PV and rescale pipeline
-    and the physical run preparation are Ascend C. Tiling is immutable and
-    cached natively by full shape, scale and device, including both local head
-    counts. No device-to-host metadata read happens here.
+    and the physical run preparation are CANN/ACLNN Ascend C operators. No
+    device-to-host metadata read happens here.
     """
     if length == 0 or q.shape[0] == 0:
         # Without visible tokens every row's output is zero, and no packed-Q
@@ -112,8 +125,8 @@ def _native_launch(q, k, v, blocks, request_table, request_row, length, base, sc
     )
 
 
-# Only arch22 builds with the A3-family target enabled register the native
-# helpers, so this implementation is not declared for arch35.
+# The native CANN operators declare SUPPORTED_ARCHS 2201, so this
+# implementation is registered for arch22 only.
 @register_impl(
     "attention.qsa_prefill", "auto", supported_generations={Generation.ARCH22}
 )

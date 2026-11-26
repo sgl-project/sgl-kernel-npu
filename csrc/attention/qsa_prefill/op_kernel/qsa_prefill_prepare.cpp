@@ -1,19 +1,22 @@
+// Copyright (c) 2026 Huawei Technologies Co., Ltd.
+// Licensed under the CANN Open Software License Agreement Version 2.0.
 #include "kernel_operator.h"
+#include "qsa_prefill_tiling.h"
+
 using namespace AscendC;
 
 class BlockRuns
 {
 public:
     __aicore__ inline void Init(GM_ADDR b, GM_ADDR t, GM_ADDR req, GM_ADDR flags, GM_ADDR s, GM_ADDR r, GM_ADDR c,
-                                uint32_t rows_, uint32_t blocks_, uint32_t tableStride, uint32_t length_, int32_t base_,
-                                uint32_t cap_, uint32_t outWidth_)
+                                const optiling::SglQsaPrefillPrepareTilingData &tiling)
     {
-        rows = rows_;
-        blocks = blocks_;
-        length = length_;
-        base = base_;
-        cap = cap_;
-        outWidth = outWidth_;
+        rows = tiling.rows;
+        blocks = tiling.blocks;
+        length = tiling.length;
+        base = tiling.base;
+        cap = tiling.cap;
+        outWidth = tiling.outWidth;
         pipe.InitBuffer(bb, 2048 * 4);
         pipe.InitBuffer(tb, 4096 * 4);
         pipe.InitBuffer(sb, 4096 * 4);
@@ -35,7 +38,7 @@ public:
         gc.SetGlobalBuffer((__gm__ int32_t *)c);
         GlobalTensor<int64_t> rq;
         rq.SetGlobalBuffer((__gm__ int64_t *)req);
-        tableOffset = static_cast<uint64_t>(rq.GetValue(0)) * tableStride;
+        tableOffset = static_cast<uint64_t>(rq.GetValue(0)) * tiling.tableStride;
     }
     __aicore__ inline bool IsLinear(LocalTensor<int32_t> data, int32_t first, uint32_t n)
     {
@@ -175,13 +178,16 @@ private:
     int32_t base, previous;
     uint64_t tableOffset;
 };
-extern "C" __global__ __aicore__ void qsa_prefill_prepare_kernel(GM_ADDR b, GM_ADDR t, GM_ADDR req, GM_ADDR flags,
-                                                                 GM_ADDR s, GM_ADDR r, GM_ADDR c, uint32_t rows,
-                                                                 uint32_t blocks, uint32_t tableStride, uint32_t length,
-                                                                 int32_t base, uint32_t cap, uint32_t outWidth)
+
+extern "C" __global__ __aicore__ void sgl_qsa_prefill_prepare(GM_ADDR blocks, GM_ADDR table, GM_ADDR requestRow,
+                                                              GM_ADDR flags, GM_ADDR slots, GM_ADDR runs,
+                                                              GM_ADDR counts, GM_ADDR workspace, GM_ADDR tiling)
 {
+    REGISTER_TILING_DEFAULT(optiling::SglQsaPrefillPrepareTilingData);
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
+    (void)workspace;
+    GET_TILING_DATA(tilingData, tiling);
     BlockRuns op;
-    op.Init(b, t, req, flags, s, r, c, rows, blocks, tableStride, length, base, cap, outWidth);
+    op.Init(blocks, table, requestRow, flags, slots, runs, counts, tilingData);
     op.Process();
 }

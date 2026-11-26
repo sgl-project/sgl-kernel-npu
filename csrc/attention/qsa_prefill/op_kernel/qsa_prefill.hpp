@@ -11,8 +11,8 @@
 #ifndef QSA_PREFILL_KERNEL_H
 #define QSA_PREFILL_KERNEL_H
 
-#include "../../sparse_attention_score/op_kernel/kernel_common.hpp"
-#include "../../sparse_attention_score/op_kernel/arch22/kernel_utils.hpp"
+#include "arch22/kernel_utils.hpp"
+#include "qsa_prefill_tiling.h"
 
 using namespace NpuArch;
 
@@ -53,8 +53,8 @@ public:
 
     __aicore__ inline void operator()(SasaKernelParamsArch22 const &params)
     {
-        __gm__ SparseAttn::SparseAttentionScoreTilingData *tilingData =
-            reinterpret_cast<__gm__ SparseAttn::SparseAttentionScoreTilingData *>(params.tiling);
+        __gm__ optiling::SglQsaPrefillRunsTilingData *tilingData =
+            reinterpret_cast<__gm__ optiling::SglQsaPrefillRunsTilingData *>(params.tiling);
         FetchTilingData(tilingData);
 
         AscendC::GlobalTensor<ElementQ> gQ;
@@ -184,13 +184,16 @@ public:
                 uint32_t kvSeqlen = maxBlocksPerBatch_;
                 int64_t gmOffsetQ = static_cast<int64_t>(qToken) * strideQO + static_cast<int64_t>(qHeadStart) * embed_;
                 int64_t gmOffsetO = gmOffsetQ;
-                uint32_t validCount = gSelectNumIdx.GetValue(descriptorRow * 16);
+                uint32_t validCount = static_cast<uint32_t>(gSelectNumIdx.GetValue(descriptorRow * 16));
                 if (validCount == 0) continue;
+                // validCount comes from global memory; clamp to topK_ so
+                // descriptor reads stay within [R, topK_] and stack arrays
+                // never overflow even on malformed metadata.
+                if (validCount > topK_) {
+                    validCount = topK_;
+                }
                 constexpr uint32_t MAX_KV_S_LOOP = 64;
                 uint32_t kvSLoopNum = (validCount + 255) / 256;
-                // validCount comes from global memory; a malformed descriptor
-                // must not index past these stack arrays. The contract bounds
-                // it at topK = 2064, i.e. 9 tiles.
                 if (kvSLoopNum > MAX_KV_S_LOOP) {
                     kvSLoopNum = MAX_KV_S_LOOP;
                 }
@@ -215,7 +218,6 @@ public:
                 LayoutO gmOLayout(qSeqlen, strideQO);
                 LayoutLse gmLseLayout(qSeqlen, qHeads_);
 #endif
-                // kvSLoopNum = (kvSLoopNum == 1) ? 2 : kvSLoopNum;
                 for (uint32_t kvBlockIdx = 0; kvBlockIdx < kvSLoopNum + PRE_LAUNCH; kvBlockIdx++) {
                     // === Stage 1+2: QK Matmul & Online Softmax ===
                     if (kvBlockIdx < kvSLoopNum) {
@@ -239,7 +241,7 @@ public:
                                     gBlockTable[static_cast<int64_t>(descriptorRow) * topK_ + kvBlockIdx * 256],
                                     gSelectIdx[static_cast<int64_t>(descriptorRow) * topK_ + kvBlockIdx * 256],
                                     gmQLayout, gmKLayout, ubSLayout, actualBlockShapeQK, 0, 0, blockSize_, strideKVRow,
-                                    blockSize_, 1, 1, kvSTileSizeAct, nullptr);
+                                    blockSize_, 1, 1, maxBlocksPerBatch_, nullptr);
 
                         NpuArch::Arch::CrossCoreSetFlag<0x2, PIPE_FIX>(qkReady_);
 #endif
@@ -285,7 +287,7 @@ public:
                                     gBlockTable[static_cast<int64_t>(descriptorRow) * topK_ + kvBlockIdxDe * 256],
                                     gSelectIdx[static_cast<int64_t>(descriptorRow) * topK_ + kvBlockIdxDe * 256],
                                     ubPLayout, gmVLayout, ubOTmpLayout, actualBlockShapePV, 0, 0, blockSize_,
-                                    kvSTileSizeAct, strideKVRow, 1, softmaxReady_, blockSize_, 1, 1, nullptr);
+                                    maxBlocksPerBatch_, strideKVRow, 1, softmaxReady_, blockSize_, 1, 1, nullptr);
                         NpuArch::Arch::CrossCoreSetFlag<0x2, PIPE_FIX>(pvReady_);
 #endif
 
@@ -351,7 +353,7 @@ public:
     }
 
 private:
-    __aicore__ inline void FetchTilingData(__gm__ SparseAttn::SparseAttentionScoreTilingData *tilingData)
+    __aicore__ inline void FetchTilingData(__gm__ optiling::SglQsaPrefillRunsTilingData *tilingData)
     {
         batch_ = tilingData->batch;
         qHeads_ = tilingData->numHeads;

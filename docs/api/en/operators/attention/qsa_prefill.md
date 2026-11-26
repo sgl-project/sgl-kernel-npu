@@ -7,23 +7,21 @@ differently. A3 means Ascend910_93 series, A2 means Ascend910B series.
 
 | Implementation | arch22 A3 | arch22 A2 | arch35 |
 | --- | --- | --- | --- |
-| `ascendc` | Supported | Unverified | Not implemented |
+| `ascendc` | Supported | Unverified | Unsupported |
 | `torch_native` | Supported | Unverified | Unverified |
-| `triton` | Not implemented | Not implemented | Not implemented |
-| `tilelang` | Not implemented | Not implemented | Not implemented |
 
-The `ascendc` implementation is registered for arch22, which covers both A2
-and A3, and `SGL_KERNEL_ENABLE_A3_ONLY_OPS` compiles its kernels for every
-SoC outside the Ascend950 series. Nothing excludes A2: the kernels use
-`__CCE_AICORE__ == 220`, which both families report, the host guard rejects
-only Ascend950, and the launch geometry follows `GetCoreNumAic()`. A2 is
-marked unverified rather than unsupported because no A2 measurement exists
-yet, not because a limit is known. Only an Ascend950 build lacks the native
-helpers, and calling the operator there raises `AttributeError` on
-`torch.ops.npu.qsa_prefill_prepare`.
+The `ascendc` implementation is registered for `Generation.ARCH22`, and its
+CANN operators declare `SUPPORTED_ARCHS 2201`, which compiles binaries for both
+`ascend910b` (A2) and `ascend910_93` (A3). Both families report
+`__CCE_AICORE__ == 220` and scale their launch geometry from `GetCoreNumAic()`.
+A2 is marked `Unverified` because hardware CI covers A3 only. On arch35
+(Ascend950), `auto` and `ascendc` are rejected by the operator registry with
+`UnsupportedGenerationError` before any native binding is accessed; native
+`qsa_prefill_prepare` and `qsa_prefill_runs` are also excluded from
+`--arch-version 3510` wheels.
 
 Hardware validation used Ascend910_9382 and Ascend910_9362 (910C) with
-CANN 9.0.0/9.1.0, torch 2.10 and torch_npu 2.10. arch35 is not implemented.
+CANN 9.1.0, torch 2.10 and torch_npu 2.10.
 
 ## Signature
 
@@ -87,14 +85,14 @@ selecting an implementation, so both backends reject the same inputs.
 
 | Parameter | Type | Shape | Dtype | Default | Description and constraints |
 | --- | --- | --- | --- | --- | --- |
-| `q` | `torch.Tensor` | `[R, H, 256]` | `torch.bfloat16` | Required | Queries; contiguous, on an NPU device. `R == 0` returns an empty result. `(H, KV)` must be `(16, 2)`, `(8, 1)`, `(6, 1)`, `(3, 1)`, `(2, 1)`, `(24, 2)` or `(12, 1)`. |
-| `k` | `torch.Tensor` | `[capacity, KV, 256]` | `torch.bfloat16` | Required | Key cache; contiguous, on q's device. `capacity < 2**31`, and must be nonempty when `length > 0`. |
+| `q` | `torch.Tensor` | `[R, H, 256]` | `torch.bfloat16` | Required | Queries; contiguous, on an NPU device. `0 <= R <= (2**31 - 1) // 16`; `R == 0` returns an empty result. `(H, KV)` must be `(16, 2)`, `(8, 1)`, `(6, 1)`, `(3, 1)`, `(2, 1)`, `(24, 2)` or `(12, 1)`. |
+| `k` | `torch.Tensor` | `[capacity, KV, 256]` | `torch.bfloat16` | Required | Key cache; contiguous, on q's device. `capacity <= 2**31 - 1`, and must be nonempty when `length > 0`. |
 | `v` | `torch.Tensor` | `[capacity, KV, 256]` | `torch.bfloat16` | Required | Value cache; same shape, dtype and device as `k`, contiguous. |
 | `blocks` | `torch.Tensor` | `[R, 512]` | `torch.int32` | Required | Selected logical blocks per query; contiguous, on q's device. Negative entries and blocks whose positions reach `length` are ignored. |
-| `request_table` | `torch.Tensor` | `[requests, max_length]` | `torch.int32` | Required | Logical-to-physical slot table on q's device; `requests > 0` and unit column stride. Row stride may include padding. |
+| `request_table` | `torch.Tensor` | `[requests, max_length]` | `torch.int32` | Required | Logical-to-physical slot table on q's device; `requests > 0`, unit column stride, and `stride(0) <= 2**31 - 1`. Row stride may include padding. |
 | `request_row` | `torch.Tensor` | `[1]` | `torch.int64` | Required | Contiguous NPU tensor holding the caller's valid row index into `request_table`. Read on the device only. |
-| `length` | `int` | — | — | Required | Sequence length in tokens; `0 <= length <= request_table.shape[1]`. CPU metadata; never read back from the device. |
-| `base` | `int` | — | — | Required | Logical position preceding q's first row, normally `length - R`. Requires `-2**31 <= base` and `base + R < 2**31`. |
+| `length` | `int` | — | — | Required | Sequence length in tokens; `0 <= length <= min(request_table.shape[1], 2**31 - 1)`. Host `int` (not `bool`); never read back from the device. |
+| `base` | `int` | — | — | Required | Logical position preceding q's first row, normally `length - R`. Host `int` (not `bool`); requires `-2**31 <= base` and `base + R < 2**31 - 1`. |
 | `scale` | `float` | — | — | `1 / 16` | Logit multiplier; must be finite and positive. |
 | `impl` | `str` | — | — | `"auto"` | Keyword-only; accepts `"auto"`, `"ascendc"` or `"torch_native"`. `auto` selects Ascend C. |
 
@@ -132,8 +130,9 @@ four are supported. For a 16 Q / 2 KV model such as Whittle-Next they are
   concatenated in head order. Those slices are copied, and `(24, 2)` also
   copies each KV head once, so these two layouts are slower than a layout the
   kernel takes directly.
-- Tiling is immutable and cached by full shape, scale, device and both local
-  head counts. Warm a shape before capturing it in an NPU graph.
+- Native tiling and execution run through CANN's generated ACLNN interfaces
+  (`SglQsaPrefillPrepare` and `SglQsaPrefillRuns`). Warm a shape before
+  capturing it in an NPU graph.
 - Long shared prefills are considerably faster than independent-query
   evaluation; short or fully unshared selections can be slower. This operator
   is an explicit API, not a default dispatch path.

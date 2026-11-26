@@ -1,13 +1,18 @@
+// Copyright (c) 2026 Huawei Technologies Co., Ltd.
+// Licensed under the CANN Open Software License Agreement Version 2.0.
 #include "kernel_operator.h"
 #include "kernel_operator_list_tensor_intf.h"
+#include "qsa_prefill_tiling.h"
 #if (__CCE_AICORE__ == 220)
 #include "policies.hpp"
 #include "block_qk.hpp"
 #include "block_pv.hpp"
 #include "rescale_o.hpp"
 #include "qsa_prefill.hpp"
+
 using namespace NpuArch;
 using namespace SasaKernelArch22;
+
 template <class InDtype, class SMDtype>
 __aicore__ inline void QsaPrefillInterface(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR selectIdx, GM_ADDR blockTable,
                                            GM_ADDR selectNumIdx, GM_ADDR actualQseqlen, GM_ADDR actualKvseqlen,
@@ -70,10 +75,12 @@ __aicore__ inline void QsaPrefillInterface(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_A
 }
 
 #endif
-extern "C" __global__ __aicore__ void qsa_prefill_runs_kernel(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR slots,
-                                                              GM_ADDR runs, GM_ADDR counts, GM_ADDR out, GM_ADDR lse,
-                                                              GM_ADDR workspace, GM_ADDR tiling)
+
+extern "C" __global__ __aicore__ void sgl_qsa_prefill_runs(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR slots, GM_ADDR runs,
+                                                           GM_ADDR counts, GM_ADDR out, GM_ADDR lse, GM_ADDR workspace,
+                                                           GM_ADDR tiling)
 {
+    REGISTER_TILING_DEFAULT(optiling::SglQsaPrefillRunsTilingData);
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
 #if (__CCE_AICORE__ == 220)
     QsaPrefillInterface<bfloat16_t, float>(q, k, v, slots, runs, counts, nullptr, nullptr, out, lse,

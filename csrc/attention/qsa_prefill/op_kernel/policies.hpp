@@ -1,5 +1,5 @@
 #pragma once
-#include "../../sparse_attention_score/op_kernel/arch22/kernel_utils.hpp"
+#include "arch22/kernel_utils.hpp"
 namespace NpuArch::Gemm {
 template <bool P = false, bool U = false>
 struct QsaQK : MmadAtlasA2SFAIQK<P, U> {};

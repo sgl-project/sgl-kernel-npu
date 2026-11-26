@@ -11,12 +11,12 @@
 #ifndef QSA_PREFILL_BLOCK_EPILOGUE_RESCALE_O_HPP
 #define QSA_PREFILL_BLOCK_EPILOGUE_RESCALE_O_HPP
 
-#include "../../sparse_attention_score/op_kernel/attn_infra/base_defs.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/arch/resource.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/epilogue/dispatch_policy.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/epilogue/tile_common/tile_copy.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/gemm_coord.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/matrix_coord.hpp"
+#include "attn_infra/base_defs.hpp"
+#include "attn_infra/arch/resource.hpp"
+#include "attn_infra/epilogue/dispatch_policy.hpp"
+#include "attn_infra/epilogue/tile_common/tile_copy.hpp"
+#include "attn_infra/gemm_coord.hpp"
+#include "attn_infra/matrix_coord.hpp"
 
 #include "policies.hpp"
 

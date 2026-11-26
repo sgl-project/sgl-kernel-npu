@@ -6,6 +6,7 @@ torch = pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
 from tests.python.utils.accuracy import assert_accuracy, check_accuracy
+from tests.python.utils.common import require_distinct_impls, require_test_impl
 from tests.python.utils.performance import check_performance
 
 # Production-like prefill chunks selected for performance collection. The
@@ -31,21 +32,71 @@ SELECTION_MODES = [
     "empty",  # No valid base selection; only the causal tails remain.
 ]
 
-
-def _native_available():
-    """Report whether this build registered the A3-family native helpers."""
-    try:
-        import sgl_kernel_npu  # noqa: F401
-
-        return hasattr(torch.ops.npu, "qsa_prefill_runs")
-    except Exception:
-        return False
-
-
-requires_native = pytest.mark.skipif(
-    not _native_available(),
-    reason="QSA prefill needs an arch22 A3-family build of the native operator",
+# Local head layouts of Whittle-Next and Qwen3.8-Flash-Next prefill plus edge shapes.
+_MAIN_SHAPES = (
+    ((4621, 16, 2), "whittle-tp1-4621x16x2"),
+    ((4621, 8, 1), "whittle-tp2-4621x8x1"),
+    # 24/2 and 12/1 exceed the kernel's queries per KV head and are evaluated as
+    # several native launches over query-head slices.
+    ((4621, 24, 2), "qwen3.8-flash-next-tp1-4621x24x2"),
+    ((4621, 12, 1), "qwen3.8-flash-next-tp2-4621x12x1"),
+    ((4621, 3, 1), "qwen3.8-flash-next-tp8-4621x3x1"),
+    ((1024, 2, 1), "whittle-tp8-1024x2x1"),
+    ((1024, 6, 1), "qwen3.8-flash-next-tp4-1024x6x1"),
+    ((1, 16, 2), "edge-single-row"),
+    ((17, 8, 1), "edge-partial-group-17"),
+    ((16, 6, 1), "edge-exact-group-16"),
+    ((0, 16, 2), "edge-zero-rows"),
+    ((0, 24, 2), "edge-zero-rows-24x2-composed"),
+    ((17, 12, 1), "edge-partial-group-17x12x1-composed"),
 )
+
+_ALL_LAYOUT_ROWS_17 = (
+    ((17, 16, 2), "16x2"),
+    ((17, 8, 1), "8x1"),
+    ((17, 6, 1), "6x1"),
+    ((17, 3, 1), "3x1"),
+    ((17, 24, 2), "24x2-composed"),
+    ((17, 12, 1), "12x1-composed"),
+    ((17, 2, 1), "2x1"),
+)
+
+_ALL_LAYOUT_ROWS_9 = (
+    ((9, 16, 2), "16x2"),
+    ((9, 8, 1), "8x1"),
+    ((9, 6, 1), "6x1"),
+    ((9, 3, 1), "3x1"),
+    ((9, 24, 2), "24x2-composed"),
+    ((9, 12, 1), "12x1-composed"),
+    ((9, 2, 1), "2x1"),
+)
+
+_DEFAULT_REGRESSION_HEADS = {(16, 2), (12, 1)}
+
+
+def _is_default_main_case(shape, mode):
+    """Keep all TP layouts, perf shapes, sharing modes and edge shapes in default."""
+    if shape[0] in (4621, 1024) and mode in ("shared", "different"):
+        return True
+    if shape == (17, 8, 1):
+        return True
+    if shape in ((4621, 16, 2), (4621, 12, 1), (17, 12, 1)) and mode == "fragmented":
+        return True
+    if shape[0] in (0, 1, 16, 17) and mode == "shared":
+        return True
+    return False
+
+
+_MAIN_CASES = [
+    pytest.param(
+        shape,
+        mode,
+        id=f"{shape_id}-{mode}",
+        marks=() if _is_default_main_case(shape, mode) else pytest.mark.extra_checks,
+    )
+    for shape, shape_id in _MAIN_SHAPES
+    for mode in SELECTION_MODES
+]
 
 
 def generate_data(shape, mode, length, seed=9302026):
@@ -89,29 +140,7 @@ def generate_data(shape, mode, length, seed=9302026):
     return q, k, v, blocks, table, request_row
 
 
-@requires_native
-@pytest.mark.parametrize("mode", SELECTION_MODES)
-@pytest.mark.parametrize(
-    "shape",
-    [
-        # Local head layouts of Whittle-Next and Qwen3.8-Flash-Next prefill.
-        pytest.param((4621, 16, 2), id="whittle-tp1-4621x16x2"),
-        pytest.param((4621, 8, 1), id="whittle-tp2-4621x8x1"),
-        # 24/2 and 12/1 exceed the kernel's queries per KV head and are
-        # evaluated as several native launches over query-head slices.
-        pytest.param((4621, 24, 2), id="qwen3.8-flash-next-tp1-4621x24x2"),
-        pytest.param((4621, 12, 1), id="qwen3.8-flash-next-tp2-4621x12x1"),
-        pytest.param((4621, 3, 1), id="qwen3.8-flash-next-tp8-4621x3x1"),
-        pytest.param((1024, 2, 1), id="whittle-tp8-1024x2x1"),
-        pytest.param((1024, 6, 1), id="qwen3.8-flash-next-tp4-1024x6x1"),
-        pytest.param((1, 16, 2), id="edge-single-row"),
-        pytest.param((17, 8, 1), id="edge-partial-group-17"),
-        pytest.param((16, 6, 1), id="edge-exact-group-16"),
-        pytest.param((0, 16, 2), id="edge-zero-rows"),
-        pytest.param((0, 24, 2), id="edge-zero-rows-24x2-composed"),
-        pytest.param((17, 12, 1), id="edge-partial-group-17x12x1-composed"),
-    ],
-)
+@pytest.mark.parametrize("shape, mode", _MAIN_CASES)
 def test_qsa_prefill(shape, mode):
     from sgl_kernel_npu.operators.attention import qsa_prefill
 
@@ -123,15 +152,25 @@ def test_qsa_prefill(shape, mode):
     check_performance(executor, enable_perf=shape in perf_shape and mode in perf_mode)
 
 
-@requires_native
-@pytest.mark.parametrize("mode", ["shared", "fragmented", "empty"])
 @pytest.mark.parametrize(
-    "length",
+    "length, mode",
     [
-        pytest.param(0, id="length-0"),  # No visible token at all.
-        pytest.param(1, id="length-1"),  # Single token, empty causal tails.
-        pytest.param(3, id="length-3"),  # Shorter than one ratio-4 block.
-        pytest.param(67, id="length-67"),  # Unaligned tail inside one block.
+        pytest.param(
+            length,
+            mode,
+            id=f"length-{length}-{mode}",
+            marks=(
+                ()
+                if (
+                    mode == "fragmented"
+                    or (length == 0 and mode == "empty")
+                    or (length == 67 and mode == "shared")
+                )
+                else pytest.mark.extra_checks
+            ),
+        )
+        for length in (0, 1, 3, 67)
+        for mode in ("shared", "fragmented", "empty")
     ],
 )
 def test_qsa_prefill_short_sequences(length, mode):
@@ -144,26 +183,28 @@ def test_qsa_prefill_short_sequences(length, mode):
     check_performance(executor, enable_perf=False)
 
 
-@requires_native
-@pytest.mark.parametrize("scale", [1 / 19, 1 / 21, 1 / 23])
 @pytest.mark.parametrize(
-    "shape",
+    "shape, scale",
     [
-        pytest.param((9, 16, 2), id="16x2"),
-        pytest.param((9, 8, 1), id="8x1"),
-        pytest.param((9, 6, 1), id="6x1"),
-        pytest.param((9, 3, 1), id="3x1"),
-        pytest.param((9, 24, 2), id="24x2-composed"),
-        pytest.param((9, 12, 1), id="12x1-composed"),
-        pytest.param((9, 2, 1), id="2x1"),
+        pytest.param(
+            shape,
+            scale,
+            id=f"{shape_id}-scale-1/{denom}",
+            marks=(
+                ()
+                if (shape[1:] in _DEFAULT_REGRESSION_HEADS and denom in (19, 23))
+                else pytest.mark.extra_checks
+            ),
+        )
+        for shape, shape_id in _ALL_LAYOUT_ROWS_9
+        for denom, scale in ((19, 1 / 19), (21, 1 / 21), (23, 1 / 23))
     ],
 )
 def test_qsa_prefill_tiling_after_allocator_reuse(shape, scale):
-    """A newly cached native tiling must survive queued allocator reuse.
+    """Native tiling must survive queued allocator reuse across scales and layouts.
 
-    Each (head layout, scale) combination allocates a tiling entry on first
-    use. Churning small temporaries first leaves pending writes on storage the
-    caching allocator hands back, which previously corrupted that entry.
+    Churning small temporaries leaves pending writes on storage the caching
+    allocator hands back, which previously corrupted first-use tiling metadata.
     """
     from sgl_kernel_npu.operators.attention import qsa_prefill
 
@@ -178,18 +219,21 @@ def test_qsa_prefill_tiling_after_allocator_reuse(shape, scale):
     check_performance(executor, enable_perf=False)
 
 
-@requires_native
-@pytest.mark.parametrize("mode", ["shared", "fragmented"])
 @pytest.mark.parametrize(
-    "shape",
+    "shape, mode",
     [
-        pytest.param((17, 16, 2), id="16x2"),
-        pytest.param((17, 8, 1), id="8x1"),
-        pytest.param((17, 6, 1), id="6x1"),
-        pytest.param((17, 3, 1), id="3x1"),
-        pytest.param((17, 24, 2), id="24x2-composed"),
-        pytest.param((17, 12, 1), id="12x1-composed"),
-        pytest.param((17, 2, 1), id="2x1"),
+        pytest.param(
+            shape,
+            mode,
+            id=f"{shape_id}-{mode}",
+            marks=(
+                ()
+                if (shape[1:] in _DEFAULT_REGRESSION_HEADS and mode == "fragmented")
+                else pytest.mark.extra_checks
+            ),
+        )
+        for shape, shape_id in _ALL_LAYOUT_ROWS_17
+        for mode in ("shared", "fragmented")
     ],
 )
 def test_qsa_prefill_padded_request_table(shape, mode):
@@ -208,17 +252,19 @@ def test_qsa_prefill_padded_request_table(shape, mode):
     check_performance(executor, enable_perf=False)
 
 
-@requires_native
 @pytest.mark.parametrize(
     "shape",
     [
-        pytest.param((17, 16, 2), id="16x2"),
-        pytest.param((17, 8, 1), id="8x1"),
-        pytest.param((17, 6, 1), id="6x1"),
-        pytest.param((17, 3, 1), id="3x1"),
-        pytest.param((17, 24, 2), id="24x2-composed"),
-        pytest.param((17, 12, 1), id="12x1-composed"),
-        pytest.param((17, 2, 1), id="2x1"),
+        pytest.param(
+            shape,
+            id=shape_id,
+            marks=(
+                ()
+                if shape[1:] in _DEFAULT_REGRESSION_HEADS
+                else pytest.mark.extra_checks
+            ),
+        )
+        for shape, shape_id in _ALL_LAYOUT_ROWS_17
     ],
 )
 def test_qsa_prefill_queued_launches(shape, impl_pair):
@@ -232,6 +278,7 @@ def test_qsa_prefill_queued_launches(shape, impl_pair):
     from sgl_kernel_npu.operators.attention import qsa_prefill
 
     impl = impl_pair[0]
+    require_test_impl(qsa_prefill, impl)
     length = 257
     base = length - shape[0]
     q, k, v, blocks, table, request_row = generate_data(shape, "fragmented", length)
@@ -258,7 +305,6 @@ def test_qsa_prefill_queued_launches(shape, impl_pair):
         assert torch.equal(out, reference)
 
 
-@requires_native
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -279,6 +325,7 @@ def test_qsa_prefill_queued_multi_launch(shapes, impl_pair):
     from sgl_kernel_npu.operators.attention import qsa_prefill
 
     impl, impl_ref = impl_pair
+    require_distinct_impls(qsa_prefill, impl, impl_ref)
     calls = []
     for shape in shapes:
         rows = shape[0]
@@ -293,25 +340,25 @@ def test_qsa_prefill_queued_multi_launch(shapes, impl_pair):
         assert torch.equal(result, first)
 
 
-@requires_native
 @pytest.mark.parametrize(
-    "replay_mode",
+    "shape, replay_mode",
     [
-        pytest.param("fragmented", id="replay-fragmented"),
-        pytest.param("shared", id="replay-shared-after-capture"),
-        pytest.param("empty", id="replay-empty-base"),
-    ],
-)
-@pytest.mark.parametrize(
-    "shape",
-    [
-        pytest.param((17, 16, 2), id="16x2"),
-        pytest.param((17, 8, 1), id="8x1"),
-        pytest.param((17, 6, 1), id="6x1"),
-        pytest.param((17, 3, 1), id="3x1"),
-        pytest.param((17, 24, 2), id="24x2-composed"),
-        pytest.param((17, 12, 1), id="12x1-composed"),
-        pytest.param((17, 2, 1), id="2x1"),
+        pytest.param(
+            shape,
+            replay_mode,
+            id=f"{shape_id}-{replay_id}",
+            marks=(
+                ()
+                if shape[1:] in _DEFAULT_REGRESSION_HEADS
+                else pytest.mark.extra_checks
+            ),
+        )
+        for shape, shape_id in _ALL_LAYOUT_ROWS_17
+        for replay_mode, replay_id in (
+            ("fragmented", "replay-fragmented"),
+            ("shared", "replay-shared-after-capture"),
+            ("empty", "replay-empty-base"),
+        )
     ],
 )
 def test_qsa_prefill_graph_replay(shape, replay_mode, impl_pair):
@@ -326,6 +373,7 @@ def test_qsa_prefill_graph_replay(shape, replay_mode, impl_pair):
     from sgl_kernel_npu.operators.attention import qsa_prefill
 
     impl, impl_ref = impl_pair
+    require_distinct_impls(qsa_prefill, impl, impl_ref)
     length = 257
     base = length - shape[0]
     q, k, v, blocks, table, request_row = generate_data(shape, "fragmented", length)
@@ -354,7 +402,6 @@ def test_qsa_prefill_graph_replay(shape, replay_mode, impl_pair):
     assert torch.equal(out, qsa_prefill(*args, impl=impl))
 
 
-@requires_native
 @pytest.mark.parametrize(
     "global_heads, tp",
     [
@@ -376,12 +423,13 @@ def test_qsa_prefill_shards_reconstruct_global_attention(global_heads, tp, impl_
     """
     from sgl_kernel_npu.operators.attention import qsa_prefill
 
+    impl, impl_ref = impl_pair
+    require_distinct_impls(qsa_prefill, impl, impl_ref)
     rows, length = 17, 257
     base = length - rows
     q, k, v, blocks, table, request_row = generate_data(
         (rows, global_heads, 2), "fragmented", length
     )
-    impl, impl_ref = impl_pair
     local_heads = global_heads // tp
     # Rank r owns query heads [r * local, (r + 1) * local) and the KV head
     # those belong to, replicated when tp exceeds the global KV head count.
@@ -407,7 +455,6 @@ def test_qsa_prefill_shards_reconstruct_global_attention(global_heads, tp, impl_
     assert_accuracy(torch.cat(shards, 1), reference)
 
 
-@requires_native
 @pytest.mark.parametrize(
     "shape",
     [
@@ -427,7 +474,6 @@ def test_qsa_prefill_rejects_head_layouts(shape):
         qsa_prefill(*inputs, length, length - shape[0])
 
 
-@requires_native
 @pytest.mark.parametrize(
     "invalid, message",
     [
@@ -438,6 +484,11 @@ def test_qsa_prefill_rejects_head_layouts(shape):
         pytest.param("blocks-511", "blocks must be int32", id="blocks-511-columns"),
         pytest.param(
             "length-past-table", "length/base metadata", id="length-past-table"
+        ),
+        pytest.param("length-bool", "length/base metadata", id="length-bool"),
+        pytest.param("base-at-int32-max", "int32 indexing", id="base-at-int32-max"),
+        pytest.param(
+            "table-stride-overflow", "int32 indexing", id="table-stride-overflow"
         ),
         pytest.param(
             "request-row-int32", "request row must be int64", id="request-row-int32"
@@ -472,6 +523,13 @@ def test_qsa_prefill_rejects_invalid_arguments(invalid, message):
         blocks = blocks[:, :511].contiguous()
     elif invalid == "length-past-table":
         length = table.shape[1] + 1
+    elif invalid == "length-bool":
+        length = True
+    elif invalid == "base-at-int32-max":
+        base = (2**31 - 1) - shape[0]
+    elif invalid == "table-stride-overflow":
+        table = torch.empty((1,), dtype=torch.int32).as_strided((1, 1), (2**31, 1))
+        length = 1
     elif invalid == "request-row-int32":
         request_row = request_row.int()
     elif invalid == "q-noncontiguous":

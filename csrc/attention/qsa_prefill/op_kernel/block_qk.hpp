@@ -11,14 +11,14 @@
 #ifndef QSA_PREFILL_BLOCK_MMAD_QK_HPP
 #define QSA_PREFILL_BLOCK_MMAD_QK_HPP
 
-#include "../../sparse_attention_score/op_kernel/attn_infra/base_defs.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/arch/resource.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/coord.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/gemm/dispatch_policy.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/gemm/helper.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/gemm_coord.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/gemm/tile_common/tile_copy.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/gemm/tile_common/tile_mmad.hpp"
+#include "attn_infra/base_defs.hpp"
+#include "attn_infra/arch/resource.hpp"
+#include "attn_infra/coord.hpp"
+#include "attn_infra/gemm/dispatch_policy.hpp"
+#include "attn_infra/gemm/helper.hpp"
+#include "attn_infra/gemm_coord.hpp"
+#include "attn_infra/gemm/tile_common/tile_copy.hpp"
+#include "attn_infra/gemm/tile_common/tile_mmad.hpp"
 
 ////////////////////////////////////////////////////////////////////
 
@@ -129,7 +129,7 @@ public:
                                       AscendC::GlobalTensor<int32_t> gSelectIdx, LayoutA layoutA, LayoutB layoutB,
                                       LayoutC layoutC, GemmCoord actualOriShape, uint32_t nIdx, uint32_t nLoop,
                                       uint32_t &blockSize, uint32_t strideKV, uint32_t &y, uint32_t selectNum,
-                                      uint32_t kvYBlockNum, uint32_t &kvSeqlen, const int32_t *selectedSlots)
+                                      uint32_t kvYBlockNum, uint32_t kvCapacity, const int32_t *selectedSlots)
     {
         uint32_t rowNum = actualOriShape[0];
         uint32_t stackSeqTile = actualOriShape[1];
@@ -159,15 +159,23 @@ public:
             LayoutBInL1 layoutBInL1 = LayoutBInL1::template MakeLayout<ElementB>(kActual, nActual);
 
             AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(l1KvPingPongFlag);
+            bool malformed = false;
             for (uint32_t token = 0; token < nActual;) {
-                uint32_t slot = gSelectIdx.GetValue(nL1Idx * L1TileShape::N + token);
-                uint32_t run = gBlockTable.GetValue(nL1Idx * L1TileShape::N + token);
-                // Defensive: prepare never emits 0 or a run crossing the tile,
-                // but a malformed descriptor would otherwise spin this loop
-                // forever (reported as an AI core timeout) or copy out of
-                // bounds through nValue.
-                if (run == 0 || run > nActual - token) {
-                    break;
+                uint32_t slot = 0;
+                uint32_t run = 1;
+                if (!malformed) {
+                    slot = static_cast<uint32_t>(gSelectIdx.GetValue(nL1Idx * L1TileShape::N + token));
+                    run = static_cast<uint32_t>(gBlockTable.GetValue(nL1Idx * L1TileShape::N + token));
+                    // Defensive: prepare never emits 0, a run crossing the
+                    // tile, or an out-of-range slot, but a malformed descriptor
+                    // would otherwise spin forever or copy out of bounds. Fill
+                    // any remaining tile entries from in-bounds slot 0 so MMAD
+                    // never reads uninitialized L1 memory.
+                    if (run == 0 || run > nActual - token || slot >= kvCapacity || run > kvCapacity - slot) {
+                        malformed = true;
+                        slot = 0;
+                        run = 1;
+                    }
                 }
                 uint32_t dstOffset = layoutBInL1.GetOffset(MakeCoord(0u, token));
                 AscendC::Nd2NzParams cp;
@@ -271,4 +279,4 @@ protected:
 
 }  // namespace NpuArch::Gemm::Block
 
-#endif  // GEMM_BLOCK_MMAD_SFAI_QK_HPP
+#endif  // QSA_PREFILL_BLOCK_MMAD_QK_HPP

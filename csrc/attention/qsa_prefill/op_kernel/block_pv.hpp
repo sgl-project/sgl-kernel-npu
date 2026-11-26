@@ -11,15 +11,15 @@
 #ifndef QSA_PREFILL_BLOCK_MMAD_PV_HPP
 #define QSA_PREFILL_BLOCK_MMAD_PV_HPP
 
-#include "../../sparse_attention_score/op_kernel/attn_infra/base_defs.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/arch/resource.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/coord.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/arch/cross_core_sync.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/gemm/dispatch_policy.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/gemm/helper.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/gemm_coord.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/gemm/tile_common/tile_copy.hpp"
-#include "../../sparse_attention_score/op_kernel/attn_infra/gemm/tile_common/tile_mmad.hpp"
+#include "attn_infra/base_defs.hpp"
+#include "attn_infra/arch/resource.hpp"
+#include "attn_infra/coord.hpp"
+#include "attn_infra/arch/cross_core_sync.hpp"
+#include "attn_infra/gemm/dispatch_policy.hpp"
+#include "attn_infra/gemm/helper.hpp"
+#include "attn_infra/gemm_coord.hpp"
+#include "attn_infra/gemm/tile_common/tile_copy.hpp"
+#include "attn_infra/gemm/tile_common/tile_mmad.hpp"
 
 ////////////////////////////////////////////////////////////////////
 
@@ -104,9 +104,9 @@ public:
                                       AscendC::GlobalTensor<ElementC> gC, AscendC::GlobalTensor<int32_t> gBlockTable,
                                       AscendC::GlobalTensor<int32_t> gSelectIdx, LayoutA layoutA, LayoutB layoutB,
                                       LayoutC layoutC, GemmCoord actualOriShape, uint32_t nIdx, uint32_t nLoop,
-                                      uint32_t &blockSize, uint32_t kvSeqlen, uint32_t strideKV, uint32_t blockStackNum,
-                                      Arch::CrossCoreFlag softmaxFlag, uint32_t &y, uint32_t selectNum,
-                                      uint32_t kvYBlockNum, const int32_t *selectedSlots)
+                                      uint32_t &blockSize, uint32_t kvCapacity, uint32_t strideKV,
+                                      uint32_t blockStackNum, Arch::CrossCoreFlag softmaxFlag, uint32_t &y,
+                                      uint32_t selectNum, uint32_t kvYBlockNum, const int32_t *selectedSlots)
     {
         uint32_t rowNum = actualOriShape[0];
         uint32_t embed = actualOriShape[1];
@@ -114,11 +114,36 @@ public:
         GemmCoord actualShape{rowNum, embed, 0};
 
         // load V
+        uint32_t paddedSeqTile = RoundUp(stackSeqTile, static_cast<uint32_t>(16));
         LayoutBInL1 layoutBInL1 = LayoutBInL1::template MakeLayout<ElementB>(stackSeqTile, embed);
         AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(EVENT_ID4);
-        for (uint32_t token = 0; token < RoundUp(stackSeqTile, static_cast<uint32_t>(16));) {
-            uint32_t slot = gSelectIdx.GetValue(token < stackSeqTile ? token : 0);
-            uint32_t run = token < stackSeqTile ? gBlockTable.GetValue(token) : 1;
+        uint32_t padSlot = static_cast<uint32_t>(gSelectIdx.GetValue(0));
+        if (padSlot >= kvCapacity) {
+            padSlot = 0;
+        }
+        bool malformed = false;
+        for (uint32_t token = 0; token < paddedSeqTile;) {
+            uint32_t slot = padSlot;
+            uint32_t run = 1;
+            if (token < stackSeqTile) {
+                if (malformed) {
+                    slot = 0;
+                    run = 1;
+                } else {
+                    slot = static_cast<uint32_t>(gSelectIdx.GetValue(token));
+                    run = static_cast<uint32_t>(gBlockTable.GetValue(token));
+                    // Defensive: mirror the QK descriptor guard on the real
+                    // descriptor range (token < stackSeqTile), keeping run = 1
+                    // for the NZ padding region. On malformed metadata, fill
+                    // remaining rows from in-bounds slot 0 so PV MMAD never
+                    // reads uninitialized L1 memory.
+                    if (run == 0 || run > stackSeqTile - token || slot >= kvCapacity || run > kvCapacity - slot) {
+                        malformed = true;
+                        slot = 0;
+                        run = 1;
+                    }
+                }
+            }
             // RowMajor dispatch selects zN, including the row within its fractal.
             uint32_t dstOffset = layoutBInL1.GetOffset(MakeCoord(token, 0u));
             AscendC::Nd2NzParams cp;
@@ -127,7 +152,7 @@ public:
             cp.dValue = embed;
             cp.srcNdMatrixStride = 0;
             cp.srcDValue = strideKV;
-            cp.dstNzC0Stride = RoundUp(stackSeqTile, 16u);
+            cp.dstNzC0Stride = paddedSeqTile;
             cp.dstNzNStride = 1;
             cp.dstNzMatrixStride = 0;
             AscendC::DataCopy(l1BTensor[dstOffset], gB[static_cast<uint64_t>(slot) * strideKV], cp);
@@ -229,4 +254,4 @@ protected:
 
 }  // namespace NpuArch::Gemm::Block
 
-#endif  // GEMM_BLOCK_MMAD_SFAI_PV_HPP
+#endif  // QSA_PREFILL_BLOCK_MMAD_PV_HPP

@@ -7,20 +7,20 @@ A2 指 Ascend910B 系列。
 
 | 实现 | arch22 A3 | arch22 A2 | arch35 |
 | --- | --- | --- | --- |
-| `ascendc` | 支持 | 待验证 | 未实现 |
-| `torch_native` | 支持 | 待验证 | 待验证 |
-| `triton` | 未实现 | 未实现 | 未实现 |
-| `tilelang` | 未实现 | 未实现 | 未实现 |
+| `ascendc` | 支持 | 未验证 | 不支持 |
+| `torch_native` | 支持 | 未验证 | 未验证 |
 
-`ascendc` 实现注册到 arch22，该代际同时包含 A2 与 A3；`SGL_KERNEL_ENABLE_A3_ONLY_OPS`
-会为 Ascend950 系列之外的所有 SoC 编译其 kernel。没有任何机制排除 A2：kernel 使用
-`__CCE_AICORE__ == 220`（两个家族都是该值），host 守卫只拒绝 Ascend950，下发规模按
-`GetCoreNumAic()` 自适应。A2 标为"待验证"而非"不支持"，是因为尚无 A2 实测数据，而
-不是已知存在限制。只有 Ascend950 构建不包含原生入口，在其上调用会在
-`torch.ops.npu.qsa_prefill_prepare` 抛出 `AttributeError`。
+`ascendc` 实现注册在 `Generation.ARCH22` 上，对应的 CANN 算子声明为
+`SUPPORTED_ARCHS 2201`，会同时编译 `ascend910b`（A2）与 `ascend910_93`（A3）
+二进制；两类芯片均为 `__CCE_AICORE__ == 220`，下发规模按 `GetCoreNumAic()`
+自适应。由于硬件 CI 仅覆盖 A3，A2 标记为“未验证”。在 arch35（Ascend950）上，
+调用 `auto` 或 `ascendc` 会先在 operator 注册表阶段抛出
+`UnsupportedGenerationError`，不会访问底层 `torch.ops.npu` 入口；同时
+`--arch-version 3510` 构建的 wheel 也不包含 `qsa_prefill_prepare` 与
+`qsa_prefill_runs`。
 
-硬件验证使用 Ascend910_9382 与 Ascend910_9362（910C），CANN 9.0.0/9.1.0，
-torch 2.10 与 torch_npu 2.10。arch35 未实现。
+硬件验证使用 Ascend910_9382 与 Ascend910_9362（910C），CANN 9.1.0，
+torch 2.10 与 torch_npu 2.10。
 
 ## 函数原型
 
@@ -80,14 +80,14 @@ softmax 与 value 累加使用 float32，最终一次性舍入为 BF16。
 
 | 参数 | 类型 | Shape | Dtype | 默认值 | 描述与约束 |
 | --- | --- | --- | --- | --- | --- |
-| `q` | `torch.Tensor` | `[R, H, 256]` | `torch.bfloat16` | 必填 | query；连续，位于 NPU 设备。`R == 0` 返回空结果。`(H, KV)` 必须为 `(16, 2)`、`(8, 1)`、`(6, 1)`、`(3, 1)`、`(2, 1)`、`(24, 2)` 或 `(12, 1)`。 |
-| `k` | `torch.Tensor` | `[capacity, KV, 256]` | `torch.bfloat16` | 必填 | key cache；连续，与 q 同设备。要求 `capacity < 2**31`，且 `length > 0` 时不可为空。 |
+| `q` | `torch.Tensor` | `[R, H, 256]` | `torch.bfloat16` | 必填 | query；连续，位于 NPU 设备。要求 `0 <= R <= (2**31 - 1) // 16`，`R == 0` 返回空结果。`(H, KV)` 必须为 `(16, 2)`、`(8, 1)`、`(6, 1)`、`(3, 1)`、`(2, 1)`、`(24, 2)` 或 `(12, 1)`。 |
+| `k` | `torch.Tensor` | `[capacity, KV, 256]` | `torch.bfloat16` | 必填 | key cache；连续，与 q 同设备。要求 `capacity <= 2**31 - 1`，且 `length > 0` 时不可为空。 |
 | `v` | `torch.Tensor` | `[capacity, KV, 256]` | `torch.bfloat16` | 必填 | value cache；shape、dtype、设备与 `k` 相同且连续。 |
 | `blocks` | `torch.Tensor` | `[R, 512]` | `torch.int32` | 必填 | 每个 query 选中的逻辑 block；连续，与 q 同设备。负值以及位置达到 `length` 的 block 被忽略。 |
-| `request_table` | `torch.Tensor` | `[requests, max_length]` | `torch.int32` | 必填 | 逻辑到物理槽位映射表，与 q 同设备；要求 `requests > 0` 且列 stride 为 1。行 stride 可包含 padding。 |
+| `request_table` | `torch.Tensor` | `[requests, max_length]` | `torch.int32` | 必填 | 逻辑到物理槽位映射表，与 q 同设备；要求 `requests > 0`、列 stride 为 1 且 `stride(0) <= 2**31 - 1`。行 stride 可包含 padding。 |
 | `request_row` | `torch.Tensor` | `[1]` | `torch.int64` | 必填 | 连续 NPU tensor，保存调用方有效的 `request_table` 行号，仅在设备侧读取。 |
-| `length` | `int` | — | — | 必填 | 序列 token 长度；要求 `0 <= length <= request_table.shape[1]`。CPU 元数据，不回读设备。 |
-| `base` | `int` | — | — | 必填 | q 第一行之前的逻辑位置，通常为 `length - R`。要求 `-2**31 <= base` 且 `base + R < 2**31`。 |
+| `length` | `int` | — | — | 必填 | 序列 token 长度；宿主 `int`（非 `bool`），要求 `0 <= length <= min(request_table.shape[1], 2**31 - 1)`，不回读设备。 |
+| `base` | `int` | — | — | 必填 | q 第一行之前的逻辑位置，通常为 `length - R`；宿主 `int`（非 `bool`），要求 `-2**31 <= base` 且 `base + R < 2**31 - 1`。 |
 | `scale` | `float` | — | — | `1 / 16` | logits 乘数；必须为有限正数。 |
 | `impl` | `str` | — | — | `"auto"` | 仅限关键字参数；可选 `"auto"`、`"ascendc"`、`"torch_native"`。`auto` 选择 Ascend C。 |
 
@@ -118,8 +118,8 @@ TP2 `(12, 1)`、TP4 `(6, 1)`、TP8 `(3, 1)`，四者均支持。对 16 Q / 2 KV 
   （每次 6 个 head 的连续切片），
   再按 head 顺序拼接。这些切片需要拷贝，`(24, 2)` 还会为每个 KV head 各拷贝一次，
   因此这两种布局比内核直接支持的布局慢。
-- tiling 不可变，按完整 shape、scale、设备以及两个本地 head 数缓存。图捕获之前需
-  先预热对应 shape。
+- 原生 tiling 与下发通过 CANN 自动生成的 ACLNN 接口（`SglQsaPrefillPrepare`
+  与 `SglQsaPrefillRuns`）完成。图捕获之前需先预热对应 shape。
 - 长序列、共享选择的 prefill 明显快于独立 query 计算；较短或完全不共享的选择可能
   更慢。本算子是显式 API，不是默认分发路径。
 
