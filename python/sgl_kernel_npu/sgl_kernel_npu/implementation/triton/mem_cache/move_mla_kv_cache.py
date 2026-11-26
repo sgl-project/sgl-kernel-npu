@@ -4,7 +4,7 @@ import torch
 import triton
 import triton.language as tl
 
-from .kv_cache_move import _move_cache_rows, _page_rows
+from .move_kv_cache_rows import _move_cache_rows, _page_rows
 
 
 @triton.jit

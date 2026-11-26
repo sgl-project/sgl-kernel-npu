@@ -4,6 +4,7 @@ from .ada_block_sparse_attention import ada_block_sparse_attention
 from .attention_sinks import attention_sinks
 from .attention_sinks_prefill import attention_sinks_prefill
 from .attention_update import attention_update
+from .build_ngram_attention_mask import build_ngram_attention_mask
 from .compressor import compressor
 from .compressor_v2 import compressor_v2
 from .fia_prep import fia_prep
@@ -63,6 +64,7 @@ __all__ = [
     "attention_sinks",
     "attention_sinks_prefill",
     "attention_update",
+    "build_ngram_attention_mask",
     "chunk_kda_fwd",
     "compressor",
     "compressor_v2",
