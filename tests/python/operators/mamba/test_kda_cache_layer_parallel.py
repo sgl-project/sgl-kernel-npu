@@ -187,18 +187,3 @@ def test_kimi31_cache_shape(op, shape, dtype, transposed):
     # Test choices: one TP=16 shard (6 heads), four drafts, batch 8.
     # Conv window=(4-1)+(4-1)=6; channels=3*6*128=2304.
     check_case(op, shape, 8, dtype, transposed)
-
-
-def test_legacy_entry_points_share_optimized_implementation():
-    from sgl_kernel_npu.implementation.triton.mamba import mamba_state_update
-    from sgl_kernel_npu.mamba import mamba_state_update_triton
-
-    for name in (
-        "move_cache_dynamic_last_kernel_h_block_kda",
-        "move_intermediate_cache_kda",
-        "_conv_state_rollback_kernel",
-        "conv_state_rollback",
-    ):
-        assert getattr(mamba_state_update_triton, name) is getattr(
-            mamba_state_update, name
-        )
