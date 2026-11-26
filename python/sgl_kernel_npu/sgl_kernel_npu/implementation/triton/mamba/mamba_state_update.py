@@ -164,7 +164,6 @@ def move_cache_dynamic_last_kernel_h_block_kda(
     h_dim,
     dim_v,
     dim_k,
-    num_layers,
     H_BLOCK_SIZE: tl.constexpr,
     BLOCK_V: tl.constexpr,
     BLOCK_K: tl.constexpr,
@@ -177,6 +176,7 @@ def move_cache_dynamic_last_kernel_h_block_kda(
     into BLOCK_V-sized chunks to keep the on-chip tile within budget.
     """
     valid_id = tl.program_id(0)
+    pid_layer = tl.program_id(1)
 
     dst_idx_val = tl.load(dst_indices_ptr + valid_id)
     src_idx_val = tl.load(src_indices_ptr + valid_id)
@@ -186,49 +186,44 @@ def move_cache_dynamic_last_kernel_h_block_kda(
     h_offsets = tl.arange(0, H_BLOCK_SIZE)
     k_offsets = tl.arange(0, BLOCK_K)
 
-    for l in range(num_layers):
-        src_base_addr = (
-            src_cache_ptr
-            + tl.cast(l, tl.int64) * layer_stride
-            + tl.cast(src_idx_val, tl.int64) * size_stride
-        )
-        dst_base_addr = (
-            dst_cache_ptr
-            + tl.cast(l, tl.int64) * dst_layer_stride
-            + tl.cast(dst_idx_val, tl.int64) * dst_size_stride
-        )
-        src_addr = src_base_addr + tl.cast(last_step_val, tl.int64) * draft_stride
+    src_base_addr = (
+        src_cache_ptr
+        + tl.cast(pid_layer, tl.int64) * layer_stride
+        + tl.cast(src_idx_val, tl.int64) * size_stride
+    )
+    dst_base_addr = (
+        dst_cache_ptr
+        + tl.cast(pid_layer, tl.int64) * dst_layer_stride
+        + tl.cast(dst_idx_val, tl.int64) * dst_size_stride
+    )
+    src_addr = src_base_addr + tl.cast(last_step_val, tl.int64) * draft_stride
 
-        for h_start in range(0, h_dim, H_BLOCK_SIZE):
-            h_real = h_start + h_offsets
-            h_mask = h_real < h_dim
-            k_mask = k_offsets < dim_k
+    for h_start in range(0, h_dim, H_BLOCK_SIZE):
+        h_real = h_start + h_offsets
+        h_mask = h_real < h_dim
+        k_mask = k_offsets < dim_k
 
-            for v_start in range(0, dim_v, BLOCK_V):
-                v_offsets = v_start + tl.arange(0, BLOCK_V)
-                v_mask = v_offsets < dim_v
+        for v_start in range(0, dim_v, BLOCK_V):
+            v_offsets = v_start + tl.arange(0, BLOCK_V)
+            v_mask = v_offsets < dim_v
 
-                mask = (
-                    h_mask[:, None, None]
-                    & v_mask[None, :, None]
-                    & k_mask[None, None, :]
-                )
+            mask = h_mask[:, None, None] & v_mask[None, :, None] & k_mask[None, None, :]
 
-                # src is contiguous in (H, V, K) -> flat offset.
-                src_linear_offset = (
-                    h_real[:, None, None] * dim_v * dim_k
-                    + v_offsets[None, :, None] * dim_k
-                    + k_offsets[None, None, :]
-                )
-                # dst uses its real per-element strides.
-                dst_linear_offset = (
-                    h_real[:, None, None] * dst_h_stride
-                    + v_offsets[None, :, None] * dst_v_stride
-                    + k_offsets[None, None, :] * dst_k_stride
-                )
+            # src is contiguous in (H, V, K) -> flat offset.
+            src_linear_offset = (
+                h_real[:, None, None] * dim_v * dim_k
+                + v_offsets[None, :, None] * dim_k
+                + k_offsets[None, None, :]
+            )
+            # dst uses its real per-element strides.
+            dst_linear_offset = (
+                h_real[:, None, None] * dst_h_stride
+                + v_offsets[None, :, None] * dst_v_stride
+                + k_offsets[None, None, :] * dst_k_stride
+            )
 
-                src_block = tl.load(src_addr + src_linear_offset, mask=mask, other=0)
-                tl.store(dst_base_addr + dst_linear_offset, src_block, mask=mask)
+            src_block = tl.load(src_addr + src_linear_offset, mask=mask, other=0)
+            tl.store(dst_base_addr + dst_linear_offset, src_block, mask=mask)
 
 
 def move_intermediate_cache_kda(
@@ -262,17 +257,18 @@ def move_intermediate_cache_kda(
         int(dst_strides[3]),
         int(dst_strides[4]),
     )
-    assert len(dst_indices_tensor) == len(
-        last_steps_tensor
-    ), "Destination indices lengths must match"
-    assert len(src_indices_tensor) == len(
-        last_steps_tensor
-    ), "Source indices lengths must match"
+    assert len(dst_indices_tensor) == len(last_steps_tensor), (
+        "Destination indices lengths must match"
+    )
+    assert len(src_indices_tensor) == len(last_steps_tensor), (
+        "Source indices lengths must match"
+    )
 
     if len(dst_indices_tensor) == 0:
         return ssm_states
 
-    grid = (len(dst_indices_tensor),)
+    # Each program copies one request's state for one layer.
+    grid = (len(dst_indices_tensor), L)
 
     move_cache_dynamic_last_kernel_h_block_kda[grid](
         dst_cache_ptr=ssm_states,
@@ -291,7 +287,6 @@ def move_intermediate_cache_kda(
         h_dim=H,
         dim_v=V,
         dim_k=K,
-        num_layers=L,
         H_BLOCK_SIZE=h_block_size,
         BLOCK_V=64,
         BLOCK_K=triton.next_power_of_2(K),
@@ -306,7 +301,6 @@ def _conv_state_rollback_kernel(
     state_indices_ptr,
     step_indices_ptr,
     draft_token_num,
-    num_layers,
     num_dims: tl.constexpr,
     conv_window_size: tl.constexpr,
     layer_stride: tl.constexpr,
@@ -322,7 +316,6 @@ def _conv_state_rollback_kernel(
         state_indices_ptr: Pointer to state indices [num_requests]
         step_indices_ptr: Pointer to step indices (accepted steps) [num_requests]
         draft_token_num: Number of draft tokens
-        num_layers: Number of layers
         num_dims: Number of dimensions
         conv_window_size: Convolution window size
         layer_stride: Stride for layer dimension
@@ -331,6 +324,7 @@ def _conv_state_rollback_kernel(
         dim_stride: Stride for dimension dimension
     """
     pid_req = tl.program_id(0)
+    pid_layer = tl.program_id(1)
 
     # Load state and step indices
     state_idx = tl.load(state_indices_ptr + pid_req).to(tl.int64)
@@ -349,32 +343,28 @@ def _conv_state_rollback_kernel(
     # Generate dimension offsets once
     dim_offsets = tl.arange(0, num_dims)
 
-    # Process each layer
-    for layer in range(num_layers):
-        # Calculate base offset for this request and layer
-        base_offset = state_idx * req_stride + layer * layer_stride
+    # Calculate base offset for this request and layer
+    base_offset = state_idx * req_stride + pid_layer * layer_stride
 
-        # Process each window position that needs to be moved
-        # Move data from [0, conv_window_size-shift) to [shift, conv_window_size)
-        for window_idx1 in range(0, conv_window_size - shift):
-            window_idx = conv_window_size - shift - 1 - window_idx1
+    # Process each window position that needs to be moved
+    # Move data from [0, conv_window_size-shift) to [shift, conv_window_size)
+    for window_idx1 in range(0, conv_window_size - shift):
+        window_idx = conv_window_size - shift - 1 - window_idx1
 
-            # Calculate source and destination pointers
-            src_offset = (
-                base_offset + window_idx * window_stride + dim_offsets * dim_stride
-            )
-            src_ptr = conv_states_ptr + src_offset
+        # Calculate source and destination pointers
+        src_offset = base_offset + window_idx * window_stride + dim_offsets * dim_stride
+        src_ptr = conv_states_ptr + src_offset
 
-            dst_offset = (
-                base_offset
-                + (window_idx + shift) * window_stride
-                + dim_offsets * dim_stride
-            )
-            dst_ptr = conv_states_ptr + dst_offset
+        dst_offset = (
+            base_offset
+            + (window_idx + shift) * window_stride
+            + dim_offsets * dim_stride
+        )
+        dst_ptr = conv_states_ptr + dst_offset
 
-            # Load and store all dimensions at once
-            data = tl.load(src_ptr)
-            tl.store(dst_ptr, data)
+        # Load and store all dimensions at once
+        data = tl.load(src_ptr)
+        tl.store(dst_ptr, data)
 
 
 def conv_state_rollback(
@@ -417,15 +407,14 @@ def conv_state_rollback(
     state_indices = state_indices.to(torch.int32).contiguous()
     step_indices = step_indices.to(torch.int32).contiguous()
 
-    # Grid over all requests
-    grid = (num_requests,)
+    # Each program rolls back one request's state for one layer.
+    grid = (num_requests, num_layers)
 
     _conv_state_rollback_kernel[grid](
         conv_states,
         state_indices,
         step_indices,
         draft_token_num,
-        num_layers,
         num_dims,
         conv_window_size,
         layer_stride,
