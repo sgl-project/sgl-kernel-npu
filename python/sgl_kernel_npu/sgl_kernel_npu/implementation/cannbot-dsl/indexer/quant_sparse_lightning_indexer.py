@@ -1201,8 +1201,11 @@ class QsliVector0:
     ):
         first = dtypes.int64(tile) * CANDIDATE_BLOCKS_PER_AIV
         for i in range(CANDIDATE_BLOCKS_PER_AIV):
+            page = dtypes.int64(0)
+            block = dtypes.int64(0)
             if has_block_table and table.shape[1] <= self.pa_table_capacity:
                 # prepare_addresses already accounted for the AIV and pair swaps.
+                physical = dtypes.int64(0)
                 if key.shape[0] * self.page_divisor <= MAX_PACKED_ADDRESS32_BYTES:
                     physical = dtypes.int64(self.physical_blocks[0, first + i])
                 else:
