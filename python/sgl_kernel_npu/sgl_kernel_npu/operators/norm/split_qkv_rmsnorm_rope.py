@@ -1,8 +1,88 @@
 """Unified normalization operators with independent, lazily loaded backends."""
 
+from typing import Optional, Tuple
+
+import torch
+
+from ...implementation.triton.norm.norm_utils import (
+    validate_split_qkv,
+    validate_split_qkvgate,
+)
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _triton_fn = None
+
+
+# Wrap the Triton-Ascend launch as an opaque torch.library.custom_op with a
+# FakeTensor meta implementation so TorchDynamo / npugraph_ex can trace through
+# it without graph-breaking inside Triton's Ascend driver.
+@torch.library.custom_op(
+    "sgl_kernel_npu::split_qkv_rmsnorm_rope_triton", mutates_args=()
+)
+def _split_qkv_rmsnorm_rope_triton_op(
+    input: torch.Tensor,
+    sin: torch.Tensor,
+    cos: torch.Tensor,
+    q_hidden_size: int,
+    kv_hidden_size: int,
+    head_dim: int,
+    eps: Optional[float] = None,
+    q_weight: Optional[torch.Tensor] = None,
+    k_weight: Optional[torch.Tensor] = None,
+    q_bias: Optional[torch.Tensor] = None,
+    k_bias: Optional[torch.Tensor] = None,
+    is_neox_style: bool = True,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    global _triton_fn
+    if _triton_fn is None:
+        from ...implementation.triton.norm.split_qkv_rmsnorm_rope import (
+            split_qkv_rmsnorm_rope,
+        )
+
+        _triton_fn = split_qkv_rmsnorm_rope
+    return _triton_fn(
+        input,
+        sin,
+        cos,
+        q_hidden_size,
+        kv_hidden_size,
+        head_dim,
+        eps,
+        q_weight,
+        k_weight,
+        q_bias,
+        k_bias,
+        is_neox_style,
+    )
+
+
+@_split_qkv_rmsnorm_rope_triton_op.register_fake
+def _split_qkv_rmsnorm_rope_triton_fake(
+    input: torch.Tensor,
+    sin: torch.Tensor,
+    cos: torch.Tensor,
+    q_hidden_size: int,
+    kv_hidden_size: int,
+    head_dim: int,
+    eps: Optional[float] = None,
+    q_weight: Optional[torch.Tensor] = None,
+    k_weight: Optional[torch.Tensor] = None,
+    q_bias: Optional[torch.Tensor] = None,
+    k_bias: Optional[torch.Tensor] = None,
+    is_neox_style: bool = True,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    batch_size = input.shape[0]
+    return (
+        torch.empty(
+            (batch_size, q_hidden_size), device=input.device, dtype=input.dtype
+        ),
+        torch.empty(
+            (batch_size, kv_hidden_size), device=input.device, dtype=input.dtype
+        ),
+        torch.empty(
+            (batch_size, kv_hidden_size), device=input.device, dtype=input.dtype
+        ),
+    )
 
 
 @register_impl("norm.split_qkv_rmsnorm_rope", "auto")
@@ -21,14 +101,9 @@ def _triton_impl(
     k_bias=None,
     is_neox_style=True,
 ):
-    global _triton_fn
-    if _triton_fn is None:
-        from ...implementation.triton.norm.split_qkv_rmsnorm_rope import (
-            split_qkv_rmsnorm_rope,
-        )
-
-        _triton_fn = split_qkv_rmsnorm_rope
-    return _triton_fn(
+    # Validate before custom_op dispatch so invalid Python types/shapes keep
+    # raising AssertionError instead of a dispatcher TypeError/RuntimeError.
+    validate_split_qkv(
         input,
         sin,
         cos,
@@ -36,6 +111,20 @@ def _triton_impl(
         kv_hidden_size,
         head_dim,
         eps,
+        q_weight,
+        k_weight,
+        q_bias,
+        k_bias,
+        is_neox_style,
+    )
+    return _split_qkv_rmsnorm_rope_triton_op(
+        input,
+        sin,
+        cos,
+        q_hidden_size,
+        kv_hidden_size,
+        head_dim,
+        None if eps is None else float(eps),
         q_weight,
         k_weight,
         q_bias,
@@ -133,20 +222,21 @@ def split_qkv_rmsnorm_rope(
 _gate_triton_fn = None
 
 
-@register_impl("norm.split_qkvgate_gemma_rmsnorm_rope", "auto")
-@register_impl("norm.split_qkvgate_gemma_rmsnorm_rope", "triton")
-def _gate_triton_impl(
-    input,
-    sin,
-    cos,
-    q_hidden_size,
-    kv_hidden_size,
-    head_dim,
-    rope_dim,
-    eps,
-    q_weight,
-    k_weight,
-):
+@torch.library.custom_op(
+    "sgl_kernel_npu::split_qkvgate_gemma_rmsnorm_rope_triton", mutates_args=()
+)
+def _split_qkvgate_gemma_rmsnorm_rope_triton_op(
+    input: torch.Tensor,
+    sin: torch.Tensor,
+    cos: torch.Tensor,
+    q_hidden_size: int,
+    kv_hidden_size: int,
+    head_dim: int,
+    rope_dim: int,
+    eps: float,
+    q_weight: torch.Tensor,
+    k_weight: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     global _gate_triton_fn
     if _gate_triton_fn is None:
         from ...implementation.triton.norm.split_qkv_rmsnorm_rope import (
@@ -163,6 +253,76 @@ def _gate_triton_impl(
         head_dim,
         rope_dim,
         eps,
+        q_weight,
+        k_weight,
+    )
+
+
+@_split_qkvgate_gemma_rmsnorm_rope_triton_op.register_fake
+def _split_qkvgate_gemma_rmsnorm_rope_triton_fake(
+    input: torch.Tensor,
+    sin: torch.Tensor,
+    cos: torch.Tensor,
+    q_hidden_size: int,
+    kv_hidden_size: int,
+    head_dim: int,
+    rope_dim: int,
+    eps: float,
+    q_weight: torch.Tensor,
+    k_weight: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    batch_size = input.shape[0]
+    return (
+        torch.empty(
+            (batch_size, q_hidden_size), device=input.device, dtype=input.dtype
+        ),
+        torch.empty(
+            (batch_size, kv_hidden_size), device=input.device, dtype=input.dtype
+        ),
+        torch.empty(
+            (batch_size, kv_hidden_size), device=input.device, dtype=input.dtype
+        ),
+        torch.empty(
+            (batch_size, q_hidden_size), device=input.device, dtype=input.dtype
+        ),
+    )
+
+
+@register_impl("norm.split_qkvgate_gemma_rmsnorm_rope", "auto")
+@register_impl("norm.split_qkvgate_gemma_rmsnorm_rope", "triton")
+def _gate_triton_impl(
+    input,
+    sin,
+    cos,
+    q_hidden_size,
+    kv_hidden_size,
+    head_dim,
+    rope_dim,
+    eps,
+    q_weight,
+    k_weight,
+):
+    validate_split_qkvgate(
+        input,
+        sin,
+        cos,
+        q_hidden_size,
+        kv_hidden_size,
+        head_dim,
+        rope_dim,
+        eps,
+        q_weight,
+        k_weight,
+    )
+    return _split_qkvgate_gemma_rmsnorm_rope_triton_op(
+        input,
+        sin,
+        cos,
+        q_hidden_size,
+        kv_hidden_size,
+        head_dim,
+        rope_dim,
+        float(eps),
         q_weight,
         k_weight,
     )
