@@ -179,3 +179,25 @@ def test_different_pool_extents(vdim, physical):
         False,
         exact_output=True,
     )
+
+
+# Kimi K3.1: 69 layers, TP=16 (6 heads of dim 128), 4 draft tokens.
+@pytest.mark.parametrize("batch", [1, 8, 32], ids=["batch-1", "batch-8", "batch-32"])
+def test_kimi_k31_move_cache(batch):
+    from sgl_kernel_npu.operators.mamba import move_intermediate_cache_kda
+
+    args = generate_move_data(
+        (69, batch + 3, 4, 6, 128, 128, batch), transposed=True, dtype=torch.float32
+    )
+    _check_inplace(move_intermediate_cache_kda, args, False)
+
+
+@pytest.mark.parametrize("batch", [1, 8, 32], ids=["batch-1", "batch-8", "batch-32"])
+def test_kimi_k31_conv_state_rollback(batch):
+    from sgl_kernel_npu.operators.mamba import conv_state_rollback
+
+    args = generate_rollback_data((69, batch + 3, 2304, 4, batch), transposed=False)
+    if batch == 1:
+        # The generator selects step -1 for one request; exercise a real rollback.
+        args[2].zero_()
+    _check_inplace(conv_state_rollback, args, False)
