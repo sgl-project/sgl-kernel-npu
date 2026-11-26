@@ -54,21 +54,6 @@ jobs:
           path: .ci-wheel
       - name: Set up test dependencies and install kernel wheel
         run: bash scripts/prepare_kernel_tests.sh --wheel .ci-wheel/sgl_kernel_npu-*.whl
-      - name: Install MemFabric kernels
-        if: ${{ inputs.group == 'mem_cache' }}
-        shell: bash
-        run: |
-          if ! command -v mfcli >/dev/null; then
-            echo "::error::mfcli is missing; install the matching MemFabric Hybrid wheel in the test image."
-            exit 1
-          fi
-
-          case "$NPU_HARDWARE" in
-            a3) soc_version=A3 ;;
-            950) soc_version=A5 ;;
-            *) echo "::error::Unsupported NPU_HARDWARE for MemFabric: $NPU_HARDWARE"; exit 1 ;;
-          esac
-          mfcli kernel install --soc-version "$soc_version"
       - name: Run kernel operator group tests
         timeout-minutes: ${{ inputs.timeout_minutes }}
         env:
