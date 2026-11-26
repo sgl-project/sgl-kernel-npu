@@ -9,14 +9,22 @@ _torch_native_fn = None
 _OP_NAME = "attention.kv_quant_sparse_flash_attention"
 
 
-@register_impl(_OP_NAME, "auto", supported_generations={Generation.ARCH22, Generation.ARCH35})
-@register_impl(_OP_NAME, "ascendc", supported_generations={Generation.ARCH22, Generation.ARCH35})
+@register_impl(
+    _OP_NAME, "auto", supported_generations={Generation.ARCH22, Generation.ARCH35}
+)
+@register_impl(
+    _OP_NAME, "ascendc", supported_generations={Generation.ARCH22, Generation.ARCH35}
+)
 def _ascendc_impl(*args, **kwargs):
     # Calls the PyTorch binding in csrc/attention/sparse_flash_attention/torch_adapter.cpp.
     return torch.ops.npu.kv_quant_sparse_flash_attention(*args, **kwargs)
 
 
-@register_impl(_OP_NAME, "torch_native", supported_generations={Generation.ARCH22, Generation.ARCH35})
+@register_impl(
+    _OP_NAME,
+    "torch_native",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
+)
 def _torch_native_impl(*args, **kwargs):
     global _torch_native_fn
     if _torch_native_fn is None:

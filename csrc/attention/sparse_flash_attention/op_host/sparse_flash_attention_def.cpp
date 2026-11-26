@@ -19,8 +19,7 @@ public:
     explicit SglSparseFlashAttention(const char *name) : OpDef(name)
     {
         // Each CANN build targets one architecture.
-        constexpr auto packedKvType =
-            std::string_view(SGL_CANN_CONFIGS[0]) == "ascend950" ? ge::DT_UINT8 : ge::DT_INT8;
+        constexpr auto packedKvType = std::string_view(SGL_CANN_CONFIGS[0]) == "ascend950" ? ge::DT_UINT8 : ge::DT_INT8;
         this->Input("query")
             .ParamType(REQUIRED)
             .DataType({ge::DT_FLOAT16, ge::DT_BF16, ge::DT_BF16})

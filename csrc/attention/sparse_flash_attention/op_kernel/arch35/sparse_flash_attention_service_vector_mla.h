@@ -108,7 +108,7 @@ private:
     __aicore__ inline uint32_t CopyInPackedKv(LocalTensor<uint8_t> kvInUb, int64_t startRow, int64_t token0Idx,
                                               int64_t token1Idx, const RunInfo &runInfo, ConstInfo &constInfo);
     __aicore__ inline void DequantizePackedKv(LocalTensor<Q_T> output, LocalTensor<uint8_t> input, uint32_t rows,
-                                                uint32_t rowBytes);
+                                              uint32_t rowBytes);
     __aicore__ inline void CalSparseCalSize(const RunInfo &runInfo, ConstInfo &constInfo);
     __aicore__ inline void CopyOutKvUb2Gm(Buffer<BufferType::GM, SyncType::CROSS_CORE_SYNC_BACKWARD> &v0ResGm,
                                           LocalTensor<Q_T> kvOutUb, int64_t dealRow, int64_t s2StartIdx,
@@ -310,8 +310,7 @@ SFAVectorService<TEMPLATE_ARGS>::CopyInPackedKv(LocalTensor<uint8_t> kvInUb, int
     int64_t offsets[] = {GetkeyOffset(token0Idx, runInfo, constInfo), GetkeyOffset(token1Idx, runInfo, constInfo)};
     for (int64_t offset : offsets) {
         if (offset >= 0) {
-            DataCopyPad(kvInUb[(startRow + copied) * packedKvStride], packedKvGm[offset * rowBytes], copy,
-                        pad);
+            DataCopyPad(kvInUb[(startRow + copied) * packedKvStride], packedKvGm[offset * rowBytes], copy, pad);
             ++copied;
         }
     }
@@ -366,15 +365,13 @@ __simd_vf__ inline void UnpackSfaLatent(__ubuf__ Q_T *output, __ubuf__ uint8_t *
             }
         }
         if (!hasRope) {
-            MicroAPI::DataCopy<Q_T, MicroAPI::StoreDist::DIST_PACK_B32>(rowOut + kSfaPackedKvLatentDim,
-                                                                        zero, mask);
+            MicroAPI::DataCopy<Q_T, MicroAPI::StoreDist::DIST_PACK_B32>(rowOut + kSfaPackedKvLatentDim, zero, mask);
         }
     }
 }
 
-TEMPLATES_DEF_NO_DEFAULT __aicore__ inline void
-SFAVectorService<TEMPLATE_ARGS>::DequantizePackedKv(LocalTensor<Q_T> output, LocalTensor<uint8_t> input,
-                                                     uint32_t rows, uint32_t rowBytes)
+TEMPLATES_DEF_NO_DEFAULT __aicore__ inline void SFAVectorService<TEMPLATE_ARGS>::DequantizePackedKv(
+    LocalTensor<Q_T> output, LocalTensor<uint8_t> input, uint32_t rows, uint32_t rowBytes)
 {
     // Keep the internal 576-wide Cube layout for both packed record formats.
     const bool hasRope = rowBytes == kSfaPackedKvBytes;
@@ -896,8 +893,8 @@ TEMPLATES_DEF_NO_DEFAULT __aicore__ inline void SFAVectorService<TEMPLATE_ARGS>:
     sharedParams.packedKvBytes = sparseAttnSharedkvBaseParams.packedKvBytes;
     // A query can have no selected local keys even when its KV cache is nonempty.
     // Leave zero output and max/sum = 0 (LSE = -inf) for skipped queries.
-    sharedParams.needInit = sharedParams.oriMaskMode == 0 &&
-                            (sharedParams.returnSoftmaxLse || sharedParams.packedKvBytes != 0);
+    sharedParams.needInit =
+        sharedParams.oriMaskMode == 0 && (sharedParams.returnSoftmaxLse || sharedParams.packedKvBytes != 0);
     for (uint32_t bIdx = 0; bIdx < sharedParams.bSize; bIdx++) {
         int64_t s2Size;
         if constexpr (KV_LAYOUT_T == SFA_LAYOUT::TND) {

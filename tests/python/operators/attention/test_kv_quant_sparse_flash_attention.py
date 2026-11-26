@@ -29,7 +29,9 @@ def _require_kv_dtype(kv_dtype):
         pytest.skip(f"{kv_dtype} packed KV is unsupported on this architecture")
 
 
-def generate_data(heads, kv_len, selected_counts, device="npu", *, kv_dtype=torch.uint8):
+def generate_data(
+    heads, kv_len, selected_counts, device="npu", *, kv_dtype=torch.uint8
+):
     generator = torch.Generator(device="cpu").manual_seed(929)
     tokens = len(selected_counts)
     pages = (kv_len + _PAGE_SIZE - 1) // _PAGE_SIZE
@@ -94,7 +96,9 @@ def test_kv_quant_sparse_flash_attention(heads, kv_len, selected_counts, kv_dtyp
         kv_quant_sparse_flash_attention, kwargs=data, standard=_STANDARD
     )
     check_performance(
-        executor, enable_perf=kv_dtype == torch.uint8 and (heads, kv_len, selected_counts) in perf_shape
+        executor,
+        enable_perf=kv_dtype == torch.uint8
+        and (heads, kv_len, selected_counts) in perf_shape,
     )
 
 

@@ -280,13 +280,12 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> sgl_kv_quant_sparse_flash_attenti
     const bool hasRope = query_rope.size(2) != 0;
     const auto rowBytes = hasRope ? kSfaPackedKvBytes : kSfaPackedKvNoRopeBytes;
     TORCH_CHECK((packed_kv.scalar_type() == at::kByte || packed_kv.scalar_type() == at::kChar) &&
-                    packed_kv.dim() == 4 && packed_kv.size(2) == 1 &&
-                    packed_kv.size(3) == rowBytes,
+                    packed_kv.dim() == 4 && packed_kv.size(2) == 1 && packed_kv.size(3) == rowBytes,
                 "packed KV must be uint8 (E4M3) or int8 [pages, page_size, 1, ", rowBytes, "]");
     // The Cube consumes separate latent and RoPE tensors. Synthesize only the query-side zeros here.
     const c10::DeviceGuard deviceGuard(query.device());
-    const auto ropeInput = hasRope ? query_rope :
-        at::zeros({query.size(0), query.size(1), kSfaPackedKvRopeDim}, query.options());
+    const auto ropeInput =
+        hasRope ? query_rope : at::zeros({query.size(0), query.size(1), kSfaPackedKvRopeDim}, query.options());
     return sparse_flash_attention_impl(query, packed_kv, packed_kv, sparse_indices, scale_value, block_table,
                                        actual_seq_lengths_query, actual_seq_lengths_kv, ropeInput, c10::nullopt, 1,
                                        "TND", "PA_BSND", 0, INT64_MAX, INT64_MAX, 2, return_softmax_lse, true);

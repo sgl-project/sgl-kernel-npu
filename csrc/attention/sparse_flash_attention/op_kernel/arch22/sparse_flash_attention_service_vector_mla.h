@@ -354,20 +354,26 @@ __aicore__ inline void SFAVectorService<SFAT>::CopyFALseToGm(const RunInfo &info
     uint64_t baseOffset = mSplitInfo.nBufferStartM / 2;
     size_t size = mSplitInfo.vecDealM;
 
+    bool hasSelectedKv = info.actualSingleProcessSInnerSize != 0;
     int64_t offset = 0;
     if constexpr (LAYOUT_T == SFA_LAYOUT::TND) {  // lse layout为N2 T G
         uint64_t actualSeqQTotal = (info.bIdx <= 0) ? 0 : actualSeqLengthsQGm.GetValue(constInfo.batchSize - 1);
         uint64_t actualSeqQPrefixSum = (info.bIdx <= 0) ? 0 : actualSeqLengthsQGm.GetValue(info.bIdx - 1);
-        offset += info.n2Idx * actualSeqQTotal * constInfo.gSize +
-                  (actualSeqQPrefixSum + info.gS1Idx / constInfo.gSize) * constInfo.gSize + mSplitInfo.nBufferStartM +
-                  mSplitInfo.vecStartM;
+        const uint64_t queryIndex = actualSeqQPrefixSum + info.gS1Idx / constInfo.gSize;
+        offset += info.n2Idx * actualSeqQTotal * constInfo.gSize + queryIndex * constInfo.gSize +
+                  mSplitInfo.nBufferStartM + mSplitInfo.vecStartM;
+        if constexpr (kInt8Kv) {
+            // The scheduled KV length can be nonzero when this query's entire Top-K is padding.
+            const uint64_t topkOffset = (queryIndex * constInfo.kvHeadNum + info.n2Idx) * constInfo.sparseBlockCount;
+            hasSelectedKv = hasSelectedKv && topkGm_.GetValue(topkOffset) >= 0;
+        }
     } else {
         offset += info.bIdx * constInfo.kvHeadNum * constInfo.qSeqSize * constInfo.gSize +
                   info.n2Idx * constInfo.qSeqSize * constInfo.gSize + info.gS1Idx / constInfo.gSize * constInfo.gSize +
                   mSplitInfo.nBufferStartM + mSplitInfo.vecStartM;
     }
 
-    if (info.actualSingleProcessSInnerSize != 0) {
+    if (hasSelectedKv) {
         DataCopyExtParams dataCopyParams;
         dataCopyParams.blockCount = 1;
         dataCopyParams.blockLen = sizeof(T) * size;
@@ -391,7 +397,7 @@ __aicore__ inline void SFAVectorService<SFAT>::CopyFALseToGm(const RunInfo &info
         SetFlag<AscendC::HardEvent::MTE3_V>(SYNC_OUTPUT_BUF2_FLAG);
     } else {
         matmul::InitOutput<T>(softmaxSumGm[offset], size, ConstInfo::FLOAT_ZERO);
-        matmul::InitOutput<T>(softmaxMaxGm[offset], size, SOFTMAX_MIN_NUM);
+        matmul::InitOutput<T>(softmaxMaxGm[offset], size, kInt8Kv ? ConstInfo::FLOAT_ZERO : SOFTMAX_MIN_NUM);
     }
 }
 
@@ -930,8 +936,7 @@ __aicore__ inline void SFAVectorService<SFAT>::CopyInKv(int64_t &mte2Size, int64
         const int64_t offsets[] = {keyOffset1, keyOffset2};
         for (int64_t offset : offsets) {
             if (offset >= 0) {
-                DataCopyPad(packed[(mte2Size - mte3Size) * kPackedStride],
-                            packedKvGm_[offset * rowBytes], copy, pad);
+                DataCopyPad(packed[(mte2Size - mte3Size) * kPackedStride], packedKvGm_[offset * rowBytes], copy, pad);
                 ++mte2Size;
             }
         }
@@ -1030,8 +1035,8 @@ __aicore__ inline void SFAVectorService<SFAT>::CopyOutMrgeResult(int64_t mte2Siz
             Cast(scratch, widened[offset], RoundMode::CAST_NONE, latentDim);
             PipeBarrier<PIPE_V>();
             for (uint32_t lane = 0; lane < tile; lane += FP32_REPEAT_ELEMENT_NUM) {
-                Mul(scratch[lane], scratch[lane], broadcastScales[row * 32],
-                    FP32_REPEAT_ELEMENT_NUM, latentDim / tile, {1, 1, 0, 16, 16, 1});
+                Mul(scratch[lane], scratch[lane], broadcastScales[row * 32], FP32_REPEAT_ELEMENT_NUM, latentDim / tile,
+                    {1, 1, 0, 16, 16, 1});
             }
             PipeBarrier<PIPE_V>();
             Cast(latent[offset], scratch, RoundMode::CAST_RINT, latentDim);
@@ -1057,8 +1062,8 @@ __aicore__ inline void SFAVectorService<SFAT>::CopyOutMrgeResult(int64_t mte2Siz
     dataCopyParams.srcStride = 0;
     dataCopyParams.dstStride = 0;
 
-    DataCopyPad(kvMergeGm_[runInfo.loop % 4 * 512 * 576 + (s2GmStartOffset + mte3Size) * constInfo.headDim],
-                latent, dataCopyParams);
+    DataCopyPad(kvMergeGm_[runInfo.loop % 4 * 512 * 576 + (s2GmStartOffset + mte3Size) * constInfo.headDim], latent,
+                dataCopyParams);
 
     dataCopyParams.blockLen = constInfo.headDimRope * sizeof(KV_T);
     DataCopyPad(
