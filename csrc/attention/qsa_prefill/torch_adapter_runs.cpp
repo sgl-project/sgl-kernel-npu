@@ -83,11 +83,6 @@ std::tuple<at::Tensor, at::Tensor> qsa_prefill_runs(const at::Tensor &q, const a
 
     auto stream = c10_npu::getCurrentNPUStream();
     std::vector<at::Tensor> tensors{q, k, v, slots, runs, counts, out, lse, workspace};
-    for (auto &tensor : tensors) {
-        if (tensor.numel() > 0) {
-            tensor.record_stream(stream);
-        }
-    }
     std::vector<std::shared_ptr<aclTensor>> descriptors{qDesc,    kDesc,      vDesc,   slotsDesc,
                                                         runsDesc, countsDesc, outDesc, lseDesc};
     auto aclStream = stream.stream(false);

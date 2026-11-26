@@ -83,11 +83,6 @@ std::vector<at::Tensor> qsa_prefill_prepare(const at::Tensor &b, const at::Tenso
 
     auto stream = c10_npu::getCurrentNPUStream();
     std::vector<at::Tensor> tensors{b, tableBuf, req, flags, slots, runs, counts, workspace};
-    for (auto &tensor : tensors) {
-        if (tensor.numel() > 0) {
-            tensor.record_stream(stream);
-        }
-    }
     std::vector<std::shared_ptr<aclTensor>> descriptors{bDesc,     tableDesc, reqDesc,   flagsDesc,
                                                         slotsDesc, runsDesc,  countsDesc};
     auto aclStream = stream.stream(false);
