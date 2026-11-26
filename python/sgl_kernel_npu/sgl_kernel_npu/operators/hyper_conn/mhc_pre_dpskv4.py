@@ -1,10 +1,11 @@
 """Public mhc_pre operator with registered implementations."""
 
 from ..utils.cann import detect_cann_version
-from ..utils.generation import Generation
+from ..utils.generation import Generation, get_hardware
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _cann_920_fn = None
+_cann_920_sinkhorn_v2_fn = None
 _cann_920_v2_fn = None
 _cann_910_fn = None
 _torch_native_fn = None
@@ -87,8 +88,53 @@ def _cann_9_1_mhc_pre(
 
 @register_impl(
     "hyper_conn.mhc_pre_dpskv4",
+    "cann_ops_transformers_cann920_v2",
+    supported_generations={Generation.ARCH22},
+)
+def _cann_mhc_pre_sinkhorn_v2(
+    x,
+    fn,
+    scale,
+    base,
+    hc_mult,
+    sinkhorn_iters,
+    hc_eps,
+    rms_norm_eps,
+    *,
+    pre_mix=None,
+    return_pre=False,
+):
+    global _cann_920_sinkhorn_v2_fn
+    if _cann_920_sinkhorn_v2_fn is None:
+        from ..._third_party.sgl_ops_transformer_mhc_v2.ops.mhc.sgl_mhc_pre_sinkhorn.sgl_mhc_pre_sinkhorn import (
+            sgl_mhc_pre_sinkhorn_op_builder,
+        )
+
+        _cann_920_sinkhorn_v2_fn = (
+            sgl_mhc_pre_sinkhorn_op_builder.load().sgl_mhc_pre_sinkhorn
+        )
+    y, post, comb, pre, *_ = _cann_920_sinkhorn_v2_fn(
+        x,
+        fn,
+        scale,
+        base,
+        hc_mult,
+        sinkhorn_iters,
+        hc_eps,
+        rms_norm_eps,
+        # Supplying pre_mix already requests hPre, without the backward outputs.
+        outFlag=return_pre and pre_mix is None,
+        preMix=pre_mix,
+        enableHf32=True,
+    )
+    output = y, post, comb.view(x.shape[0], hc_mult, hc_mult)
+    return (*output, pre) if return_pre else output
+
+
+@register_impl(
+    "hyper_conn.mhc_pre_dpskv4",
     "cann_recipes_infer_cann920",
-    supported_generations={Generation.ARCH22, Generation.ARCH35},
+    supported_generations={Generation.ARCH35},
 )
 def _cann_9_2_mhc_pre_v2(
     x,
@@ -178,22 +224,31 @@ def mhc_pre_dpskv4(
 
     pre_mix optionally supplies the [T,n] FP32 weights used to accumulate y, and
     return_pre appends the computed pre weights as a fourth output. Auto selects
-    the fused HcPre backend when either is requested, and otherwise uses the DSV4
-    backend.
+    CANN Sinkhorn V2 on ARCH22 and Recipes HcPre on ARCH35 when either option
+    is requested. Calls without these options use the SDK-selected DSV4 backend.
     torch_native is an eager correctness reference, not a graph fallback.
 
     impl: auto (SDK-selected), cann_ops_transformers_cann920,
-    cann_recipes_infer_cann910, cann_recipes_infer_cann920, or torch_native.
+    cann_ops_transformers_cann920_v2, cann_recipes_infer_cann910,
+    cann_recipes_infer_cann920, or torch_native.
     """
     if not isinstance(return_pre, bool):
         raise TypeError("return_pre must be bool")
     needs_pre = pre_mix is not None or return_pre
     if needs_pre and impl == "auto":
-        impl = "cann_recipes_infer_cann920"
-    if needs_pre and impl not in ("cann_recipes_infer_cann920", "torch_native"):
+        impl = (
+            "cann_ops_transformers_cann920_v2"
+            if get_hardware().generation == Generation.ARCH22
+            else "cann_recipes_infer_cann920"
+        )
+    if needs_pre and impl not in (
+        "cann_ops_transformers_cann920_v2",
+        "cann_recipes_infer_cann920",
+        "torch_native",
+    ):
         raise ValueError(
-            "pre_mix and return_pre require impl 'cann_recipes_infer_cann920' or "
-            f"'torch_native', got {impl!r}"
+            "pre_mix and return_pre require impl 'cann_ops_transformers_cann920_v2', "
+            f"'cann_recipes_infer_cann920', or 'torch_native', got {impl!r}"
         )
     impl_fn = get_impl_by_name("hyper_conn.mhc_pre_dpskv4", impl)
     if needs_pre:

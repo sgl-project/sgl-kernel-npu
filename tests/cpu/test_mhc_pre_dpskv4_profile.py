@@ -1,4 +1,4 @@
-"""Check A3 and A5 HcPre build plans."""
+"""Check the A3 and A5 DSV4.1 mHC build plans."""
 
 import json
 import subprocess
@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.parametrize("arch", ["2201", "3510"])
-def test_hc_pre_build_plan(arch):
+def test_dsv41_mhc_pre_build_plan(arch):
     plan = json.loads(
         subprocess.check_output(
             [
@@ -28,11 +28,12 @@ def test_hc_pre_build_plan(arch):
     )
     main = next(item for item in plan if item["name"] == "sgl_ops_transformer")
     assert "mhc_pre_sinkhorn" in main["ops"]
-    recipes = next(item for item in plan if item["name"] == "sgl_cann_recipes_infer")
-    assert recipes["ops"]["npu_hc_pre_v2"] == "hc_pre"
-    assert ("vllm_hc_pre" in recipes) == (arch == "2201")
+    by_name = {item["name"]: item for item in plan}
     if arch == "2201":
-        assert (
-            recipes["vllm_hc_pre"]["commit"]
-            == "2b1a0514511b67b751580cef0fa11c9b053bce65"
-        )
+        assert "sgl_cann_recipes_infer" not in by_name
+        v2 = by_name["sgl_ops_transformer_mhc_v2"]
+        assert v2["ops"] == ["sgl_mhc_pre_sinkhorn"]
+        assert v2["commit"] == "53f5c56996be158b52579d9cdd484b54a38dfb64"
+    else:
+        assert "sgl_ops_transformer_mhc_v2" not in by_name
+        assert by_name["sgl_cann_recipes_infer"]["ops"]["npu_hc_pre_v2"] == "hc_pre"

@@ -5,11 +5,12 @@
 | 实现 | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
 | `cann_ops_transformers_cann920` | 支持 | 支持 |
+| `cann_ops_transformers_cann920_v2` | 支持 | |
 | `cann_recipes_infer_cann910` | 支持 | 支持 |
-| `cann_recipes_infer_cann920` | 支持 | 支持 |
+| `cann_recipes_infer_cann920` | | 支持 |
 | `torch_native` | 支持 | 支持 |
 
-DeepSeek V4.1 路径需要安装包含 `npu_hc_pre_v2` 的 wheel。
+DeepSeek V4.1 路径需要安装包含目标架构融合后端的 CANN 9.2 wheel。
 
 ## 接口
 
@@ -21,7 +22,7 @@ def mhc_pre_dpskv4(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm
     ...
 ```
 
-传入 `pre_mix` 或设置 `return_pre=True` 时，`auto` 选择融合 HcPre。两项均未指定时，按初始化的 SDK 选择原有 DeepSeek V4 路径。
+传入 `pre_mix` 或设置 `return_pre=True` 时，`auto` 在 A3 上选择 CANN MhcPreSinkhornV2，在 A5 上选择 Recipes HcPre。两项均未指定时，按初始化的 SDK 选择 DeepSeek V4 路径。
 
 ## 说明
 
@@ -29,7 +30,7 @@ def mhc_pre_dpskv4(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm
 
 对展平流进行 RMS 归一化投影，生成 sigmoid pre/post gate 和 Sinkhorn 归一化残差矩阵；`y = Σ_i pre_i × x_i`。y 保留输入 dtype，参考 post/comb 为 FP32。
 
-`pre_mix` 传入时直接作为权重参与 y 累加，不再由投影结果计算；`return_pre=True` 时在 comb 之后追加本轮内部计算的 pre（即使传入了 `pre_mix`）。这两个参数仅 `cann_recipes_infer_cann920` 与 `torch_native` 支持。
+`pre_mix` 传入时直接作为 y 的加权系数。`return_pre=True` 时追加根据当前残差计算的 pre，包括传入 `pre_mix` 的情况。A3 和 A5 的融合后端及 `torch_native` 均支持这两个参数。
 
 ## 参数
 
@@ -43,7 +44,7 @@ def mhc_pre_dpskv4(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm
 | sinkhorn_iters | int | 必填 | Positive Sinkhorn iteration count |
 | hc_eps | float | 必填 | Gate and Sinkhorn stability epsilon |
 | rms_norm_eps | float | 必填 | Internal projection RMS epsilon, not the model layernorm |
-| pre_mix | Tensor | None | 仅限关键字；参与 y 累加的 [T,n] FP32 权重，要求 `cann_recipes_infer_cann920` 或 `torch_native` |
+| pre_mix | Tensor | None | 仅限关键字，参与 y 累加的 [T,n] FP32 权重 |
 | return_pre | bool | False | 仅限关键字；为 True 时多返回一个 pre 输出 |
 | impl | str | 'auto' | 已注册的实现，或用 `auto` 自动选择生产路径 |
 
@@ -66,7 +67,11 @@ Source: [cann-recipes-infer; aclnnHcPre](https://gitcode.com/cann/cann-recipes-i
 
 ## cann_recipes_infer_cann920
 
-通过 wheel 内的 `torch.ops.sgl_cann_recipes_infer.npu_hc_pre_v2` 一次完成 DeepSeek V4.1 的 pre-mix 和系数计算。A3 打包 [vLLM Ascend HcPre](https://github.com/vllm-project/vllm-ascend/tree/2b1a0514511b67b751580cef0fa11c9b053bce65/csrc/moe/hc_pre)，A5 打包 Recipes HcPre。
+在 A5 上调用 wheel 内的 Recipes `npu_hc_pre_v2`。
+
+## cann_ops_transformers_cann920_v2
+
+A3 使用 wheel 内的 MhcPreSinkhornV2 并开启 HF32。打包时将其注册为 `aclnnSglMhcPreSinkhornV2`，使 DeepSeek V4 和 V4.1 的算子可以同时加载。此后端使用 4 条残差流和 20 次 Sinkhorn 迭代，隐藏维度需按 128 对齐。[CANN 算子约束](https://gitcode.com/cann/ops-transformer/blob/53f5c56996be158b52579d9cdd484b54a38dfb64/mhc/mhc_pre_sinkhorn/docs/aclnnMhcPreSinkhornV2.md)
 
 ## torch_native
 
@@ -85,9 +90,11 @@ scale = torch.ones(3, device="npu", dtype=torch.float32)
 base = torch.zeros(24, device="npu", dtype=torch.float32)
 y, post, comb = mhc_pre_dpskv4(x, fn, scale, base, 4, 20, 1e-6, 1e-6, impl="torch_native")
 
-# DeepSeek V4.1 需要包含 HcPre 的 wheel。
+# DeepSeek V4.1 使用上一子层的 pre 权重。
+pre_mix = torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=x.device)
 y, post, comb, pre = mhc_pre_dpskv4(
     x, fn, scale, base, 4, 20, 1e-6, 1e-6,
+    pre_mix=pre_mix,
     return_pre=True,
 )
 ```
@@ -99,6 +106,6 @@ python3 -m pytest tests/python/operators/hyper_conn/test_mhc_pre_dpskv4.py \
   --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
 ```
 
-安装的 wheel 包含 `npu_hc_pre_v2` 时，执行 DeepSeek V4.1 用例。
+安装的 wheel 包含对应架构的融合后端时，执行 DeepSeek V4.1 用例。
 
 [上游算子仓库](https://github.com/Ascend/ops-transformer)

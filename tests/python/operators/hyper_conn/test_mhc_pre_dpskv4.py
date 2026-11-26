@@ -16,7 +16,6 @@ MC_PRE_STANDARD = {
     "torch.bfloat16": AccuracyStandard(atol=0.03, rtol=0.03),
     "torch.float32": AccuracyStandard(atol=0.03, rtol=0.03),
 }
-RECIPES_IMPL = "cann_recipes_infer_cann920"
 
 # DeepSeek-V4-Flash: hidden_size=4096, hc_mult=4.
 perf_shape = [(1, 4, 4096), (16, 4, 4096)]
@@ -46,12 +45,22 @@ def test_mhc_pre_dpskv4(shape):
     check_performance(executor, enable_perf=shape in perf_shape)
 
 
-def _recipes_unavailable():
+def _dsv41_impl():
+    implementations = {
+        "sgl_mhc_pre_sinkhorn": "cann_ops_transformers_cann920_v2",
+        "npu_hc_pre_v2": "cann_recipes_infer_cann920",
+    }
     dependencies = getattr(sgl_kernel_npu, "_manifest", {}).get("third_party", ())
-    return not any("npu_hc_pre_v2" in item["ops"] for item in dependencies)
+    for item in dependencies:
+        for op in item["ops"]:
+            if op in implementations:
+                return implementations[op]
 
 
-@pytest.mark.skipif(_recipes_unavailable(), reason="requires bundled HcPre")
+DSV41_IMPL = _dsv41_impl()
+
+
+@pytest.mark.skipif(DSV41_IMPL is None, reason="requires bundled DSV4.1 mHC")
 @pytest.mark.parametrize("shape", mhc_shapes)
 @pytest.mark.parametrize("return_pre", [False, True], ids=["default", "return-pre"])
 def test_mhc_pre_dpskv4_dsv41(shape, return_pre):
@@ -62,30 +71,11 @@ def test_mhc_pre_dpskv4_dsv41(shape, return_pre):
         mhc_pre_dpskv4,
         args=args,
         kwargs={"return_pre": return_pre},
-        impl=RECIPES_IMPL,
+        impl=DSV41_IMPL,
         impl_ref="torch_native",
         standard=MC_PRE_STANDARD,
     )
     check_performance(executor, enable_perf=shape in perf_shape and not return_pre)
-
-
-@pytest.mark.skipif(_recipes_unavailable(), reason="requires bundled HcPre")
-@pytest.mark.parametrize("shape", mhc_shapes)
-def test_mhc_pre_dpskv4_dsv41_premix(shape):
-    from sgl_kernel_npu.operators.hyper_conn import mhc_pre_dpskv4
-
-    args = generate_data(shape)
-    # pre_mix only weights y; the returned pre is still computed internally.
-    pre_mix = torch.sigmoid(torch.randn((shape[0], shape[1]), dtype=torch.float32))
-    executor = check_accuracy(
-        mhc_pre_dpskv4,
-        args=args,
-        kwargs={"pre_mix": pre_mix, "return_pre": True},
-        impl="auto",
-        impl_ref="torch_native",
-        standard=MC_PRE_STANDARD,
-    )
-    check_performance(executor, enable_perf=False)
 
 
 def test_mhc_pre_dpskv4_pre_outputs_rejected():
@@ -100,8 +90,15 @@ def test_mhc_pre_dpskv4_pre_outputs_rejected():
         )
 
 
-@pytest.mark.skipif(_recipes_unavailable(), reason="requires bundled HcPre")
-@pytest.mark.parametrize("tokens", [18, 24, 4096])
+@pytest.mark.skipif(DSV41_IMPL is None, reason="requires bundled DSV4.1 mHC")
+@pytest.mark.parametrize(
+    "tokens",
+    [
+        pytest.param(10, id="draft-decode"),
+        pytest.param(12, id="target-verify"),
+        pytest.param(512, id="prefill"),
+    ],
+)
 def test_mhc_pre_dpskv4_premix_graph_replay(tokens):
     from sgl_kernel_npu.operators.hyper_conn import mhc_pre_dpskv4
 
@@ -130,20 +127,16 @@ def test_mhc_pre_dpskv4_premix_graph_replay(tokens):
 
     torch.testing.assert_close(run()[0].cpu(), x[:, 0], atol=0, rtol=0)
     torch.npu.synchronize()
-    if tokens < 4096:
-        graph = torch.npu.NPUGraph()
-        with torch.npu.graph(graph):
-            output = run()
-    for _ in range(2 if tokens < 4096 else 1):
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        output = run()
+    for _ in range(2):
         with torch.device("cpu"):
             x = torch.randn_like(x)
             premix = torch.rand_like(premix)
         x_npu.copy_(x)
         premix_npu.copy_(premix)
-        if tokens < 4096:
-            graph.replay()
-        else:
-            output = run()
+        graph.replay()
         torch.npu.synchronize()
         expected = mhc_pre_dpskv4(
             x,

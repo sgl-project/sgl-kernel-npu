@@ -26,8 +26,6 @@ def configure(config, jobs):
         ):
             raise ValueError("Invalid recipes interface or kernel name")
     config["soc"] = resolve_soc_version(config["arch_version"])
-    if config["soc"] != "ascend910_93":
-        config.pop("vllm_hc_pre", None)
     if config.get("has_aicpu", False):
         raise ValueError("Selected recipes operators do not contain AICPU kernels")
     config["vendor_name"] = "vendor_" + config["name"]
@@ -157,35 +155,7 @@ def inspect_vendor(vendor, item):
             read_json(require(binary.with_suffix(".json")))
 
 
-def _prepare_a3_hc_pre(source, directory, upstream):
-    """Build vLLM's tested A3 kernel with the existing Recipes binding."""
-    checkout = directory / "vllm-ascend"
-    checkout.mkdir()
-    op_path = Path("csrc/moe/hc_pre")
-    run(["git", "init", checkout], directory / "vllm-init.log")
-    run(
-        ["git", "fetch", "--depth=1", upstream["repository"], upstream["commit"]],
-        directory / "vllm-fetch.log",
-        cwd=checkout,
-    )
-    run(
-        ["git", "checkout", "FETCH_HEAD", "--", op_path],
-        directory / "vllm-checkout.log",
-        cwd=checkout,
-    )
-    recipes_op = source / "ops/ascendc/src/hc_pre"
-    for subdir in ("op_host", "op_kernel"):
-        shutil.copytree(
-            checkout / op_path / subdir,
-            recipes_op / subdir,
-            ignore=shutil.ignore_patterns("CMakeLists.txt"),
-            dirs_exist_ok=True,
-        )
-
-
 def build(item, source, directory):
-    if "vllm_hc_pre" in item:
-        _prepare_a3_hc_pre(source, directory, item["vllm_hc_pre"])
     prepare_python(source, item)
     env = dict(os.environ, MAX_JOBS=str(item["jobs"]))
     for index, command in enumerate(item["commands"]):

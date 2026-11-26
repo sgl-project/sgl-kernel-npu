@@ -5,11 +5,12 @@
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
 | `cann_ops_transformers_cann920` | Supported | Supported |
+| `cann_ops_transformers_cann920_v2` | Supported | |
 | `cann_recipes_infer_cann910` | Supported | Supported |
-| `cann_recipes_infer_cann920` | Supported | Supported |
+| `cann_recipes_infer_cann920` | | Supported |
 | `torch_native` | Supported | Supported |
 
-The DeepSeek V4.1 path requires a wheel that bundles `npu_hc_pre_v2`.
+DeepSeek V4.1 requires a CANN 9.2 wheel that bundles the fused backend for the target architecture.
 
 ## Signature
 
@@ -21,7 +22,7 @@ def mhc_pre_dpskv4(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm
     ...
 ```
 
-`auto` selects fused HcPre when the caller supplies `pre_mix` or requests `return_pre=True`. For calls with neither option, the initialized SDK selects the existing DeepSeek V4 path.
+When the caller supplies `pre_mix` or requests `return_pre=True`, `auto` selects CANN MhcPreSinkhornV2 on A3 and Recipes HcPre on A5. For calls with neither option, the initialized SDK selects the DeepSeek V4 path.
 
 ## Description
 
@@ -29,7 +30,7 @@ Input [T,n,C]; does not fuse the model input layernorm.
 
 RMS-normalize the flattened streams for projection, form sigmoid pre/post gates and a Sinkhorn-normalized residual matrix. `y = Σ_i pre_i × x_i`. The activation preserves x.dtype; post and comb are FP32 in the reference.
 
-A supplied `pre_mix` is used directly to weight the y accumulation instead of the projection-derived weights; `return_pre=True` appends the internally computed pre weights as a fourth return value, even when `pre_mix` is supplied. Both options require `cann_recipes_infer_cann920` or `torch_native`.
+A supplied `pre_mix` provides the weights for `y`. `return_pre=True` appends the pre weights computed from the current residual, including when `pre_mix` is supplied. Both options are available with the A3 and A5 fused backends and `torch_native`.
 
 ## Parameters
 
@@ -43,7 +44,7 @@ A supplied `pre_mix` is used directly to weight the y accumulation instead of th
 | sinkhorn_iters | int | required | Positive Sinkhorn iteration count |
 | hc_eps | float | required | Gate and Sinkhorn stability epsilon |
 | rms_norm_eps | float | required | Internal projection RMS epsilon, not the model layernorm |
-| pre_mix | Tensor | None | Keyword-only; [T,n] FP32 weights for the y accumulation, requires `cann_recipes_infer_cann920` or `torch_native` |
+| pre_mix | Tensor | None | Keyword-only [T,n] FP32 weights for the y accumulation |
 | return_pre | bool | False | Keyword-only; append the pre output when True |
 | impl | str | 'auto' | Registered implementation, or `auto` for production dispatch |
 
@@ -66,7 +67,11 @@ Source: [cann-recipes-infer; aclnnHcPre](https://gitcode.com/cann/cann-recipes-i
 
 ## cann_recipes_infer_cann920
 
-Calls the wheel-bundled `torch.ops.sgl_cann_recipes_infer.npu_hc_pre_v2` for fused DeepSeek V4.1 pre-mix and coefficient prediction. The wheel builds [vLLM Ascend HcPre](https://github.com/vllm-project/vllm-ascend/tree/2b1a0514511b67b751580cef0fa11c9b053bce65/csrc/moe/hc_pre) on A3 and Recipes HcPre on A5.
+Calls the wheel-bundled Recipes `npu_hc_pre_v2` on A5.
+
+## cann_ops_transformers_cann920_v2
+
+On A3, uses the wheel-bundled MhcPreSinkhornV2 with HF32 enabled. The wheel registers it as `aclnnSglMhcPreSinkhornV2` so the DeepSeek V4 and V4.1 kernels can coexist. The backend uses four residual streams, 20 Sinkhorn iterations and a hidden dimension aligned to 128. [CANN operator contract](https://gitcode.com/cann/ops-transformer/blob/53f5c56996be158b52579d9cdd484b54a38dfb64/mhc/mhc_pre_sinkhorn/docs/aclnnMhcPreSinkhornV2.md)
 
 ## torch_native
 
@@ -85,9 +90,11 @@ scale = torch.ones(3, device="npu", dtype=torch.float32)
 base = torch.zeros(24, device="npu", dtype=torch.float32)
 y, post, comb = mhc_pre_dpskv4(x, fn, scale, base, 4, 20, 1e-6, 1e-6, impl="torch_native")
 
-# DeepSeek V4.1 with a wheel that bundles HcPre.
+# DeepSeek V4.1 with the previous sublayer's pre weights.
+pre_mix = torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=x.device)
 y, post, comb, pre = mhc_pre_dpskv4(
     x, fn, scale, base, 4, 20, 1e-6, 1e-6,
+    pre_mix=pre_mix,
     return_pre=True,
 )
 ```
@@ -99,6 +106,6 @@ python3 -m pytest tests/python/operators/hyper_conn/test_mhc_pre_dpskv4.py \
   --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
 ```
 
-The DeepSeek V4.1 cases run when the installed wheel bundles `npu_hc_pre_v2`.
+The DeepSeek V4.1 cases run when the installed wheel bundles the fused backend.
 
 [Upstream operators](https://github.com/Ascend/ops-transformer)
