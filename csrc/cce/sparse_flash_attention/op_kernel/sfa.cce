@@ -1,0 +1,614 @@
+// Raw CCE sparse flash attention. BN=128 candidate tile stored as two validated 64-candidate halves.
+#include <acl/acl.h>
+#include <cstdint>
+#ifndef CCE_BN
+#define CCE_BN 128
+#endif
+#ifndef CCE_BM
+#define CCE_BM 32
+#endif
+constexpr int BM=CCE_BM, VM=BM/2;
+// Timing-only probe: NO_QRELOAD drops the per-tile Q L1->L0A refill in score()
+// (the rope score and probability-tile A keep clobbering the L0A head, so the
+// scores go stale - wall clock only). Defined early because score() reads it.
+#if defined(CCE_DIAG_NO_QRELOAD)
+constexpr bool kDiagNoQReload=true;
+#else
+constexpr bool kDiagNoQReload=false;
+#endif
+static_assert(BM==16||BM==32||BM==64,"head tile must be 16/32/64");
+constexpr int BN=CCE_BN;
+static_assert(BN==32||BN==64||BN==128,"candidates must be 32/64/128");
+// A 128-candidate tile keeps the exact 64-candidate L1 layout in two halves, so every
+// validated L1->L0A/L0B transfer below is bit-identical to the BN=64 kernel.
+constexpr bool kSplit=(BN==128);
+constexpr int kHalf=kSplit?64:BN;
+#ifndef CCE_SLOTS
+#define CCE_SLOTS 3
+#endif
+constexpr int kSlots=CCE_SLOTS;
+// Probe knob: repeat each latent MAD on resident L0A/L0B operands so the marginal cube
+// rate can be measured with zero extra load traffic (timing-only; the accumulated scores
+// are garbage, so precision tests must not run with this > 1).
+#ifndef CCE_MAD_REPS
+#define CCE_MAD_REPS 1
+#endif
+// Each extra ring buys one more tile of gather lookahead; the ring must stay clear of
+// QK(t) and PV(t-1), i.e. lookahead never lands on the two slots still in flight.
+constexpr int kPrefetch=(kSlots>=5)?3:((kSlots>=4)?2:1);
+// MTE2-scatter gather: the latent NZ fractals are built by the GM->UB DMA itself
+// (32 x 32B bursts with a 512B dst stride land exactly on the fractal-major/row-major
+// layout the SIMD packer used to produce - probe-verified bit-exact), so the vector
+// pipe pays zero pack instructions and the MTE3 refill reads 512B bursts straight
+// out of the staged area. Split tiles only: the fused BN<=64 layout is untouched.
+#if defined(CCE_MTE2_SCATTER)
+constexpr bool kMte2Scatter=true;
+#else
+constexpr bool kMte2Scatter=false;
+#endif
+// 16-row batches keep the split gather inside UB at BM=64/BN=128 (4 passes) but the
+// extra pass boundaries corrupted the NZ fractal stride; 32 rows per pass matches the
+// validated BN=64 batching and stays within reach of the UB limit.
+constexpr int kRawRows=(kSplit&&BM>32)?32:BN/2;
+constexpr int kHalfRows=kSplit?64:BN;
+constexpr int kLatHalf=kHalfRows*512, kRopeHalf=kHalfRows*64;
+// Split tiles keep the latent and the small RoPE tail in separate L1 rings. Three latent
+// rings cover QK(t)/PV(t-1)/gather(t+1) concurrency; two RoPE rings suffice because PV
+// never reads RoPE and QK(t) only collides with gather(t+1), one ring apart.
+constexpr int kRowStride=kSplit?512:576;
+constexpr int kSlotSize=BN*kRowStride;
+constexpr int kRopeOff=kLatHalf;
+constexpr int kRopeRings=kSplit?2:1;
+constexpr int kRopeSize=kSplit?BN*64:0;
+constexpr int kRopeRingBase=kSlots*kSlotSize;
+constexpr int kQueryOff=kRopeRingBase+kRopeRings*kRopeSize;
+// Probe variant: shift the PV accumulator +32KB so the L0C footprint reaches 176KB;
+// if this still runs correctly the 160KB split layout is not capacity-bound.
+constexpr int kPvOff=((BM*BN*4>16384)?BM*BN*4:16384)
+#if defined(CCE_PROBE_L0C)
+    +32768
+#endif
+;
+// UB plan (per subblock): pv staging occupies VM*512 floats because the FixPipe drains the
+// whole PV tile, so the accumulator starts after it; the mask sits after the stats block.
+constexpr int U_PV=VM*BN*4, U_ACC=U_PV+VM*512*4;
+constexpr int U_P=U_ACC+VM*512*4, U_OUT=U_P+VM*BN*2, U_STATS=U_OUT+VM*512*2;
+constexpr int U_SCRATCH=U_STATS+VM*16;
+// Per-tile row maxima parked in the retired f32-accumulator area; the job-end fold turns
+// them into the global row max with one vector tree instead of a running-max chain per tile.
+// The rest of that retired area stages the first MTE2-scatter half (gather-time only), so
+// the second half fits at the raw-staging offset without pushing UB usage past the
+// previously validated envelope.
+constexpr int U_TILEMAX=U_ACC;
+constexpr int U_STAGEA=U_ACC+VM*64*4;
+constexpr int U_RAW=((U_SCRATCH+BN*4+255)/256)*256;
+constexpr int U_PACK=U_RAW+kRawRows*640*2;
+constexpr int kTile=16, kLatent=512, kRope=64, kFractal=256;
+[aicore] inline void load_nz(__cbuf__ bfloat16_t* dst,__gm__ bfloat16_t* src,
+    int rows,int columns,int destination_rows) {
+    set_mte2_nz_para((static_cast<uint64_t>(destination_rows)<<32)|(uint64_t{1}<<16)|1);
+    copy_gm_to_cbuf_multi_nd2nz((__cbuf__ half*)dst,(__gm__ half*)src,
+        0,columns*2,0,rows,columns,0,false);
+}
+template <int kWidth, int kRows>
+[aicore] inline void score(__cbuf__ bfloat16_t* qL1, __cbuf__ bfloat16_t* kL1,
+    __cc__ float* c, __gm__ bfloat16_t* query, bool initialize) {
+    auto a = (__ca__ bfloat16_t*)get_imm(0);
+    auto b = (__cb__ bfloat16_t*)get_imm(0);
+    // Q stays resident in L1 for every BM: the job prologue loaded it once, so a tile
+    // step only pays the L1->L0A transfer instead of a full GM->L1 reload.
+    // BM>32 keeps the full Q tile resident in L0A (exactly 64KB - the capacity limit,
+    // probe-verified). The rope operand and the probability-tile A reuse the same
+    // 8KB head each tile, so a tile only repairs that head instead of the 64KB tile;
+    // the caller orders latent scores before rope scores so the Q head survives.
+    if constexpr(BM<=32) {
+        load_cbuf_to_ca(a,qL1,0,0,BM/16,kWidth/16,BM/16,BM/16,0);
+    } else if constexpr(!kDiagNoQReload) {
+        load_cbuf_to_ca(a,qL1,0,0,BM/16,4,BM/16,BM/16,0);
+    }
+    load_cbuf_to_cb(b,kL1,0,0,kRows/16,kWidth/16,kRows/16,kRows/16,false);
+    pipe_barrier(PIPE_ALL);
+    mad(c, a, b, BM, kWidth, kRows, 0, false, false, initialize);
+    if constexpr(kWidth==512 && CCE_MAD_REPS>1) {
+        // Probe: extra MADs reuse the resident operands, isolating pure cube throughput
+        // from all MTE1 load traffic and barrier overhead of a fresh score() call.
+        for(int rep=1;rep<CCE_MAD_REPS;++rep) {
+            pipe_barrier(PIPE_ALL);
+            mad(c, a, b, BM, kWidth, kRows, 0, false, false, false);
+        }
+    }
+    pipe_barrier(PIPE_ALL);
+}
+
+#if defined(CCE_WIDE_QK)
+[aicore] inline void score_wide(__cbuf__ bfloat16_t* query,__cbuf__ bfloat16_t* keys,
+    __cbuf__ bfloat16_t* qr,__cbuf__ bfloat16_t* rope,__cc__ float* scores) {
+    static_assert(BM==64 && BN==128,"wide score requires BM64 BN128");
+    auto a0=(__ca__ bfloat16_t*)get_imm(0);
+    auto b=(__cb__ bfloat16_t*)get_imm(0);
+    load_cbuf_to_ca(a0,query,0,0,4,4,4,4,0);
+    pipe_barrier(PIPE_ALL);
+    constexpr int kc=128;
+    for(int chunk=0;chunk<512/kc;++chunk) {
+        int region=chunk&1;
+        if(chunk>=2)wait_flag(PIPE_M,PIPE_MTE1,region?EVENT_ID3:EVENT_ID2);
+        auto bank=(__cb__ bfloat16_t*)get_imm(0)+region*kc*128;
+        load_cbuf_to_cb(bank,keys+chunk*kc*64,0,0,4,kc/16,4,8,false);
+        load_cbuf_to_cb(bank+4*256,keys+kLatHalf+chunk*kc*64,0,0,4,kc/16,4,8,false);
+        set_flag(PIPE_MTE1,PIPE_M,region?EVENT_ID1:EVENT_ID0);
+        wait_flag(PIPE_MTE1,PIPE_M,region?EVENT_ID1:EVENT_ID0);
+        mad(scores,a0+chunk*kc*64,bank,64,kc,128,0,false,false,chunk==0);
+        set_flag(PIPE_M,PIPE_MTE1,region?EVENT_ID3:EVENT_ID2);
+    }
+    wait_flag(PIPE_M,PIPE_MTE1,EVENT_ID2);
+    load_cbuf_to_ca(a0,qr,0,0,4,4,4,4,0);
+    load_cbuf_to_cb(b,rope,0,0,4,4,4,8,false);
+    load_cbuf_to_cb(b+4*256,rope+kRopeHalf,0,0,4,4,4,8,false);
+    // A0/B0 are free after chunk2; the final MAD still uses A3/B1.
+    wait_flag(PIPE_M,PIPE_MTE1,EVENT_ID3);
+    set_flag(PIPE_MTE1,PIPE_M,EVENT_ID0);
+    wait_flag(PIPE_MTE1,PIPE_M,EVENT_ID0);
+    mad(scores,a0,b,64,64,128,0,false,false,false);
+    pipe_barrier(PIPE_ALL);
+}
+#endif
+[aicore] inline void notify_cube(int event) {
+    set_intra_block(PIPE_FIX,event); set_intra_block(PIPE_FIX,event+16);
+}
+[aicore] inline void await_vectors(int event) {
+    wait_intra_block(PIPE_S,event); wait_intra_block(PIPE_S,event+16);
+}
+[aicore] inline void fix_ub(__cc__ float* c, int n, int stride,int offset=0) {
+    set_loop3_para(uint64_t{1});
+    copy_matrix_cc_to_ub((__ubuf__ float*)get_imm(offset),c,0,n,BM,stride,BM,
+        1,false,0,0,0,0,false,true,0,0,false,false,0,false,false,false,false,false,false);
+}
+__simd_vf__ inline void cast_output(__ubuf__ float* src,__ubuf__ bfloat16_t* dst,float reciprocal) {
+    vector_f32 x,f; vector_bf16 b; auto mask=pset_b32(__cce_simd::PAT_ALL);vbr(f,reciprocal);
+    for(int j=0;j<512;j+=64) {
+        vlds(x,src+j,0,__cce_simd::NORM);vmul(x,x,f,mask);
+        vcvt(b,x,mask,__cce_simd::RoundRType(),__cce_simd::RS_DISABLE,__cce_simd::PART_EVEN);
+        vsts(b,dst+j,0,__cce_simd::PK_B32,mask);
+    }
+}
+// sumout must match the reference frame (global row max): rescale den' = sum exp(x-m_0)
+// by exp(m_0 - m_final); the exponent is <= 0 so it can never overflow.
+__simd_vf__ inline void rescale_denoms(__ubuf__ float* denoms,__ubuf__ float* refs,
+    __ubuf__ float* maxima) {
+    vector_f32 a,d;auto mask=pset_b32(__cce_simd::PAT_ALL);
+    for(int r=0;r<VM;++r) {
+        vlds(a,refs+r,0,__cce_simd::BRC_B32);
+        vlds(d,maxima+r,0,__cce_simd::BRC_B32);
+        vsub(a,a,d,mask);vexp(a,a,mask);
+        vlds(d,denoms+r,0,__cce_simd::BRC_B32);
+        vmul(d,d,a,mask);
+        vsts(d,denoms+r,0,__cce_simd::ONEPT_B32,mask);
+    }
+}
+// Fold the parked per-tile row maxima into the global row max. Parking is row-major
+// (row r's tile maxes contiguous at tileMax+r*64, tail lanes padded with -FLT_MAX once
+// per job), so each row folds with the exact proven vcmax/vdup/ONEPT pattern from
+// softmax_tile - no per-tile running-max chain and no exotic store patterns.
+__simd_vf__ inline void fold_tile_max(__ubuf__ float* tileMax,__ubuf__ float* maxima) {
+    vector_f32 x,mc;auto mask=pset_b32(__cce_simd::PAT_ALL);
+    for(int r=0;r<VM;++r) {
+        vlds(x,tileMax+r*64,0,__cce_simd::NORM);
+        vcmax(mc,x,mask);
+        vdup(mc,mc,mask,__cce_simd::POS_LOWEST,__cce_simd::MODE_ZEROING);
+        vsts(mc,maxima+r,0,__cce_simd::ONEPT_B32,mask);
+    }
+}
+// Fixed-reference softmax: the exp reference is the first tile's row max m_0 instead of
+// the running max, so P_t = exp(x - m_0) is already correctly scaled and the L0C PV
+// accumulator can accumulate across every tile without ever being rescaled. The alpha
+// chain and the per-tile update_acc disappear; the row max is only parked per tile for
+// the job-end fold, and sumout is rescaled from the m_0 frame to the global-max frame
+// once at job end. exp overflows only when m_global - m_0 > 88, unreachable at
+// logits/24 scale.
+__simd_vf__ inline void softmax_tile(__ubuf__ float* scores,__ubuf__ float* bias,
+    __ubuf__ float* tileMax,int t,__ubuf__ float* denoms,__ubuf__ float* refs,
+    __ubuf__ bfloat16_t* probability,bool firstTile) {
+#if defined(CCE_DIAG_SOFTMAX)
+    // Diagnostic: keep the cast + every MTE/MAD flow, drop only the V-pipe
+    // max/exp/denom arithmetic, to expose how much AIV time softmax really costs.
+    vector_f32 x;vector_bf16 b;auto mask=pset_b32(__cce_simd::PAT_ALL);
+    for(int r=0;r<VM;++r)for(int h=0;h<BN/64;++h) {
+        vlds(x,scores+h*VM*64+r*64,0,__cce_simd::NORM);
+        vcvt(b,x,mask,__cce_simd::RoundRType(),__cce_simd::RS_DISABLE,__cce_simd::PART_EVEN);
+        vsts(b,probability+h*VM*64+r*64,0,__cce_simd::PK_B32,mask);
+    }
+    for(int r=0;r<VM;++r){tileMax[t*64+r]=0.0f;denoms[r]=1.0f;refs[r]=0.0f;}
+    (void)firstTile;
+    return;
+#else
+    // Candidate halves live in separate [row][64] blocks so every UB copy keeps stride == 64.
+    // Bias (masked candidates) is identical for every row of the tile: load it once instead
+    // of once per row in both the max and the exp pass; each chunk is also loaded, scaled
+    // and masked once and kept in registers across both passes.
+    constexpr int kChunks=BN/64;
+    auto mask=pset_b32(__cce_simd::PAT_ALL);
+    vector_f32 x0,offset0,m,mc,ref,den,factor,zero; vector_bf16 packed;
+    vector_bool valid0;
+    vbr(factor,1.0f/24.0f);vbr(zero,0.0f);
+    vlds(offset0,bias+0,0,__cce_simd::NORM);vcmp_eq(valid0,offset0,zero,mask);
+    vector_f32 x1,offset1; vector_bool valid1;
+    if constexpr(kChunks==2) {
+        vlds(offset1,bias+64,0,__cce_simd::NORM);vcmp_eq(valid1,offset1,zero,mask);
+    }
+    for(int r=0;r<VM;++r) {
+        vlds(x0,scores+r*64,0,__cce_simd::NORM);
+        vmul(x0,x0,factor,mask);vsel(x0,x0,offset0,valid0);
+        if constexpr(kChunks==2) {
+            vlds(x1,scores+VM*64+r*64,0,__cce_simd::NORM);
+            vmul(x1,x1,factor,mask);vsel(x1,x1,offset1,valid1);
+        }
+        vcmax(mc,x0,mask);vdup(mc,mc,mask,__cce_simd::POS_LOWEST,__cce_simd::MODE_ZEROING);
+        vdup(m,mc,mask,__cce_simd::POS_LOWEST,__cce_simd::MODE_ZEROING);
+        if constexpr(kChunks==2) {
+            vcmax(mc,x1,mask);vdup(mc,mc,mask,__cce_simd::POS_LOWEST,__cce_simd::MODE_ZEROING);
+            vmax(m,m,mc,mask);
+        }
+        if(firstTile) {
+            // The first tile's max is exactly the m_0 reference: persist it before the
+            // per-tile parking below so the job-end fold never loses it.
+            vsts(m,refs+r,0,__cce_simd::ONEPT_B32,mask);
+            vadd(ref,m,zero,mask);
+        } else {
+            vlds(ref,refs+r,0,__cce_simd::BRC_B32);
+        }
+        vsts(m,tileMax+r*64+t,0,__cce_simd::ONEPT_B32,mask);
+        // vcadd also reports in lane 0 and the ONEPT store keeps lane 0, so the chunk
+        // sums fold straight into the broadcast denominator with no vdup/vbr detour.
+        vlds(den,denoms+r,0,__cce_simd::BRC_B32);
+        vsub(x0,x0,ref,mask);vexp(x0,x0,mask);
+        vcadd(mc,x0,mask);vadd(den,den,mc,mask);
+        vcvt(packed,x0,mask,__cce_simd::RoundRType(),__cce_simd::RS_DISABLE,__cce_simd::PART_EVEN);
+        vsts(packed,probability+r*64,0,__cce_simd::PK_B32,mask);
+        if constexpr(kChunks==2) {
+            vsub(x1,x1,ref,mask);vexp(x1,x1,mask);
+            vcadd(mc,x1,mask);vadd(den,den,mc,mask);
+            vcvt(packed,x1,mask,__cce_simd::RoundRType(),__cce_simd::RS_DISABLE,__cce_simd::PART_EVEN);
+            vsts(packed,probability+VM*64+r*64,0,__cce_simd::PK_B32,mask);
+        }
+        vsts(den,denoms+r,0,__cce_simd::ONEPT_B32,mask);
+    }
+#endif
+}
+__simd_vf__ inline void pack_gather(__ubuf__ uint16_t* raw,__ubuf__ uint16_t* packed) {
+#if defined(CCE_DIAG_NOPACK)
+    // Ablation: drop the SIMD NZ transpose; the MTE3 L1 refill still runs on stale data.
+    return;
+#else
+    vector_u16 x;auto mask=pset_b16(__cce_simd::PAT_ALL);
+    auto src=raw;auto dst=packed;
+    for(int col=0;col<4;++col) {
+        for(int r=0;r<15;++r) {
+            vlds(x,src,640,__cce_simd::NORM,__cce_simd::POST_UPDATE);
+            vsstb(x,dst,(16<<16)|1,mask,__cce_simd::POST_UPDATE);
+        }
+        vlds(x,src,128,__cce_simd::NORM,__cce_simd::POST_UPDATE);
+        vsstb(x,dst,(16<<16)|113,mask,__cce_simd::POST_UPDATE);
+        src-=15*640;
+    }
+#endif
+}
+// Timing-only ablation: with CCE_DIAG_SECOND_NOGATHER the second head-tile
+// job of every token skips all gather traffic (MTE2 GM reads + MTE3 L1 refill)
+// and only keeps the cube-side notification, so the wall-clock gap against the
+// unmodified library measures exactly the share a head-pair shared-gather
+// redesign could hope to save. Scores of those jobs read stale L1 data -
+// precision is meaningless by construction.
+#if defined(CCE_DIAG_SECOND_NOGATHER)
+constexpr bool kDiagSecondNoGather=true;
+#else
+constexpr bool kDiagSecondNoGather=false;
+#endif
+// Timing-only ablations for the H128 critical-path hunt: NO_QK drops the score-tile
+// MADs and their L0A/L0B loads (the QK fix still runs on stale L0C), NO_PV drops the
+// probability-tile MADs and loads (the final PV fix still runs on a stale accumulator).
+// Both leave every intra-block event pair intact, so the pipeline cannot deadlock.
+#if defined(CCE_DIAG_NO_QK)
+constexpr bool kDiagNoQk=true;
+#else
+constexpr bool kDiagNoQk=false;
+#endif
+#if defined(CCE_DIAG_NO_PV)
+constexpr bool kDiagNoPv=true;
+#else
+constexpr bool kDiagNoPv=false;
+#endif
+// More timing-only probes for the H128 critical-path hunt: NO_FIXQK drops the QK
+// L0C->UB fix (softmax then reads stale UB), NO_PCOPY drops the probability-tile
+// UB->L1 MTE3 copy (PV then reads a stale prob area), NO_QRELOAD drops the per-tile
+// Q L1->L0A refill. All keep every event pair intact.
+#if defined(CCE_DIAG_NO_FIXQK)
+constexpr bool kDiagNoFixQk=true;
+#else
+constexpr bool kDiagNoFixQk=false;
+#endif
+#if defined(CCE_DIAG_NO_PCOPY)
+constexpr bool kDiagNoPCopy=true;
+#else
+constexpr bool kDiagNoPCopy=false;
+#endif
+[aicore] inline void gather_vector(__gm__ bfloat16_t* kv,__gm__ bfloat16_t* kr,
+    __gm__ int32_t* ids,int first,int slot,int ropeSlot,bool suppressed=false) {
+    if constexpr(kDiagSecondNoGather) {
+        if(suppressed) { set_intra_block(PIPE_MTE3,4); return; }
+    }
+    if constexpr(kSplit&&kMte2Scatter) {
+        // Latent staging: row r's 32 column-pieces (32B each) land at staged + c*512 + r*16,
+        // i.e. NZ fractal (rg,c) at c*512 + rg*256 - the exact layout the SIMD packer made.
+        // The two 32-row halves stage into disjoint areas (retired accumulator tail +
+        // the raw-staging offset), so the second half's MTE2 never waits on the first
+        // half's MTE3 refill - the old inter-batch fence disappears and both halves
+        // issue back-to-back on the MTE2 channel. Rope stays linear over all 64 rows
+        // (row stride 64 halfwords) in the result area, which is only written at job
+        // end, so the MTE2 scatter and the job-end cast never collide.
+        auto stagedA=(__ubuf__ uint16_t*)get_imm(U_STAGEA);
+        auto stagedB=(__ubuf__ uint16_t*)get_imm(U_RAW);
+        auto ropeLin=(__ubuf__ uint16_t*)get_imm(U_OUT);
+        auto lat=(__cbuf__ uint16_t*)get_imm(0)+slot*kSlotSize;
+        auto rope=(__cbuf__ uint16_t*)get_imm(kRopeRingBase*2)+ropeSlot*kRopeSize;
+        constexpr int rows=BN/2;
+        constexpr int subBase=kLatHalf;
+        for(int base=0;base<rows;base+=32) {
+            auto staged=base?stagedB:stagedA;
+            for(int r=0;r<32;++r) {
+                int idx=ids[first+get_subblockid()*rows+base+r];
+                int safe=idx>=0&&idx<8192?idx:0;
+                auto row=(__gm__ uint16_t*)kv+safe*512;
+                copy_gm_to_ubuf(staged+r*16,row,0,32,1,0,31);
+                copy_gm_to_ubuf(ropeLin+(base+r)*64,(__gm__ uint16_t*)kr+safe*64,0,4,1,0,0);
+            }
+        }
+        set_flag(PIPE_MTE2,PIPE_MTE3,EVENT_ID0);
+        wait_flag(PIPE_MTE2,PIPE_MTE3,EVENT_ID0);
+        // One 512B burst per fractal; srcGap 16 walks the interleaved staging
+        // (fractal c at +c*512 halfwords), dstGap 48 keeps the L1 c*1024 + rg*256 layout.
+        for(int rg=0;rg<rows/16;++rg) {
+            auto staged=rg<2?stagedA:stagedB;
+            copy_ubuf_to_cbuf(lat+get_subblockid()*subBase+rg*16*16,
+                staged+(rg&1)*256,0,32,16,16,48);
+        }
+        auto ropeDst=rope+get_subblockid()*kRopeHalf;
+        for(int col=0;col<4;++col)
+            copy_ubuf_to_cbuf(ropeDst+col*(kHalfRows*16),
+                ropeLin+col*16,0,rows,1,3,0);
+        set_intra_block(PIPE_MTE3,4);
+        set_flag(PIPE_MTE3,PIPE_MTE2,EVENT_ID1);
+        wait_flag(PIPE_MTE3,PIPE_MTE2,EVENT_ID1);
+        return;
+    }
+    auto raw=(__ubuf__ uint16_t*)get_imm(U_RAW);
+    auto lat=(__cbuf__ uint16_t*)get_imm(0)+slot*kSlotSize;
+    auto rope=(__cbuf__ uint16_t*)get_imm(kRopeRingBase*2)+ropeSlot*kRopeSize;
+    auto packed=(__ubuf__ uint16_t*)get_imm(U_PACK);
+    constexpr int rows=BN/2;
+    // Interleaved in one 64-row tile when validated, one self-contained half per subblock when split.
+    constexpr int subBase=kSplit?kLatHalf:rows*16;
+    for(int base=0;base<rows;base+=kRawRows) {
+        // Batch N+1 overwrites the same raw staging buffer, so its MTE2 loads must wait for
+        // batch N's rope copy (an MTE3 read of raw) to finish; without this fence the DMA
+        // engines race and the L1 fractals land with corrupted rows.
+        if(base>0) {
+            set_flag(PIPE_MTE3,PIPE_MTE2,EVENT_ID1);
+            wait_flag(PIPE_MTE3,PIPE_MTE2,EVENT_ID1);
+        }
+        for(int r=0;r<kRawRows;++r) {
+#if defined(CCE_DIAG_NOGATHERIDS)
+            int idx=(first+base+r)&8191; // ablation: arithmetic index, no scalar GM load
+#else
+            int idx=ids[first+get_subblockid()*rows+base+r];
+#endif
+            int safe=idx>=0&&idx<8192?idx:0;
+            copy_gm_to_ubuf_align_v2(raw+r*640,(__gm__ uint16_t*)kv+safe*512,0,1,1024,0,0,false,0,0,0);
+            copy_gm_to_ubuf_align_v2(raw+r*640+512,(__gm__ uint16_t*)kr+safe*64,0,1,128,0,0,false,0,0,0);
+        }
+#if defined(CCE_MTE_PACK)
+        // The NZ fractals are built by strided MTE3 bursts straight out of the raw rows —
+        // the RoPE pattern extended to all 32 latent col-blocks — so the vector pipe no
+        // longer touches the gather path at all (pack_gather removed from the hot loop).
+        static_assert(kSplit,"MTE pack path is only wired for the split BN=128 layout");
+        set_flag(PIPE_MTE2,PIPE_MTE3,EVENT_ID0);wait_flag(PIPE_MTE2,PIPE_MTE3,EVENT_ID0);
+        for(int c=0;c<kLatent/16;++c) {
+            copy_ubuf_to_cbuf(lat+get_subblockid()*subBase+c*(kHalfRows*16)+base*16,
+                raw+c*16,0,kRawRows,1,39,0);
+        }
+#else
+        set_flag(PIPE_MTE2,PIPE_V,EVENT_ID0);wait_flag(PIPE_MTE2,PIPE_V,EVENT_ID0);
+        for(int chunk=0;chunk<kRawRows/16;++chunk) {
+            int row=base+chunk*16;
+            pack_gather(raw+chunk*16*640,packed);
+            set_flag(PIPE_V,PIPE_MTE3,EVENT_ID0);wait_flag(PIPE_V,PIPE_MTE3,EVENT_ID0);
+            copy_ubuf_to_cbuf(lat+get_subblockid()*subBase+row*16,packed,0,32,16,0,kHalfRows-16);
+            set_flag(PIPE_MTE3,PIPE_V,EVENT_ID2);wait_flag(PIPE_MTE3,PIPE_V,EVENT_ID2);
+        }
+#endif
+        // RoPE lands in its own ring when split, still inside the slot when not.
+        auto ropeDst=kSplit?rope+get_subblockid()*kRopeHalf
+                          :lat+kRopeOff+get_subblockid()*subBase;
+        for(int col=0;col<4;++col) {
+            // Transpose the 16 rows of the small RoPE tail with strided bursts.
+            copy_ubuf_to_cbuf(ropeDst+col*(kHalfRows*16)+base*16,
+                raw+512+col*16,0,kRawRows,1,39,0);
+        }
+    }
+    set_intra_block(PIPE_MTE3,4);
+    // Protect the single raw UB buffer before the next Gather overwrites it.
+    set_flag(PIPE_MTE3,PIPE_MTE2,EVENT_ID1);
+    wait_flag(PIPE_MTE3,PIPE_MTE2,EVENT_ID1);
+}
+extern "C" __global__ [aicore] __mix__(1,2) void sfa(
+    __gm__ bfloat16_t* q,__gm__ bfloat16_t* qr,__gm__ bfloat16_t* kv,
+    __gm__ bfloat16_t* kr,__gm__ int32_t* ids,__gm__ bfloat16_t* out,
+    __gm__ float* maxout,__gm__ float* sumout,int heads,int queries,int groups) {
+#if defined(__DAV_VEC__)
+    // Pad the tile-max parking tails once per block: UB persists across jobs and every
+    // job only overwrites lanes [0,tiles) of each row, so the -FLT_MAX sentinels survive.
+    auto tileMaxInit=(__ubuf__ float*)get_imm(U_TILEMAX);
+    for(int r=0;r<VM;++r)for(int t=2048/BN;t<64;++t) tileMaxInit[r*64+t]=-3.402823466e38f;
+#endif
+    for(int job=get_block_idx();job<queries*(heads/BM);job+=groups) {
+        int token=job/(heads/BM), head=job%(heads/BM)*BM;
+#if defined(__DAV_CUBE__)
+        auto base=(__cbuf__ bfloat16_t*)get_imm(0);
+        auto query=base+kQueryOff;auto prob=query+BM*512;
+        auto aP=(__ca__ bfloat16_t*)get_imm(BM<=32?BM*576*2:0);
+        auto aQ=(__ca__ bfloat16_t*)get_imm(0);
+        auto b=(__cb__ bfloat16_t*)get_imm(0);
+        auto c0=(__cc__ float*)get_imm(0);
+        // Split halves park c1 in the gap between c0 and the PV accumulator: PV drains
+        // BM*512 floats from kPvOff, so the old c1 offset (BM*64*4) landed inside it and
+        // the PV mad overwrote half-1 scores whenever BM*512*4 > BM*64*4 (BM=64).
+        auto c1=(__cc__ float*)get_imm(kSplit?kPvOff-BM*64*4:0);
+        auto qrResident=prob+BM*BN;
+        auto qL=q+(token*heads+head)*512, qrL=qr+(token*heads+head)*64;
+        if constexpr(BM<=32) {
+        load_nz(query,qL,BM,512,BM);
+        load_nz(qrResident,qrL,BM,64,BM);
+        pipe_barrier(PIPE_ALL);
+        load_cbuf_to_ca(aQ,query,0,0,BM/16,32,BM/16,BM/16,0);
+        load_cbuf_to_ca((__ca__ bfloat16_t*)get_imm(BM*512*2),qrResident,0,0,BM/16,4,BM/16,BM/16,0);
+        pipe_barrier(PIPE_ALL);
+        } else {
+        // BM=64 keeps Q in L1 once per job and moves it into L0A once: the full 64KB
+        // Q tile stays resident for the whole job; only the 8KB head (reused by the
+        // rope operand and the probability-tile A) is repaired per tile.
+        load_nz(query,qL,BM,512,BM);
+        load_nz(qrResident,qrL,BM,64,BM);
+        pipe_barrier(PIPE_ALL);
+        load_cbuf_to_ca(aQ,query,0,0,BM/16,32,BM/16,BM/16,0);
+        pipe_barrier(PIPE_ALL);
+        }
+        auto pv=(__cc__ float*)get_imm(kPvOff);
+        for(int t=0;t<2048/BN;++t) {
+            [[maybe_unused]] auto lat=base+(t%kSlots)*kSlotSize;
+            [[maybe_unused]] auto rope=base+kRopeRingBase+(t%kRopeRings)*kRopeSize;
+            await_vectors(4);
+            if constexpr(kSplit&&!kDiagNoQk) {
+                // Latent scores first (both halves against the resident Q), then the
+                // rope scores (whose 8KB A clobbers only the Q head): the full-Q L0A
+                // reload between halves disappears, cutting per-tile L0A traffic.
+#if defined(CCE_WIDE_QK)
+                score_wide(query,lat,qrResident,rope,c0);
+#else
+                score<512,kHalf>(query,lat,c0,qL,true);
+                score<512,kHalf>(query,lat+kLatHalf,c1,qL,true);
+                score<64,kHalf>(qrResident,rope,c0,qrL,false);
+                score<64,kHalf>(qrResident,rope+kRopeHalf,c1,qrL,false);
+#endif
+            } else if constexpr(!kSplit&&!kDiagNoQk) {
+                score<512,kHalf>(query,lat,c0,qL,true);
+                score<64,kHalf>(qrResident,lat+kRopeOff,c0,qrL,false);
+            }
+            if(t>0)await_vectors(5);
+            if constexpr(!kDiagNoFixQk) {
+                if constexpr(kSplit) {
+                    fix_ub(c0,64,64,0);fix_ub(c1,64,64,VM*64*4);
+                } else fix_ub(c0,BN,64);
+            }
+            notify_cube(0);
+            if(t>0&&!kDiagNoPv) {
+                await_vectors(1);
+                auto prev=base+((t-1)%kSlots)*kSlotSize;
+                load_cbuf_to_ca(aP,prob,0,0,BM/16,kHalf/16,BM/16,BM/16,0);
+                load_cbuf_to_cb(b,prev,0,0,kHalf/16,32,kHalf/16,32,true);
+                // Fixed-reference softmax: probabilities are already correctly scaled, so
+                // the L0C accumulator is initialized once (t==1) and every later tile just
+                // accumulates on top - no per-tile fix, no Vector rescale.
+                pipe_barrier(PIPE_ALL);
+                if(t==1) mad(pv,aP,b,BM,kHalf,512,0,false,false,true);
+                else mad(pv,aP,b,BM,kHalf,512,0,false,false,false);
+                pipe_barrier(PIPE_ALL);
+                if constexpr(kSplit) {
+                    load_cbuf_to_ca(aP,prob+(kHalf/16)*BM*16,0,0,BM/16,kHalf/16,BM/16,BM/16,0);
+                    load_cbuf_to_cb(b,prev+kLatHalf,0,0,kHalf/16,32,kHalf/16,32,true);
+                    pipe_barrier(PIPE_ALL);mad(pv,aP,b,BM,kHalf,512,0,false,false,false);
+                    pipe_barrier(PIPE_ALL);
+                }
+            } else if(t>0) { await_vectors(1); }
+        }
+        // Drain the final probability tile into the persistent accumulator, then fix the
+        // fully accumulated output once and hand it to Vector.
+        await_vectors(1);
+        [[maybe_unused]] auto prev=base+(((2048/BN)-1)%kSlots)*kSlotSize;
+        if constexpr(!kDiagNoPv) {
+        load_cbuf_to_ca(aP,prob,0,0,BM/16,kHalf/16,BM/16,BM/16,0);
+        load_cbuf_to_cb(b,prev,0,0,kHalf/16,32,kHalf/16,32,true);
+        pipe_barrier(PIPE_ALL);mad(pv,aP,b,BM,kHalf,512,0,false,false,false);
+        pipe_barrier(PIPE_ALL);
+        if constexpr(kSplit) {
+            load_cbuf_to_ca(aP,prob+(kHalf/16)*BM*16,0,0,BM/16,kHalf/16,BM/16,BM/16,0);
+            load_cbuf_to_cb(b,prev+kLatHalf,0,0,kHalf/16,32,kHalf/16,32,true);
+            pipe_barrier(PIPE_ALL);mad(pv,aP,b,BM,kHalf,512,0,false,false,false);
+            pipe_barrier(PIPE_ALL);
+        }
+        }
+        fix_ub(pv,512,512,U_PV);notify_cube(2);await_vectors(3);
+#elif defined(__DAV_VEC__)
+        auto shared=(__ubuf__ float*)get_imm(0);
+        auto scratch=(__ubuf__ float*)get_imm(U_SCRATCH);
+        auto p=(__ubuf__ uint16_t*)get_imm(U_P);
+        auto result=(__ubuf__ bfloat16_t*)get_imm(U_OUT);
+        auto maxima=(__ubuf__ float*)get_imm(U_STATS);
+        auto denoms=maxima+VM;
+        auto refs=denoms+VM;
+        auto tileMax=(__ubuf__ float*)get_imm(U_TILEMAX);
+        for(int r=0;r<VM;++r) {maxima[r]=-3.402823466e38f;denoms[r]=0;}
+        bool suppress=kDiagSecondNoGather&&(head/BM>0);
+        gather_vector(kv,kr,ids,token*2048,0,0,suppress);
+        for(int p=1;p<kPrefetch;++p)
+            gather_vector(kv,kr,ids,token*2048+p*BN,p%kSlots,p%kRopeRings,suppress);
+        for(int t=0;t<2048/BN;++t) {
+            if(t+kPrefetch<2048/BN)gather_vector(kv,kr,ids,token*2048+(t+kPrefetch)*BN,
+                (t+kPrefetch)%kSlots,(t+kPrefetch)%kRopeRings,suppress);
+            wait_intra_block(PIPE_S,0);
+            for(int j=0;j<BN;++j) {
+#if defined(CCE_DIAG_NOBIASIDS)
+                int idx=j; // ablation: remove the scalar GM load, keep the loop shape
+#else
+                int idx=ids[token*2048+t*BN+j];
+#endif
+                scratch[j]=idx>=0&&idx<8192?0.0f:-3.402823466e38f;
+            }
+            set_flag(PIPE_S,PIPE_V,EVENT_ID0);wait_flag(PIPE_S,PIPE_V,EVENT_ID0);
+            softmax_tile(shared,scratch,tileMax,t,denoms,refs,(__ubuf__ bfloat16_t*)p,t==0);
+            set_flag(PIPE_V,PIPE_MTE3,EVENT_ID0);wait_flag(PIPE_V,PIPE_MTE3,EVENT_ID0);
+            if(t+1<2048/BN)set_intra_block(PIPE_V,5);
+            if constexpr(!kDiagNoPCopy) {
+                auto pl1=(__cbuf__ uint16_t*)get_imm((kQueryOff+BM*512)*2);
+                for(int h=0;h<BN/64;++h)
+                    for(int j=0;j<4;++j)
+                        copy_ubuf_to_cbuf(pl1+(h*4+j)*BM*16+get_subblockid()*VM*16,
+                            p+h*VM*64+j*16,0,VM,1,3,0);
+            }
+            set_intra_block(PIPE_MTE3,1);
+        }
+        // The single end-of-job fix already produced the fully accumulated (still m_0-
+        // scaled) output in the staging buffer; the f32 accumulator in UB is gone.
+        wait_intra_block(PIPE_S,2);
+        fold_tile_max(tileMax,maxima);
+        for(int r=0;r<VM;++r)cast_output(shared+U_PV/4+r*512,result+r*512,1.0f/denoms[r]);
+        set_flag(PIPE_V,PIPE_MTE3,EVENT_ID0);wait_flag(PIPE_V,PIPE_MTE3,EVENT_ID0);
+        set_intra_block(PIPE_V,3);
+        rescale_denoms(denoms,refs,maxima);
+        set_flag(PIPE_V,PIPE_MTE3,EVENT_ID0);wait_flag(PIPE_V,PIPE_MTE3,EVENT_ID0);
+        int row=token*heads+head+get_subblockid()*VM;
+        // The three GM drains are all MTE3 (in-order per channel) over disjoint UB
+        // regions, so no barrier is needed between them; the trailing PIPE_ALL at the
+        // job-loop end still orders them against the next job's scalar stats-init and
+        // gather MTE2 (rope staging aliases the result area).
+        copy_ubuf_to_gm_align_v2(out+row*512,result,0,1,VM*512*2,0,0,0);
+        copy_ubuf_to_gm_align_v2(maxout+row,maxima,0,1,VM*4,0,0,0);
+        copy_ubuf_to_gm_align_v2(sumout+row,denoms,0,1,VM*4,0,0,0);
+#endif
+        pipe_barrier(PIPE_ALL);
+    }
+}
+extern "C" aclError cce_launch_sfa(void* q,void* qr,void* kv,void* kr,void* ids,
+    void* out,void* maximum,void* sum,int heads,int queries,int groups,aclrtStream stream) {
+    sfa<<<groups,nullptr,stream>>>((bfloat16_t*)q,(bfloat16_t*)qr,(bfloat16_t*)kv,
+      (bfloat16_t*)kr,(int32_t*)ids,(bfloat16_t*)out,(float*)maximum,(float*)sum,heads,queries,groups);
+    return aclrtPeekAtLastError(ACL_RT_THREAD_LEVEL);
+}

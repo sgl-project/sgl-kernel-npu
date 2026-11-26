@@ -1,12 +1,9 @@
 """Public A5 SiTU + MXFP8 quantization API."""
 
 import torch
-from sgl_kernel_npu.operators.utils.generation import Generation
-from sgl_kernel_npu.operators.utils.registry import (
-    get_impl_by_name,
-    register_impl,
-    register_operator,
-)
+
+from ..utils.generation import Generation
+from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _IMPL_NAME = "activation.situ_mxfp8_quant"
 _ONLY_A5 = {Generation.ARCH35}

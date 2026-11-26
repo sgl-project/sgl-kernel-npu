@@ -42,12 +42,15 @@ if(NOT torch_adapters)
 endif()
 message(STATUS "Torch CANN operators: ${cann_operators}; HOST operators: ${SGL_HOST_OPERATORS}")
 add_library(sgl_kernel_npu SHARED ${torch_adapters})
-if(SGL_HOST_OPERATORS)
-    # HOST implementations were compiled and installed by the native RUN build.
-    find_library(SGL_HOST_LIBRARY sgl_host_operators
-        PATHS "${SGL_CANN_VENDOR}/op_impl/host/lib" NO_DEFAULT_PATH REQUIRED)
-    target_link_libraries(sgl_kernel_npu PRIVATE "${SGL_HOST_LIBRARY}")
-endif()
+sgl_split_direct_operators(host_operators cce_operators ${SGL_HOST_OPERATORS})
+foreach(kind IN ITEMS host cce)
+    if(${kind}_operators)
+        find_library(SGL_${kind}_LIBRARY sgl_${kind}_operators
+            PATHS "${SGL_CANN_VENDOR}/op_impl/${kind}/lib" NO_DEFAULT_PATH REQUIRED)
+        target_link_libraries(sgl_kernel_npu PRIVATE "${SGL_${kind}_LIBRARY}")
+    endif()
+endforeach()
+
 target_compile_features(sgl_kernel_npu PRIVATE cxx_std_17)
 target_compile_options(sgl_kernel_npu PRIVATE ${torch_flags})
 target_compile_definitions(sgl_kernel_npu PRIVATE ${host_definitions})
@@ -57,6 +60,12 @@ target_include_directories(sgl_kernel_npu PRIVATE
 target_link_libraries(sgl_kernel_npu PRIVATE ${TORCH_LIBRARIES})
 set_target_properties(sgl_kernel_npu PROPERTIES CXX_EXTENSIONS OFF
     CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+# CCE launch stubs require the CANN runtime.
+if(cce_operators)
+    find_library(SGL_CCE_RUNTIME_LIBRARY runtime
+        PATHS "${sdk}/lib64" NO_DEFAULT_PATH REQUIRED)
+    target_link_libraries(sgl_kernel_npu PRIVATE "${SGL_CCE_RUNTIME_LIBRARY}")
+endif()
 # Only CANN adapters need the repository's installed vendor and nnopbase.
 target_include_directories(sgl_kernel_npu PRIVATE ${cann_includes})
 target_link_libraries(sgl_kernel_npu PRIVATE "${TORCH_NPU_LIBRARY}"
