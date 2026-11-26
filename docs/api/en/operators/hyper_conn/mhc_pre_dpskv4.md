@@ -5,9 +5,9 @@
 | Implementation | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
 | `cann_ops_transformers_cann920` | Supported | Supported |
-| `cann_ops_transformers_cann920_v2` | Supported | |
+| `cann_ops_transformers_cann920_v2` | Supported | Supported |
 | `cann_recipes_infer_cann910` | Supported | Supported |
-| `cann_recipes_infer_cann920` | | Supported |
+| `cann_recipes_infer_cann920` (V2 compatibility name) | | Supported |
 | `torch_native` | Supported | Supported |
 
 DeepSeek V4.1 requires a CANN 9.2 wheel that bundles the fused backend for the target architecture.
@@ -22,7 +22,11 @@ def mhc_pre_dpskv4(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm
     ...
 ```
 
-When the caller supplies `pre_mix` or requests `return_pre=True`, `auto` selects CANN MhcPreSinkhornV2 on A3 and Recipes HcPre on A5. For calls with neither option, the initialized SDK selects the DeepSeek V4 path.
+When the caller supplies `pre_mix` or requests `return_pre=True`, `auto` selects CANN MhcPreSinkhornV2 on A3 and A5. Calls with neither option use the SDK-selected DeepSeek V4 path.
+
+### Direct V2 entry point
+
+`mhc_pre_sinkhorn_v2(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps, *, pre_mix, impl='auto')` uses the bundled V2 operator on A3 and A5 and returns `(y, post, comb, pre)`. `pre_mix` contains the previous sublayer's weights. The returned `pre` comes from the current residual.
 
 ## Description
 
@@ -67,11 +71,11 @@ Source: [cann-recipes-infer; aclnnHcPre](https://gitcode.com/cann/cann-recipes-i
 
 ## cann_recipes_infer_cann920
 
-Calls the wheel-bundled Recipes `npu_hc_pre_v2` on A5.
+This is a compatibility name for old A5 callers of `mhc_pre_dpskv4`. It selects the same bundled V2 kernel.
 
 ## cann_ops_transformers_cann920_v2
 
-On A3, uses the wheel-bundled MhcPreSinkhornV2 with HF32 enabled. The wheel registers it as `aclnnSglMhcPreSinkhornV2` so the DeepSeek V4 and V4.1 kernels can coexist. The backend uses four residual streams, 20 Sinkhorn iterations and a hidden dimension aligned to 128. [CANN operator contract](https://gitcode.com/cann/ops-transformer/blob/53f5c56996be158b52579d9cdd484b54a38dfb64/mhc/mhc_pre_sinkhorn/docs/aclnnMhcPreSinkhornV2.md)
+On A3 and A5, uses the wheel-bundled MhcPreSinkhornV2 with HF32. The wheel registers it as `aclnnSglMhcPreSinkhornV2` so the DeepSeek V4 and V4.1 kernels can coexist. The backend uses four residual streams, 20 Sinkhorn iterations and a hidden dimension aligned to 128. [CANN operator contract](https://gitcode.com/cann/ops-transformer/blob/53f5c56996be158b52579d9cdd484b54a38dfb64/mhc/mhc_pre_sinkhorn/docs/aclnnMhcPreSinkhornV2.md)
 
 ## torch_native
 
@@ -82,7 +86,7 @@ Independent eager PyTorch reference for correctness; never an automatic producti
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.hyper_conn import mhc_pre_dpskv4
+from sgl_kernel_npu.operators.hyper_conn import mhc_pre_dpskv4, mhc_pre_sinkhorn_v2
 
 x = torch.randn(1, 4, 5120, device="npu", dtype=torch.bfloat16)
 fn = torch.randn(24, 4 * 5120, device="npu", dtype=torch.float32)
@@ -92,10 +96,9 @@ y, post, comb = mhc_pre_dpskv4(x, fn, scale, base, 4, 20, 1e-6, 1e-6, impl="torc
 
 # DeepSeek V4.1 with the previous sublayer's pre weights.
 pre_mix = torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=x.device)
-y, post, comb, pre = mhc_pre_dpskv4(
+y, post, comb, pre = mhc_pre_sinkhorn_v2(
     x, fn, scale, base, 4, 20, 1e-6, 1e-6,
     pre_mix=pre_mix,
-    return_pre=True,
 )
 ```
 

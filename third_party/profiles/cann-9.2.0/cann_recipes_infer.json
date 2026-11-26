@@ -1,10 +1,9 @@
 {
-  "_comment": "CANN 9.2.0 recipes kernels for DSV4.1. kv_compress_epilog_v2 is the released full-width (non-packed) quantizing KV writer; the DSV4 packed 448+64 writer stays in ops_transformer_dsv4.json. npu_hc_pre_v2 is the DSV4.1 fused hc_pre bridge over the hc_pre kernel.",
+  "_comment": "CANN 9.2.0 DSV4.1 full-width (non-packed) quantizing KV writer. The DSV4 packed 448+64 writer stays in ops_transformer_dsv4.json.",
   "name": "sgl_cann_recipes_infer",
   "ops": {
     "arch35": {
-      "kv_compress_epilog_v2": "kv_compress_epilog_v2",
-      "npu_hc_pre_v2": "hc_pre"
+      "kv_compress_epilog_v2": "kv_compress_epilog_v2"
     }
   },
   "repository": "https://gitcode.com/cann/cann-recipes-infer.git",

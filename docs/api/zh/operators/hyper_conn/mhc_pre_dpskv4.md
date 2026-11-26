@@ -5,9 +5,9 @@
 | 实现 | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
 | `cann_ops_transformers_cann920` | 支持 | 支持 |
-| `cann_ops_transformers_cann920_v2` | 支持 | |
+| `cann_ops_transformers_cann920_v2` | 支持 | 支持 |
 | `cann_recipes_infer_cann910` | 支持 | 支持 |
-| `cann_recipes_infer_cann920` | | 支持 |
+| `cann_recipes_infer_cann920`（V2 兼容名称） | | 支持 |
 | `torch_native` | 支持 | 支持 |
 
 DeepSeek V4.1 路径需要安装包含目标架构融合后端的 CANN 9.2 wheel。
@@ -22,7 +22,11 @@ def mhc_pre_dpskv4(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm
     ...
 ```
 
-传入 `pre_mix` 或设置 `return_pre=True` 时，`auto` 在 A3 上选择 CANN MhcPreSinkhornV2，在 A5 上选择 Recipes HcPre。两项均未指定时，按初始化的 SDK 选择 DeepSeek V4 路径。
+传入 `pre_mix` 或设置 `return_pre=True` 时，`auto` 在 A3 和 A5 上都选择 CANN MhcPreSinkhornV2。两项均未指定时，按初始化的 SDK 选择 DeepSeek V4 路径。
+
+### V2 直接入口
+
+`mhc_pre_sinkhorn_v2(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps, *, pre_mix, impl='auto')` 在 A3 和 A5 上均调用 wheel 内的 V2 算子并返回 `(y, post, comb, pre)`。`pre_mix` 是上一子层的权重，返回的 `pre` 由当前残差计算。
 
 ## 说明
 
@@ -67,11 +71,11 @@ Source: [cann-recipes-infer; aclnnHcPre](https://gitcode.com/cann/cann-recipes-i
 
 ## cann_recipes_infer_cann920
 
-在 A5 上调用 wheel 内的 Recipes `npu_hc_pre_v2`。
+这是旧版 A5 `mhc_pre_dpskv4` 调用方的兼容名称，调用 wheel 内相同的 V2 算子。
 
 ## cann_ops_transformers_cann920_v2
 
-A3 使用 wheel 内的 MhcPreSinkhornV2 并开启 HF32。打包时将其注册为 `aclnnSglMhcPreSinkhornV2`，使 DeepSeek V4 和 V4.1 的算子可以同时加载。此后端使用 4 条残差流和 20 次 Sinkhorn 迭代，隐藏维度需按 128 对齐。[CANN 算子约束](https://gitcode.com/cann/ops-transformer/blob/53f5c56996be158b52579d9cdd484b54a38dfb64/mhc/mhc_pre_sinkhorn/docs/aclnnMhcPreSinkhornV2.md)
+A3 和 A5 使用 wheel 内的 MhcPreSinkhornV2 和 HF32。打包时将其注册为 `aclnnSglMhcPreSinkhornV2`，使 DeepSeek V4 和 V4.1 的算子可以同时加载。此后端使用 4 条残差流和 20 次 Sinkhorn 迭代，隐藏维度需按 128 对齐。[CANN 算子约束](https://gitcode.com/cann/ops-transformer/blob/53f5c56996be158b52579d9cdd484b54a38dfb64/mhc/mhc_pre_sinkhorn/docs/aclnnMhcPreSinkhornV2.md)
 
 ## torch_native
 
@@ -82,7 +86,7 @@ A3 使用 wheel 内的 MhcPreSinkhornV2 并开启 HF32。打包时将其注册�
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.hyper_conn import mhc_pre_dpskv4
+from sgl_kernel_npu.operators.hyper_conn import mhc_pre_dpskv4, mhc_pre_sinkhorn_v2
 
 x = torch.randn(1, 4, 5120, device="npu", dtype=torch.bfloat16)
 fn = torch.randn(24, 4 * 5120, device="npu", dtype=torch.float32)
@@ -92,10 +96,9 @@ y, post, comb = mhc_pre_dpskv4(x, fn, scale, base, 4, 20, 1e-6, 1e-6, impl="torc
 
 # DeepSeek V4.1 使用上一子层的 pre 权重。
 pre_mix = torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=x.device)
-y, post, comb, pre = mhc_pre_dpskv4(
+y, post, comb, pre = mhc_pre_sinkhorn_v2(
     x, fn, scale, base, 4, 20, 1e-6, 1e-6,
     pre_mix=pre_mix,
-    return_pre=True,
 )
 ```
 

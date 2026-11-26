@@ -45,22 +45,13 @@ def test_mhc_pre_dpskv4(shape):
     check_performance(executor, enable_perf=shape in perf_shape)
 
 
-def _dsv41_impl():
-    implementations = {
-        "sgl_mhc_pre_sinkhorn": "cann_ops_transformers_cann920_v2",
-        "npu_hc_pre_v2": "cann_recipes_infer_cann920",
-    }
-    dependencies = getattr(sgl_kernel_npu, "_manifest", {}).get("third_party", ())
-    for item in dependencies:
-        for op in item["ops"]:
-            if op in implementations:
-                return implementations[op]
+HAS_SINKHORN_V2 = any(
+    "sgl_mhc_pre_sinkhorn" in item["ops"]
+    for item in getattr(sgl_kernel_npu, "_manifest", {}).get("third_party", ())
+)
 
 
-DSV41_IMPL = _dsv41_impl()
-
-
-@pytest.mark.skipif(DSV41_IMPL is None, reason="requires bundled DSV4.1 mHC")
+@pytest.mark.skipif(not HAS_SINKHORN_V2, reason="requires bundled MhcPreSinkhornV2")
 @pytest.mark.parametrize("shape", mhc_shapes)
 @pytest.mark.parametrize("return_pre", [False, True], ids=["default", "return-pre"])
 def test_mhc_pre_dpskv4_dsv41(shape, return_pre):
@@ -71,7 +62,7 @@ def test_mhc_pre_dpskv4_dsv41(shape, return_pre):
         mhc_pre_dpskv4,
         args=args,
         kwargs={"return_pre": return_pre},
-        impl=DSV41_IMPL,
+        impl="cann_ops_transformers_cann920_v2",
         impl_ref="torch_native",
         standard=MC_PRE_STANDARD,
     )
@@ -90,7 +81,7 @@ def test_mhc_pre_dpskv4_pre_outputs_rejected():
         )
 
 
-@pytest.mark.skipif(DSV41_IMPL is None, reason="requires bundled DSV4.1 mHC")
+@pytest.mark.skipif(not HAS_SINKHORN_V2, reason="requires bundled MhcPreSinkhornV2")
 @pytest.mark.parametrize(
     "tokens",
     [
@@ -100,7 +91,7 @@ def test_mhc_pre_dpskv4_pre_outputs_rejected():
     ],
 )
 def test_mhc_pre_dpskv4_premix_graph_replay(tokens):
-    from sgl_kernel_npu.operators.hyper_conn import mhc_pre_dpskv4
+    from sgl_kernel_npu.operators.hyper_conn import mhc_pre_dpskv4, mhc_pre_sinkhorn_v2
 
     with torch.device("cpu"):
         x, fn, scale, base, *_ = generate_data((tokens, 4, 5120))
@@ -112,7 +103,7 @@ def test_mhc_pre_dpskv4_premix_graph_replay(tokens):
     )
 
     def run():
-        return mhc_pre_dpskv4(
+        return mhc_pre_sinkhorn_v2(
             x_npu,
             fn_npu,
             scale_npu,
@@ -122,7 +113,6 @@ def test_mhc_pre_dpskv4_premix_graph_replay(tokens):
             1e-6,
             1e-20,
             pre_mix=premix_npu,
-            return_pre=True,
         )
 
     torch.testing.assert_close(run()[0].cpu(), x[:, 0], atol=0, rtol=0)
