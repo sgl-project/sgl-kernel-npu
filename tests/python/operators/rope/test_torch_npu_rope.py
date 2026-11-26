@@ -3,7 +3,6 @@
 import pytest
 
 from tests.python.utils.accuracy import check_accuracy
-from tests.python.utils.common import get_test_impls, require_test_impl
 from tests.python.utils.performance import check_performance
 
 torch = pytest.importorskip("torch")
@@ -57,11 +56,8 @@ def test_rotary_mul(num_tokens, rotary_mode):
     check_performance(executor, enable_perf=True)
 
 
-def generate_mrope_data(num_tokens):
+def generate_mrope_data(num_tokens, head_size):
     torch.npu.manual_seed(42)
-    head_size = 64
-    # Qwen2-0.5B packs 14 query and 2 key/value heads at TP1. The split
-    # projections preserve the full QKV row stride through the RoPE call.
     qkv = torch.randn((num_tokens, 18 * head_size), dtype=torch.bfloat16)
     query, key, _ = qkv.split((14 * head_size, 2 * head_size, 2 * head_size), dim=-1)
     positions = torch.arange(num_tokens, dtype=torch.int64)
@@ -72,18 +68,20 @@ def generate_mrope_data(num_tokens):
 
 
 @pytest.mark.parametrize(
-    "num_tokens",
+    "num_tokens, head_size",
     [
-        pytest.param(16, id="qwen2-0.5b-text-prefill-tp1-arch22"),
+        pytest.param(16, 64, id="qwen2-0.5b-text-prefill-tp1"),
+        pytest.param(16, 128, id="qwen2.5-7b-instruct-text-prefill-tp2"),
     ],
 )
-def test_mrope(num_tokens):
+def test_mrope(num_tokens, head_size):
     from sgl_kernel_npu.operators.rope import mrope
+    from sgl_kernel_npu.operators.utils.registry import get_impl
 
-    require_test_impl(mrope, get_test_impls()[0])
+    assert get_impl(mrope, "auto") is get_impl(mrope, "ops-transformer")
     executor = check_accuracy(
         mrope,
-        args=generate_mrope_data(num_tokens),
+        args=generate_mrope_data(num_tokens, head_size),
         kwargs={
             "mrope_section": [0, 0, 0],
             "rotary_mode": "half",

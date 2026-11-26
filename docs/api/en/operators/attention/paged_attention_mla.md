@@ -4,10 +4,10 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `ascend-transformer-boost` | Supported | Unsupported |
+| `ascend-transformer-boost` | Supported | Supported |
 | `torch_native` | Supported | Supported |
 
-The legacy ATB binding is registered for the A2/A3 host-length path.
+On Ascend 950, the ATB implementation covers SGLang's eager decode path with fewer than eight local query heads per KV head. For example, DeepSeek-V2 at attention TP32 uses four query heads and one KV head. Use FIA for ratios of eight or higher.
 
 ## Signature
 

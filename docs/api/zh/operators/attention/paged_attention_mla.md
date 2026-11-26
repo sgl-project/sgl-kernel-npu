@@ -4,10 +4,10 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `ascend-transformer-boost` | 支持 | 不支持 |
+| `ascend-transformer-boost` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
-旧版 ATB 入口在 A2/A3 上注册，采用主机侧长度参数。
+在 Ascend 950 上，ATB 实现适用于 SGLang 的 eager decode 路径，每个本地 KV 头对应的 Q 头数小于 8。例如，DeepSeek-V2 在 attention TP32 下使用 4 个 Q 头和 1 个 KV 头。头数比为 8 或更高时请使用 FIA。
 
 ## 函数原型
 

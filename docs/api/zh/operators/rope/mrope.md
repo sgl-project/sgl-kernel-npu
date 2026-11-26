@@ -4,7 +4,7 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `ops-transformer` | 支持 | 不支持 |
+| `ops-transformer` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
 ## 函数原型
