@@ -257,12 +257,12 @@ def move_intermediate_cache_kda(
         int(dst_strides[3]),
         int(dst_strides[4]),
     )
-    assert len(dst_indices_tensor) == len(last_steps_tensor), (
-        "Destination indices lengths must match"
-    )
-    assert len(src_indices_tensor) == len(last_steps_tensor), (
-        "Source indices lengths must match"
-    )
+    assert len(dst_indices_tensor) == len(
+        last_steps_tensor
+    ), "Destination indices lengths must match"
+    assert len(src_indices_tensor) == len(
+        last_steps_tensor
+    ), "Source indices lengths must match"
 
     if len(dst_indices_tensor) == 0:
         return ssm_states

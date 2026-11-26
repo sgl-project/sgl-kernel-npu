@@ -1,97 +1,111 @@
-"""Exact, in-place KDA cache checks through the mainline public API.
-
-Performance uses the standalone A/B runner, which resets each destination outside
-the event interval. A repeatedly invoked shared executor would otherwise time an
-already-mutated rollback buffer. See benchmark/kda_cache_layer_parallel/README.md.
-"""
-
-import importlib
-import importlib.util
-import inspect
-import sys
-from functools import partial
-from pathlib import Path
-from types import SimpleNamespace
+"""Check layer-parallel cache updates, including in-place and stride semantics."""
 
 import pytest
 
 torch = pytest.importorskip("torch")
+pytest.importorskip("torch_npu")
 
 from tests.python.utils.common import get_test_impls, require_distinct_impls
 
-REPO = Path(__file__).resolve().parents[4]
-PACKAGE = REPO / "python/sgl_kernel_npu/sgl_kernel_npu"
-_spec = importlib.util.spec_from_file_location(
-    "kda_cache_layer_benchmark", REPO / "benchmark/kda_cache_layer_parallel/bench.py"
-)
-bench = importlib.util.module_from_spec(_spec)
-sys.modules[_spec.name] = bench
-_spec.loader.exec_module(bench)
+
+def generate_data(op, shape, batch, dtype, transposed, device):
+    torch.manual_seed(42)
+    layers, *dims = shape
+    pool, drafts = 2 * batch + 3, 4
+    storage_shape = (layers, pool, *dims)
+    if transposed:
+        storage_shape = (*storage_shape[:-2], storage_shape[-1], storage_shape[-2])
+    state = torch.randn(storage_shape, dtype=dtype, device=device)
+    if transposed:
+        state = state.transpose(-1, -2)
+    slots = list(reversed(range(1, batch + 1)))
+    steps = [(0, -1, 1, drafts - 1)[i % 4] for i in range(batch)]
+    indices = torch.tensor(slots, dtype=torch.int32, device=device)
+    step_indices = torch.tensor(steps, dtype=torch.int32, device=device)
+    expected = state.clone()
+    if op == "move":
+        source = torch.randn(
+            layers, max(batch, 1), drafts, *dims, dtype=dtype, device=device
+        )
+        src_indices = torch.arange(batch, dtype=torch.int32, device=device)
+        args = (source, indices, src_indices, step_indices)
+    else:
+        args = (indices, step_indices, drafts)
+
+    # Independent reference: skipped requests and unselected pool slots stay intact.
+    for src, (dst, step) in enumerate(zip(slots, steps)):
+        if step < 0:
+            continue
+        if op == "move":
+            expected[:, dst] = source[:, src, step]
+        else:
+            shift = drafts - 1 - step
+            if shift > 0:
+                expected[:, dst, shift:] = expected[:, dst, :-shift].clone()
+    return state, args, expected
 
 
-@pytest.fixture
-def operators():
+def check_case(op, shape, batch, dtype, transposed):
     from sgl_kernel_npu.operators.mamba import (
         conv_state_rollback,
         move_intermediate_cache_kda,
     )
 
-    backend = importlib.import_module(
-        "sgl_kernel_npu.implementation.triton.mamba.mamba_state_update"
-    )
-    assert (
-        Path(backend.__file__).resolve()
-        == (PACKAGE / "implementation/triton/mamba/mamba_state_update.py").resolve()
-    ), "Install this checkout before testing; the loaded backend is stale"
-    public = dict(
-        move_intermediate_cache_kda=move_intermediate_cache_kda,
-        conv_state_rollback=conv_state_rollback,
-    )
+    operator = move_intermediate_cache_kda if op == "move" else conv_state_rollback
     impl, impl_ref = get_test_impls()
-    for name, operator in public.items():
-        assert (
-            Path(inspect.getfile(operator)).resolve()
-            == (PACKAGE / f"operators/mamba/{name}.py").resolve()
-        ), "The public API must also come from this checkout"
-        require_distinct_impls(operator, impl, impl_ref)
+    require_distinct_impls(operator, impl, impl_ref)
+    state, args, expected = generate_data(
+        op, shape, batch, dtype, transposed, f"npu:{torch.npu.current_device()}"
+    )
+    for implementation in (impl_ref, impl):
+        # Each implementation receives the same initial values and layout.
+        actual = state.clone()
+        strides = actual.stride()
+        result = operator(actual, *args, impl=implementation)
+        if op == "conv" and batch == 0:
+            assert result is None
+        else:
+            assert result.data_ptr() == actual.data_ptr()
+            assert result.stride() == strides
+        assert actual.stride() == state.stride()
+        # Bound assertion temporaries for model shapes; inspect the whole pool.
+        for actual_layer, expected_layer in zip(actual, expected):
+            for start in range(0, state.shape[1], 8):
+                torch.testing.assert_close(
+                    actual_layer[start : start + 8],
+                    expected_layer[start : start + 8],
+                    atol=0,
+                    rtol=0,
+                )
 
-    def bind(implementation):
-        return SimpleNamespace(
-            **{name: partial(fn, impl=implementation) for name, fn in public.items()}
-        )
 
-    return f"npu:{torch.npu.current_device()}", bind(impl_ref), bind(impl)
+@pytest.mark.parametrize("op", ["move", "conv"])
+@pytest.mark.parametrize(
+    "layers,batch", [(1, 1), (4, 0), (4, 1), (32, 1), (4, 8), (4, 128)]
+)
+@pytest.mark.parametrize("transposed", [False, True])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_kda_cache_layer_parallel(op, layers, batch, transposed, dtype):
+    # Unaligned V/K dimensions exercise partial tiles; batch 8 mixes all steps.
+    shape = (layers, 2, 65, 19) if op == "move" else (layers, 6, 32)
+    check_case(op, shape, batch, dtype, transposed)
 
 
 @pytest.mark.parametrize(
-    "op,layer_batch,transposed,dtype", list(bench.correctness_cases())
+    "op,shape,dtype,transposed",
+    [
+        ("move", (69, 6, 128, 128), torch.float32, True),
+        ("conv", (69, 6, 2304), torch.bfloat16, False),
+    ],
 )
-def test_kda_cache_layer_parallel(op, layer_batch, transposed, dtype, operators):
-    device, reference, optimized = operators
-    layers, batch = layer_batch
-    shape = dict(
-        layers=layers,
-        drafts=4,
-        heads=2,
-        value_dim=65,
-        key_dim=19,
-        window=6,
-        channels=32,
-    )
-    data = bench.generate_data(op, batch, shape, device, dtype, transposed, mixed=True)
-    # Each public implementation gets its own reset buffer. Both must agree with
-    # the independently constructed expected state, including untouched slots.
-    bench.check_accuracy(data, reference, optimized)
+def test_kimi31_cache_shape(op, shape, dtype, transposed):
+    # Kimi K3.1: 69 KDA layers, 96 heads, head dim 128, conv kernel 4.
+    # Test choices: one TP=16 shard (6 heads), four drafts, batch 8.
+    # Conv window=(4-1)+(4-1)=6; channels=3*6*128=2304.
+    check_case(op, shape, 8, dtype, transposed)
 
 
-@pytest.mark.parametrize("op,shape,dtype,transposed", bench.MODEL_CASES)
-def test_kimi31_cache_shape(op, shape, dtype, transposed, operators):
-    device, reference, optimized = operators
-    data = bench.generate_data(op, 8, shape, device, dtype, transposed, mixed=True)
-    bench.check_accuracy(data, reference, optimized)
-
-
-def test_legacy_entry_points_share_optimized_implementation(operators):
+def test_legacy_entry_points_share_optimized_implementation():
     from sgl_kernel_npu.implementation.triton.mamba import mamba_state_update
     from sgl_kernel_npu.mamba import mamba_state_update_triton
 
