@@ -2,6 +2,8 @@
 
 import torch
 
+from ....utils.norm_utils import validate_gate_activation
+
 
 def layer_norm_fwd(
     x,
@@ -14,8 +16,9 @@ def layer_norm_fwd(
     eps,
     norm_before_gate,
     is_rms_norm,
-    activation="swish",
+    activation=None,
 ):
+    activation = validate_gate_activation(activation)
     values = x.float()
     if z is None:
         gate = None

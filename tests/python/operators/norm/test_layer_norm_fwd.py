@@ -161,20 +161,27 @@ def test_layer_norm_preallocated_output(dtype):
     ids=["fp32", "fp16", "bf16"],
 )
 @pytest.mark.parametrize("before", [True, False], ids=["post-gate", "pre-gate"])
-@pytest.mark.parametrize("rms", [True, False], ids=["rmsnorm", "layernorm"])
+@pytest.mark.parametrize(
+    "rms,group_size",
+    [
+        pytest.param(True, None, id="rmsnorm-full"),
+        pytest.param(True, 64, id="rmsnorm-grouped"),
+        pytest.param(False, 64, id="layernorm-grouped"),
+    ],
+)
 @pytest.mark.parametrize("activation", [None, "swish", "silu", "sigmoid"])
-def test_layer_norm_fwd_activations(dtype, before, rms, activation):
+def test_layer_norm_fwd_activations(dtype, before, rms, group_size, activation):
     from sgl_kernel_npu.operators.norm import layer_norm_fwd
 
     x, weight, bias_value, z = generate_test_data(
-        dtype, 48, True, not rms, contiguous=True
+        dtype, 64, True, not rms, contiguous=True
     )
     executor = check_accuracy(
         layer_norm_fwd,
         args=(x, weight, bias_value, 1e-6),
         kwargs={
             "z": z,
-            "group_size": 64,
+            "group_size": group_size,
             "norm_before_gate": before,
             "is_rms_norm": rms,
             "activation": activation,
@@ -188,7 +195,7 @@ def test_layer_norm_fwd_activations(dtype, before, rms, activation):
             bias_value,
             1e-6,
             z=z,
-            group_size=64,
+            group_size=group_size,
             norm_before_gate=before,
             is_rms_norm=rms,
             activation="swish",
@@ -197,9 +204,14 @@ def test_layer_norm_fwd_activations(dtype, before, rms, activation):
 
 
 def test_layer_norm_fwd_activation_aliases_and_validation():
-    from sgl_kernel_npu.fla import layernorm_gated as fla_layernorm_gated
+    from sgl_kernel_npu.implementation.torch_native.norm.layer_norm_fwd import (
+        layer_norm_fwd as torch_native_layer_norm_fwd,
+    )
     from sgl_kernel_npu.implementation.triton.norm.layer_norm_fwd import (
         layer_norm_fwd as triton_layer_norm_fwd,
+    )
+    from sgl_kernel_npu.operators.norm import (
+        SUPPORTED_GATE_ACTIVATIONS as NORM_SUPPORTED_GATE_ACTIVATIONS,
     )
     from sgl_kernel_npu.operators.norm import layer_norm_fwd
     from sgl_kernel_npu.operators.norm.layer_norm_fwd import SUPPORTED_GATE_ACTIVATIONS
@@ -208,9 +220,9 @@ def test_layer_norm_fwd_activation_aliases_and_validation():
     )
 
     assert SUPPORTED_GATE_ACTIVATIONS == ("swish", "silu", "sigmoid")
-    assert fla_layernorm_gated.SUPPORTED_GATE_ACTIVATIONS is SHARED_GATE_ACTIVATIONS
+    assert NORM_SUPPORTED_GATE_ACTIVATIONS is SHARED_GATE_ACTIVATIONS
     assert SUPPORTED_GATE_ACTIVATIONS is SHARED_GATE_ACTIVATIONS
-    x, weight, _, z = generate_test_data(torch.bfloat16, 32, True, False, True)
+    x, weight, _, z = generate_test_data(torch.bfloat16, 48, True, False, True)
     default_out, _, _ = layer_norm_fwd(x, weight, None, 1e-6, z=z, is_rms_norm=True)
     none_out, _, _ = layer_norm_fwd(
         x, weight, None, 1e-6, z=z, is_rms_norm=True, activation=None
@@ -225,11 +237,23 @@ def test_layer_norm_fwd_activation_aliases_and_validation():
     torch.testing.assert_close(none_out, swish_out, atol=0, rtol=0)
     torch.testing.assert_close(swish_out, silu_out, atol=0, rtol=0)
 
-    for fn in (
-        layer_norm_fwd,
-        triton_layer_norm_fwd,
-        fla_layernorm_gated.layer_norm_fwd_npu,
-        fla_layernorm_gated.layer_norm_fwd_npu_simd,
-    ):
+    for fn in (layer_norm_fwd, triton_layer_norm_fwd):
         with pytest.raises(ValueError, match="Unsupported gated RMSNorm activation"):
             fn(x, weight, None, 1e-6, z=z, is_rms_norm=True, activation="gelu")
+
+    out = torch.empty_like(x)
+    rstd = torch.empty((x.shape[0], 1), dtype=torch.float32, device=x.device)
+    with pytest.raises(ValueError, match="Unsupported gated RMSNorm activation"):
+        torch_native_layer_norm_fwd(
+            x.reshape(x.shape[0], 1, x.shape[1]),
+            weight.reshape(1, 1, x.shape[1]),
+            None,
+            z.reshape(x.shape[0], 1, x.shape[1]),
+            out.view(x.shape[0], 1, x.shape[1]),
+            None,
+            rstd,
+            1e-6,
+            True,
+            True,
+            "gelu",
+        )

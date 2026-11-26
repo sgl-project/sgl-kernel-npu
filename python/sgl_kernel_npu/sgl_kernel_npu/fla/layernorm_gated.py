@@ -7,10 +7,6 @@
 import torch
 import triton
 import triton.language as tl
-from sgl_kernel_npu.utils.norm_utils import (
-    SUPPORTED_GATE_ACTIVATIONS,
-    validate_gate_activation,
-)
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
@@ -39,7 +35,6 @@ def _layer_norm_fwd_1pass_kernel_npu_simd(
     HAS_Z: tl.constexpr,
     NORM_BEFORE_GATE: tl.constexpr,
     IS_RMS_NORM: tl.constexpr,
-    ACTIVATION: tl.constexpr = "swish",
 ):
     # Map the program id to the row of X and Y it should compute.
     core = tl.program_id(0)
@@ -61,10 +56,7 @@ def _layer_norm_fwd_1pass_kernel_npu_simd(
         x = tl.load(start_x + cols, mask=cols < N, other=0.0).to(tl.float32)
         if HAS_Z and not NORM_BEFORE_GATE:
             z = tl.load(start_z + cols, mask=cols < N).to(tl.float32)
-            if ACTIVATION == "sigmoid":
-                x *= tl.sigmoid(z)
-            else:
-                x *= z * tl.sigmoid(z)
+            x *= z * tl.sigmoid(z)
         if not IS_RMS_NORM:
             mean = tl.sum(x, axis=0) / N
             tl.store(Mean + row, mean)
@@ -84,10 +76,7 @@ def _layer_norm_fwd_1pass_kernel_npu_simd(
         y = x_hat * w + b if HAS_BIAS else x_hat * w
         if HAS_Z and NORM_BEFORE_GATE:
             z = tl.load(start_z + cols, mask=mask).to(tl.float32)
-            if ACTIVATION == "sigmoid":
-                y *= tl.sigmoid(z)
-            else:
-                y *= z * tl.sigmoid(z)
+            y *= z * tl.sigmoid(z)
         # Write output
         tl.store(start_y + cols, y, mask=mask)
 
@@ -102,9 +91,7 @@ def layer_norm_fwd_npu_simd(
     group_size=None,
     norm_before_gate=True,
     is_rms_norm=False,
-    activation=None,
 ):
-    activation = validate_gate_activation(activation)
     M, N = x.shape
     if group_size is None:
         group_size = N
@@ -156,7 +143,6 @@ def layer_norm_fwd_npu_simd(
         BLOCK_N=BLOCK_N,
         NORM_BEFORE_GATE=norm_before_gate,
         IS_RMS_NORM=is_rms_norm,
-        ACTIVATION=activation,
         multibuffer=True,
     )
     return out, mean, rstd
@@ -185,7 +171,6 @@ def _layer_norm_fwd_1pass_kernel_npu(
     HAS_Z: tl.constexpr,
     NORM_BEFORE_GATE: tl.constexpr,
     IS_RMS_NORM: tl.constexpr,
-    ACTIVATION: tl.constexpr = "swish",
 ):
     # Map the program id to the row of X and Y it should compute.
     pid_m = tl.program_id(0)
@@ -220,10 +205,7 @@ def _layer_norm_fwd_1pass_kernel_npu(
                 tl.float32
             )
             if not NORM_BEFORE_GATE:
-                if ACTIVATION == "sigmoid":
-                    x *= tl.sigmoid(z)
-                else:
-                    x *= z * tl.sigmoid(z)
+                x *= z * tl.sigmoid(z)
 
         # Compute statistics per row
         if not IS_RMS_NORM:
@@ -250,10 +232,7 @@ def _layer_norm_fwd_1pass_kernel_npu(
 
         # Post-gate
         if HAS_Z and NORM_BEFORE_GATE:
-            if ACTIVATION == "sigmoid":
-                y *= tl.sigmoid(z)
-            else:
-                y *= z * tl.sigmoid(z)
+            y *= z * tl.sigmoid(z)
 
         # Store output
         y_ptrs = Y + rows[:, None] * stride_y_row + cols[None, :] + group * N
@@ -272,7 +251,6 @@ def layer_norm_fwd_npu(
     is_rms_norm=False,
     activation=None,
 ):
-    activation = validate_gate_activation(activation)
     M, N = x.shape
     if group_size is None:
         group_size = N
@@ -331,7 +309,6 @@ def layer_norm_fwd_npu(
         BLOCK_N=BLOCK_N,
         NORM_BEFORE_GATE=norm_before_gate,
         IS_RMS_NORM=is_rms_norm,
-        ACTIVATION=activation,
         # Remove multibuffer if not needed
     )
     return out, mean, rstd
