@@ -27,7 +27,7 @@
 | [weight_quant_batchmatmul](operators/matmul/weight_quant_batchmatmul.md) | `ops-nn`, `torch_native` |
 | [kv_rmsnorm_rope_cache](operators/mem_cache/kv_rmsnorm_rope_cache.md) | `ops-transformer`, `torch_native` |
 | [reshape_and_cache](operators/mem_cache/reshape_and_cache.md) | `ascend-transformer-boost`, `torch_native` |
-| [scatter_nd_update_](operators/mem_cache/scatter_nd_update_.md) | `ops-nn`, `torch_native` |
+| [scatter_nd_update_](operators/mem_cache/scatter_nd_update_.md) | `ops-nn`, `ascendc`, `torch_native` |
 | [scatter_pa_kv_cache](operators/mem_cache/scatter_pa_kv_cache.md) | `ops-transformer`, `torch_native` |
 | [add_rms_norm](operators/norm/add_rms_norm.md) | `ops-nn`, `torch_native` |
 | [rms_norm](operators/norm/rms_norm.md) | `ops-nn`, `torch_native` |

@@ -5,6 +5,7 @@
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `ops-nn` | 支持 | 支持 |
+| `ascendc` | 支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
 ## 函数原型
@@ -31,7 +32,7 @@ def scatter_nd_update_(input, indices, updates, *, impl="auto"): ...
 | `input` | Tensor | ND, dtype supported by TorchNPU | 必传 | NPU 上待修改的目标 Tensor。 |
 | `indices` | Tensor | [..., R], INT32/INT64 | 必传 | 末轴包含 R 个坐标。要获得确定性结果，应使用互不重复的有效坐标。 |
 | `updates` | Tensor | indices.shape[:-1] + input.shape[R:], 输入 dtype | 必传 | 同卡上写入相应坐标的值。 |
-| `impl` | str | - | `"auto"` | `auto`, `ops-nn`, `torch_native`. |
+| `impl` | str | - | `"auto"` | `auto`, `ops-nn`, `ascendc`, `torch_native`. |
 
 | 返回值 | 类型 | 形状 / dtype | 说明 |
 | --- | --- | --- | --- |
@@ -41,9 +42,13 @@ def scatter_nd_update_(input, indices, updates, *, impl="auto"): ...
 
 调用 `torch_npu.npu_scatter_nd_update_`。形状、dtype 和布局组合以已安装的 SDK 为准。 [TorchNPU 参考](https://github.com/Ascend/op-plugin/blob/255eb455f9e569df3a617eb39685d91400400299/docs/zh/custom_APIs/torch_npu/torch_npu-npu_scatter_nd_update_.md) [CANN ops-nn 源码](https://gitcode.com/cann/ops-nn/tree/f4e626de9a175c45b022f1413607bf7d4142103f/index/scatter_nd_update)
 
+## ascendc 后端
+
+通过 `impl="ascendc"` 选择高性能 cache 更新 kernel，原地更新并返回传入的 `input`。按行更新时，索引 `-1` 表示跳过该条更新。重复写入的结果可能不确定，正向越界索引可能造成非法写入。dtype 支持以该后端实现为准。
+
 ## torch_native 后端
 
-使用 PyTorch 索引赋值原地更新调用方提供的张量，并返回该张量。
+使用 PyTorch 索引赋值原地更新调用方提供的张量，并返回该张量。负索引会报错。
 
 ## 调用示例
 
