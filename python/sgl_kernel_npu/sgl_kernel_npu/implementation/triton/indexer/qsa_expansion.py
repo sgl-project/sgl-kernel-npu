@@ -22,13 +22,13 @@ def _vector_cores(device):
     ]
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["ROWS"])
 def _expand_prefix(
     blocks,
     positions,
     lengths,
     output,
-    ROWS: tl.constexpr,
+    ROWS,
     BLOCK_TOPK: tl.constexpr,
     RATIO: tl.constexpr,
     WIDTH: tl.constexpr,

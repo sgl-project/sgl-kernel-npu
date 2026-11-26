@@ -75,7 +75,7 @@ _SORT_BLOCK = 4096
 _MAX_PROGRAMS = 65535
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["stride", "WIDTH"])
 def _reduce_candidates(
     Scores,
     Lengths,
@@ -83,7 +83,7 @@ def _reduce_candidates(
     Values,
     Threshold,
     stride,
-    WIDTH: tl.constexpr,
+    WIDTH,
     OUT_WIDTH: tl.constexpr,
     K: tl.constexpr,
     HAS_STARTS: tl.constexpr,
@@ -112,14 +112,14 @@ def _reduce_candidates(
             tl.store(Values + row * OUT_WIDTH + tile * K + tl.arange(0, K), best)
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["stride"])
 def _counts(
     Scores,
     Lengths,
     Starts,
     Threshold,
     Counts,
-    stride: tl.constexpr,
+    stride,
     K: tl.constexpr,
     HAS_STARTS: tl.constexpr,
     TILES: tl.constexpr,
@@ -143,7 +143,7 @@ def _counts(
         tl.store(Counts + row * (2 * TILES) + TILES + tile, equal)
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["stride"])
 def _emit_tiles(
     Scores,
     Lengths,
@@ -151,7 +151,7 @@ def _emit_tiles(
     Threshold,
     Counts,
     Output,
-    stride: tl.constexpr,
+    stride,
     K: tl.constexpr,
     HAS_STARTS: tl.constexpr,
     TILES: tl.constexpr,
@@ -317,10 +317,9 @@ def _pack(
     HAS_STARTS: tl.constexpr,
     TILES,
     TASKS,
-    CORES: tl.constexpr,
     BLOCK: tl.constexpr,
 ):
-    for task in range(tl.program_id(0), TASKS, CORES):
+    for task in range(tl.program_id(0), TASKS, tl.num_programs(0)):
         row = (task // TILES).to(tl.int64)
         cols = (task % TILES) * BLOCK + tl.arange(0, BLOCK)
         length = tl.load(Lengths + row)
@@ -337,8 +336,8 @@ def _pack(
 
 
 @triton.jit(do_not_specialize=["ROWS"])
-def _finish(Lengths, Indices, Output, K: tl.constexpr, ROWS, CORES: tl.constexpr):
-    for rid in range(tl.program_id(0), ROWS, CORES):
+def _finish(Lengths, Indices, Output, K: tl.constexpr, ROWS):
+    for rid in range(tl.program_id(0), ROWS, tl.num_programs(0)):
         row = rid.to(tl.int64)
         length = tl.load(Lengths + row)
         ranks = tl.arange(0, K)
@@ -385,12 +384,11 @@ def hybrid_topk(score, lengths, topk, row_starts=None):
             row_starts is not None,
             tiles,
             tasks,
-            grid,
             4096,
         )
         values, indices = torch.topk(packed, topk, dim=1, sorted=True)
         grid = min(cores, end - begin)
-        _finish[(grid,)](lens, indices, out, topk, end - begin, grid)
+        _finish[(grid,)](lens, indices, out, topk, end - begin)
     return output
 
 
