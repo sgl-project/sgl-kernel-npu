@@ -16,23 +16,15 @@
   "additional_builds": [
     {
       "name": "sgl_ops_transformer_experimental",
+      "commit": "53f5c56996be158b52579d9cdd484b54a38dfb64",
       "ops": {
-        "arch22": ["compressor_v2"],
-        "arch35": ["compressor_v2"]
+        "arch22": ["compressor_v2", "sgl_mhc_pre_sinkhorn"],
+        "arch35": ["compressor_v2", "sgl_mhc_pre_sinkhorn"]
       },
       "commands": [
         ["bash", "build.sh", "--pkg", "--experimental", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"],
         ["bash", "build.sh", "--torch_extension", "--experimental", "--ops={ops}", "--vendor_name={vendor_name}"]
       ],
-      "has_aicpu": false
-    },
-    {
-      "name": "sgl_ops_transformer_mhc_v2",
-      "commit": "53f5c56996be158b52579d9cdd484b54a38dfb64",
-      "ops": {
-        "arch22": ["sgl_mhc_pre_sinkhorn"],
-        "arch35": ["sgl_mhc_pre_sinkhorn"]
-      },
       "has_aicpu": false
     }
   ]

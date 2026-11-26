@@ -107,7 +107,7 @@ def _cann_mhc_pre_sinkhorn_v2(
 ):
     global _cann_920_sinkhorn_v2_fn
     if _cann_920_sinkhorn_v2_fn is None:
-        from ..._third_party.sgl_ops_transformer_mhc_v2.ops.mhc.sgl_mhc_pre_sinkhorn.sgl_mhc_pre_sinkhorn import (
+        from ..._third_party.sgl_ops_transformer_experimental.ops.mhc.sgl_mhc_pre_sinkhorn.sgl_mhc_pre_sinkhorn import (
             sgl_mhc_pre_sinkhorn_op_builder,
         )
 

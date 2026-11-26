@@ -163,14 +163,11 @@ def _isolate_mhc_pre_sinkhorn(source):
         name = rename(path.name)
         if name != path.name:
             path.rename(path.with_name(name))
-    op.rename(op.with_name("sgl_mhc_pre_sinkhorn"))
-
-    exports = source / "torch_extension/cann_ops_transformer/ops/__init__.py"
-    exports.write_text(rename(exports.read_text(encoding="utf-8")), encoding="utf-8")
+    op.rename(source / "experimental/mhc/sgl_mhc_pre_sinkhorn")
 
 
 def build(item, source, directory):
-    if item["name"] == "sgl_ops_transformer_mhc_v2":
+    if "sgl_mhc_pre_sinkhorn" in item["ops"]:
         _isolate_mhc_pre_sinkhorn(source)
     for index, command in enumerate(item["commands"]):
         run(command, directory / ("build-{}.log".format(index)), cwd=source)
