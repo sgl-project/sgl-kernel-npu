@@ -173,6 +173,7 @@ def test_lightning_indexer_prefill_grouping_is_exact(rows, sequence_length, zero
     impl, _ = get_test_impls()
     if impl == "torch_native":
         pytest.skip("grouping geometry exists only in the CANN implementation")
+    require_test_impl(lightning_indexer_prefill, impl)
     q, k = generate_data(rows, sequence_length, zero=zero)
     grouped = lightning_indexer_prefill(
         q, k, sequence_length=sequence_length, group4=True, impl=impl
@@ -193,6 +194,7 @@ def test_lightning_indexer_prefill_visible_counts():
     )
 
     impl, _ = get_test_impls()
+    require_test_impl(lightning_indexer_prefill, impl)
     for rows, sequence_length in [(7, 7), (65, 2052), (1025, 4096)]:
         q, k = generate_data(rows, sequence_length)
         out = lightning_indexer_prefill(
@@ -209,6 +211,7 @@ def test_lightning_indexer_prefill_queued_calls_agree():
     from sgl_kernel_npu.operators.indexer import lightning_indexer_prefill
 
     impl, _ = get_test_impls()
+    require_test_impl(lightning_indexer_prefill, impl)
     q, k = generate_data(1025, 4096)
     first = lightning_indexer_prefill(q, k, sequence_length=4096, impl=impl).clone()
     torch.npu.synchronize()

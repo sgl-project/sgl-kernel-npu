@@ -1,6 +1,7 @@
 """Public ratio-4 LightningIndexer prefill selection for one causal request."""
 
 import torch
+import torch_npu
 
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
@@ -62,7 +63,9 @@ def visible_key_counts(rows, sequence_length, device):
 
     Row ``i`` is logical position ``sequence_length - rows + i``, which makes
     ``floor((sequence_length - rows + i + 1) / 4)`` compressed keys causally
-    visible. Shared by both backends so the visibility rule has one definition.
+    visible. Used by the ``torch_npu`` backend; ``implementation/torch_native``
+    maintains a duplicate definition with the same visibility rule so the
+    implementation layer does not import ``operators``.
     """
     return (
         torch.arange(rows, device=device, dtype=torch.int32)
@@ -90,8 +93,6 @@ def _torch_npu_impl(q, k, sequence_length, group4):
     instead of duplicating one page-table row per query. Every query still
     computes its own scores and its own ordered Top-K; no selection is shared.
     """
-    import torch_npu
-
     rows, keys = q.shape[0], k.shape[0]
     if not rows or not keys:
         return torch.full((rows, SELECTED_KEYS), -1, dtype=torch.int32, device=q.device)

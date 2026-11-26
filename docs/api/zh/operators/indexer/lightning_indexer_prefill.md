@@ -7,12 +7,12 @@ arch22 分列，因为该系列的两个成员是分别实测的。A3 指 Ascend
 
 | 实现 | arch22 A3 | arch22 A2 | arch35 |
 | --- | --- | --- | --- |
-| `torch_npu` | 支持 | 支持 | 未实现 |
+| `torch_npu` | 支持 | 支持 | 不支持 |
 | `torch_native` | 支持 | 支持 | 未验证 |
 
 `torch_npu` 与 `auto` 仅在 arch22 上注册，因为分组下发几何只在该系列上实测过。
 正确性在 Ascend910_9362（A3，CANN 9.0）与 Ascend910B3（A2，CANN 9.1.0，
-torch 2.10.0，torch_npu 2.10.0.post4）上验证。arch35 未实现：在该代上
+torch 2.10.0，torch_npu 2.10.0.post4）上验证。arch35 不支持：在该代上
 `impl="auto"` 抛 `UnsupportedGenerationError`，调用方保留自己的回退路径。
 
 ## 接口
@@ -97,40 +97,19 @@ kernel 下发之前抛 `ValueError`。
 query 共享同一段可见 key 范围；首尾的哑 query 被丢弃。CANN 要求长度元数据中
 至少有一个 key，因此可见 key 为零的行在之后被掩回 -1。
 
+当 `group4=True` 且 `rows >= 1024`、`keys >= 512` 时启用四 query 分组批处理，
+可减少逐 query 复制 page table 带来的开销并降低长序列 prefill 延迟；低于任一
+阈值时，`group4=True` 与 `group4=False` 下发相同的独立 query 计算。详细
+benchmark 数据与复现方式见
+[`benchmark/indexer/README.md`](../../../../../benchmark/indexer/README.md) 与
+[`benchmark/indexer/bench_lightning_indexer_prefill.py`](../../../../../benchmark/indexer/bench_lightning_indexer_prefill.py)。
+
 ## torch_native 后端
 
 独立参考实现，不调用任何 CANN indexer 算子。以 float32 对每个 query 与每个
 key 打分，掩掉因果视野外的部分，再做稳定降序排序，因此并列向较小 key 索引
 收敛。由于每头点积规模为 `rows * 4 * keys`，按行分块处理。它是参考实现，
 不是性能后端。
-
-## 性能
-
-每个 shape 三次预热、8 至 20 次交替顺序的 NPU event 采样；两列均包含 Python
-适配、补齐、表构建与掩码。输入为随机非零 BF16 张量。
-
-Ascend910_9362（910C，CANN 9.0）：
-
-| Query 行数 / key 数 | `group4=False` | `group4=True` | 比值 |
-| --- | ---: | ---: | ---: |
-| 128 / 1024 | 0.447 ms | 0.445 ms | 1.00x |
-| 1024 / 512 | 0.608 ms | 0.574 ms | 1.06x |
-| 16384 / 4096 | 11.831 ms | 4.732 ms | 2.50x |
-| 16384 / 8192 | 18.751 ms | 7.834 ms | 2.39x |
-| 8313 / 11102 | 13.831 ms | 6.072 ms | 2.28x |
-
-Ascend910B3（A2，CANN 9.1.0，5 AI core 虚拟化切片）：
-
-| Query 行数 / key 数 | `group4=False` | `group4=True` | 比值 |
-| --- | ---: | ---: | ---: |
-| 128 / 1024 | 0.721 ms | 0.726 ms | 1.00x |
-| 1024 / 512 | 1.319 ms | 1.022 ms | 1.29x |
-| 16384 / 4096 | 31.201 ms | 13.184 ms | 2.37x |
-| 16384 / 8192 | 65.601 ms | 27.390 ms | 2.39x |
-| 8313 / 11102 | 49.188 ms | 21.025 ms | 2.34x |
-
-低于分组阈值的 shape 在两列中下发相同工作量，其差异属于测量噪声。可用
-`benchmark/indexer/bench_lightning_indexer_prefill.py` 复现。
 
 ## 示例
 

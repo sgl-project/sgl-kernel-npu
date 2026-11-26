@@ -7,13 +7,13 @@ separately. A3 means the Ascend910_93 series, A2 the Ascend910B series.
 
 | Implementation | arch22 A3 | arch22 A2 | arch35 |
 | --- | --- | --- | --- |
-| `torch_npu` | Supported | Supported | Not implemented |
+| `torch_npu` | Supported | Supported | Unsupported |
 | `torch_native` | Supported | Supported | Unverified |
 
 `torch_npu` and `auto` are declared for arch22 only, because the grouped launch
 geometry was measured there. Correctness was validated on Ascend910_9362 (A3,
 CANN 9.0) and on Ascend910B3 (A2, CANN 9.1.0, torch 2.10.0, torch_npu
-2.10.0.post4). arch35 is not implemented: `impl="auto"` raises
+2.10.0.post4). arch35 is unsupported: `impl="auto"` raises
 `UnsupportedGenerationError` there, and the caller keeps its own fallback.
 
 ## Signature
@@ -106,6 +106,14 @@ that every real query in a group shares one visible key range; leading and
 trailing dummy queries are discarded. CANN requires at least one key in its
 length metadata, so rows with no visible key are masked back to -1 afterwards.
 
+Four-query batching engages when `group4=True`, `rows >= 1024`, and
+`keys >= 512`, reducing per-query page-table duplication and improving long
+prefill latency; below either threshold, `group4=True` and `group4=False`
+dispatch the same independent-query work. Benchmark details and reproduction
+instructions live in
+[`benchmark/indexer/README.md`](../../../../../benchmark/indexer/README.md) and
+[`benchmark/indexer/bench_lightning_indexer_prefill.py`](../../../../../benchmark/indexer/bench_lightning_indexer_prefill.py).
+
 ## torch_native backend
 
 Independent reference; it calls no CANN indexer operator. Scores every query
@@ -113,36 +121,6 @@ against every key in float32, masks the causal horizon and takes a stable
 descending sort, so ties resolve towards the lower key index. Rows are
 processed in chunks because the per-head dot product is proportional to
 `rows * 4 * keys`. It is a reference, not a performance backend.
-
-## Performance
-
-Three warmups and 8 to 20 alternating-order NPU event samples per shape; both
-columns include the Python adaptation, padding, table construction and
-masking. Inputs are random nonzero BF16 tensors.
-
-Ascend910_9362 (910C, CANN 9.0):
-
-| Query rows / keys | `group4=False` | `group4=True` | Ratio |
-| --- | ---: | ---: | ---: |
-| 128 / 1024 | 0.447 ms | 0.445 ms | 1.00x |
-| 1024 / 512 | 0.608 ms | 0.574 ms | 1.06x |
-| 16384 / 4096 | 11.831 ms | 4.732 ms | 2.50x |
-| 16384 / 8192 | 18.751 ms | 7.834 ms | 2.39x |
-| 8313 / 11102 | 13.831 ms | 6.072 ms | 2.28x |
-
-Ascend910B3 (A2, CANN 9.1.0, a 5-AI-core virtualized slice):
-
-| Query rows / keys | `group4=False` | `group4=True` | Ratio |
-| --- | ---: | ---: | ---: |
-| 128 / 1024 | 0.721 ms | 0.726 ms | 1.00x |
-| 1024 / 512 | 1.319 ms | 1.022 ms | 1.29x |
-| 16384 / 4096 | 31.201 ms | 13.184 ms | 2.37x |
-| 16384 / 8192 | 65.601 ms | 27.390 ms | 2.39x |
-| 8313 / 11102 | 49.188 ms | 21.025 ms | 2.34x |
-
-Shapes below the grouping thresholds dispatch the same work in both columns, so
-their differences are measurement noise. Reproduce with
-`benchmark/indexer/bench_lightning_indexer_prefill.py`.
 
 ## Example
 
