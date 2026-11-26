@@ -5,10 +5,26 @@ import pytest
 torch = pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
-from tests.python.utils.common import get_test_impls, require_distinct_impls
+from tests.python.utils.common import (
+    get_skip_acc_check,
+    get_test_impls,
+    make_executor,
+    require_distinct_impls,
+    require_test_impl,
+)
+from tests.python.utils.performance import check_performance
+
+# Production shapes monitored by default; the CLI may override performance.
+# Entries are (operator, shape, batch, dtype, transposed).
+perf_shape = [
+    ("move", (69, 6, 128, 128), 8, torch.float32, True),
+    ("conv", (69, 6, 2304), 8, torch.bfloat16, False),
+]
+PROFILE_WARMUP = 5
+PROFILE_ACTIVE = 5
 
 
-def generate_data(op, shape, batch, dtype, transposed, device):
+def generate_data(op, shape, batch, dtype, transposed, device, *, with_reference=True):
     torch.manual_seed(42)
     layers, *dims = shape
     pool, drafts = 2 * batch + 3, 4
@@ -22,7 +38,7 @@ def generate_data(op, shape, batch, dtype, transposed, device):
     steps = [(0, -1, 1, drafts - 1)[i % 4] for i in range(batch)]
     indices = torch.tensor(slots, dtype=torch.int32, device=device)
     step_indices = torch.tensor(steps, dtype=torch.int32, device=device)
-    expected = state.clone()
+    expected = state.clone() if with_reference else None
     if op == "move":
         source = torch.randn(
             layers, max(batch, 1), drafts, *dims, dtype=dtype, device=device
@@ -31,6 +47,9 @@ def generate_data(op, shape, batch, dtype, transposed, device):
         args = (source, indices, src_indices, step_indices)
     else:
         args = (indices, step_indices, drafts)
+
+    if not with_reference:
+        return state, args, None
 
     # Independent reference: skipped requests and unselected pool slots stay intact.
     for src, (dst, step) in enumerate(zip(slots, steps)):
@@ -45,6 +64,35 @@ def generate_data(op, shape, batch, dtype, transposed, device):
     return state, args, expected
 
 
+def make_profile_executor(operator, state, args, accuracy_checked):
+    executor = make_executor(
+        operator, args=(state, *args), accuracy_checked=accuracy_checked
+    )
+    pending = None
+
+    def run():
+        nonlocal pending
+        if pending is None:
+            # benchmark_npu calls once before starting the profiler. Prepare
+            # every input then, so neither allocation nor reset copies are timed.
+            # Use a fresh state for each warmup/sample: rollback is not idempotent.
+            pending = iter(
+                [
+                    make_executor(
+                        operator, args=(state.clone(), *args), impl=executor.impl
+                    )
+                    for _ in range(1 + PROFILE_WARMUP + PROFILE_ACTIVE)
+                ]
+            )
+        return next(pending)()
+
+    run.func = executor.func
+    run.impl = executor.impl
+    run.impl_ref = executor.impl_ref
+    run.accuracy_checked = executor.accuracy_checked
+    return run
+
+
 def check_case(op, shape, batch, dtype, transposed):
     from sgl_kernel_npu.operators.mamba import (
         conv_state_rollback,
@@ -53,38 +101,70 @@ def check_case(op, shape, batch, dtype, transposed):
 
     operator = move_intermediate_cache_kda if op == "move" else conv_state_rollback
     impl, impl_ref = get_test_impls()
-    require_distinct_impls(operator, impl, impl_ref)
+    skip_accuracy = get_skip_acc_check()
+    if skip_accuracy:
+        require_test_impl(operator, impl)
+    else:
+        require_distinct_impls(operator, impl, impl_ref)
     state, args, expected = generate_data(
-        op, shape, batch, dtype, transposed, f"npu:{torch.npu.current_device()}"
+        op,
+        shape,
+        batch,
+        dtype,
+        transposed,
+        f"npu:{torch.npu.current_device()}",
+        with_reference=not skip_accuracy,
     )
-    for implementation in (impl_ref, impl):
-        # Each implementation receives the same initial values and layout.
-        actual = state.clone()
-        strides = actual.stride()
-        result = operator(actual, *args, impl=implementation)
-        if op == "conv" and batch == 0:
-            assert result is None
-        else:
-            assert result.data_ptr() == actual.data_ptr()
-            assert result.stride() == strides
-        assert actual.stride() == state.stride()
-        # Bound assertion temporaries for model shapes; inspect the whole pool.
-        for actual_layer, expected_layer in zip(actual, expected):
-            for start in range(0, state.shape[1], 8):
-                torch.testing.assert_close(
-                    actual_layer[start : start + 8],
-                    expected_layer[start : start + 8],
-                    atol=0,
-                    rtol=0,
-                )
+    accuracy_checked = False
+    if not skip_accuracy:
+        for implementation in (impl_ref, impl):
+            # Each implementation receives the same initial values and layout.
+            actual = state.clone()
+            strides = actual.stride()
+            result = operator(actual, *args, impl=implementation)
+            if op == "conv" and batch == 0:
+                assert result is None
+            else:
+                assert result.data_ptr() == actual.data_ptr()
+                assert result.stride() == strides
+            assert actual.stride() == state.stride()
+            # Bound assertion temporaries for model shapes; inspect the whole pool.
+            for actual_layer, expected_layer in zip(actual, expected):
+                for start in range(0, state.shape[1], 8):
+                    torch.testing.assert_close(
+                        actual_layer[start : start + 8],
+                        expected_layer[start : start + 8],
+                        atol=0,
+                        rtol=0,
+                    )
+        accuracy_checked = True
+    else:
+        print(f"Accuracy check skipped: {operator.__name__} [{impl}]")
+    # Empty selections launch no device work, even when profiling is forced on.
+    if batch:
+        executor = make_profile_executor(operator, state, args, accuracy_checked)
+        check_performance(
+            executor,
+            enable_perf=(op, shape, batch, dtype, transposed) in perf_shape,
+            warmup=PROFILE_WARMUP,
+            active=PROFILE_ACTIVE,
+        )
 
 
 @pytest.mark.parametrize("op", ["move", "conv"])
 @pytest.mark.parametrize(
-    "layers,batch", [(1, 1), (4, 0), (4, 1), (32, 1), (4, 8), (4, 128)]
+    "layers,batch",
+    [
+        pytest.param(1, 1, id="single-layer"),
+        pytest.param(4, 0, id="empty-batch"),
+        pytest.param(4, 1, id="small-batch"),
+        pytest.param(32, 1, id="many-layers-small-batch"),
+        pytest.param(4, 8, id="mixed-steps"),
+        pytest.param(4, 128, id="large-batch"),
+    ],
 )
-@pytest.mark.parametrize("transposed", [False, True])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("transposed", [False, True], ids=["contiguous", "transposed"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["fp32", "bf16"])
 def test_kda_cache_layer_parallel(op, layers, batch, transposed, dtype):
     # Unaligned V/K dimensions exercise partial tiles; batch 8 mixes all steps.
     shape = (layers, 2, 65, 19) if op == "move" else (layers, 6, 32)
@@ -94,8 +174,12 @@ def test_kda_cache_layer_parallel(op, layers, batch, transposed, dtype):
 @pytest.mark.parametrize(
     "op,shape,dtype,transposed",
     [
-        ("move", (69, 6, 128, 128), torch.float32, True),
-        ("conv", (69, 6, 2304), torch.bfloat16, False),
+        pytest.param(
+            "move", (69, 6, 128, 128), torch.float32, True, id="kimi-k3.1-move-fp32"
+        ),
+        pytest.param(
+            "conv", (69, 6, 2304), torch.bfloat16, False, id="kimi-k3.1-conv-bf16"
+        ),
     ],
 )
 def test_kimi31_cache_shape(op, shape, dtype, transposed):
