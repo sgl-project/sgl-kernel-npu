@@ -91,7 +91,8 @@ kernel 下发之前抛 `ValueError`。
 
 ## torch_npu 后端
 
-将请求适配到 `torch_npu.npu_lightning_indexer`，`layout_query="BSND"`、
+通过 `sgl_kernel_npu.operators.indexer.lightning_indexer(..., impl="ops-transformer")`
+（底层为 `torch_npu.npu_lightning_indexer`）适配请求，使用 `layout_query="BSND"`、
 `layout_key="PA_BSND"`。key 补齐到整页 64 项，并通过恒等 block table 寻址。
 分组相位为 `(sequence_length - rows + 1) % 4`，它让每组四个 query 中所有真实
 query 共享同一段可见 key 范围；首尾的哑 query 被丢弃。CANN 要求长度元数据中

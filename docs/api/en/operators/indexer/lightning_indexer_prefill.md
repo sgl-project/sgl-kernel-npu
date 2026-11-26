@@ -98,8 +98,10 @@ where every score is tied.
 
 ## torch_npu backend
 
-Adapts the request onto `torch_npu.npu_lightning_indexer` with
-`layout_query="BSND"` and `layout_key="PA_BSND"`. Keys are padded to whole
+Adapts the request onto
+`sgl_kernel_npu.operators.indexer.lightning_indexer(..., impl="ops-transformer")`
+(backed by `torch_npu.npu_lightning_indexer`) with `layout_query="BSND"` and
+`layout_key="PA_BSND"`. Keys are padded to whole
 64-entry pages and addressed through an identity block table. The grouping
 phase is `(sequence_length - rows + 1) % 4`, which aligns four-query groups so
 that every real query in a group shares one visible key range; leading and

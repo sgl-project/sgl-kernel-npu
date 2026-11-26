@@ -1,10 +1,11 @@
 """Public ratio-4 LightningIndexer prefill selection for one causal request."""
 
 import torch
-import torch_npu
+import torch_npu  # noqa: F401 -- registers torch.npu
 
 from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
+from .lightning_indexer import lightning_indexer
 
 _native_fn = None
 
@@ -127,7 +128,7 @@ def _torch_npu_impl(q, k, sequence_length, group4):
             .contiguous()
         )
         width = min(keys, SELECTED_KEYS)
-        result = torch_npu.npu_lightning_indexer(
+        result = lightning_indexer(
             query,
             cache,
             torch.ones((batch, span, QUERY_HEADS), device=q.device, dtype=q.dtype),
@@ -142,6 +143,7 @@ def _torch_npu_impl(q, k, sequence_length, group4):
             layout_key="PA_BSND",
             sparse_count=width,
             sparse_mode=0,
+            impl="ops-transformer",
         )
         indices = (result[0] if isinstance(result, tuple) else result).reshape(
             batch * span, width
