@@ -181,11 +181,7 @@ def test_fia_mla_paged_decode_4q1kv(name):
     # Compute the reference from packed Q/K before splitting them for FIA.
     expected = []
     for batch, length in enumerate(lengths):
-        keys = (
-            cache[table[batch].long()]
-            .reshape(-1, cache.shape[-1])[:length]
-            .float()
-        )
+        keys = cache[table[batch].long()].reshape(-1, cache.shape[-1])[:length].float()
         scores = query[batch, 0].float() @ keys.T * scale
         expected.append((scores.softmax(-1) @ keys[:, :latent_dim]).bfloat16())
     expected = torch.stack(expected).unsqueeze(1).npu()
