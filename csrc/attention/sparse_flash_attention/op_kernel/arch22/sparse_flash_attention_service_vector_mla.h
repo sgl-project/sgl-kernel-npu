@@ -367,7 +367,9 @@ __aicore__ inline void SFAVectorService<SFAT>::CopyFALseToGm(const RunInfo &info
                   mSplitInfo.nBufferStartM + mSplitInfo.vecStartM;
     }
 
-    if (info.actualSingleProcessSInnerSize != 0) {
+    // Packed QSFA uses trailing -1 padding, including the first index for an empty row.
+    const bool emptyPackedRow = kInt8Kv && topkGm_.GetValue(info.topKBaseOffset) == -1;
+    if (info.actualSingleProcessSInnerSize != 0 && !emptyPackedRow) {
         DataCopyExtParams dataCopyParams;
         dataCopyParams.blockCount = 1;
         dataCopyParams.blockLen = sizeof(T) * size;
@@ -391,7 +393,7 @@ __aicore__ inline void SFAVectorService<SFAT>::CopyFALseToGm(const RunInfo &info
         SetFlag<AscendC::HardEvent::MTE3_V>(SYNC_OUTPUT_BUF2_FLAG);
     } else {
         matmul::InitOutput<T>(softmaxSumGm[offset], size, ConstInfo::FLOAT_ZERO);
-        matmul::InitOutput<T>(softmaxMaxGm[offset], size, SOFTMAX_MIN_NUM);
+        matmul::InitOutput<T>(softmaxMaxGm[offset], size, emptyPackedRow ? ConstInfo::FLOAT_ZERO : SOFTMAX_MIN_NUM);
     }
 }
 
