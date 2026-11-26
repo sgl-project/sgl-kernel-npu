@@ -120,6 +120,71 @@ def test_fused_infer_attention_score_and_out(name):
         )
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("fused_infer_attention_score", id="fia-v1"),
+        pytest.param("fused_infer_attention_score_v2", id="fia-v2"),
+    ],
+)
+def test_fia_mla_paged_decode_4q1kv(name):
+    from sgl_kernel_npu.operators import attention
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if get_hardware().generation is not Generation.ARCH35:
+        pytest.skip("This DeepSeek-V2 TP32 decode case targets Ascend 950")
+    impl, impl_ref = get_test_impls()
+    if get_skip_acc_check() or impl == "torch_native" or impl_ref != "torch_native":
+        pytest.skip("This case compares an NPU FIA backend with a PyTorch reference")
+
+    generator = torch.Generator(device="cpu").manual_seed(42)
+    page_size, heads, latent_dim, rope_dim = 128, 4, 512, 64
+    lengths = [255, 129]
+    # Match the packed paged_attention_mla case: page 0 is reserved.
+    table = torch.tensor([[2, 1], [4, 3]], dtype=torch.int32, device="cpu")
+    query = torch.randn(
+        (2, 1, heads, latent_dim + rope_dim), generator=generator, device="cpu"
+    ).bfloat16()
+    cache = torch.randn(
+        (5, page_size, 1, latent_dim + rope_dim), generator=generator, device="cpu"
+    ).bfloat16()
+    scale = 192**-0.5 * (1 + 0.1 * 0.707 * math.log(40)) ** 2
+
+    # Compute the reference from packed Q/K before splitting them for FIA.
+    expected = []
+    for batch, length in enumerate(lengths):
+        keys = (
+            cache[table[batch].long()]
+            .reshape(-1, latent_dim + rope_dim)[:length]
+            .float()
+        )
+        scores = query[batch, 0].float() @ keys.T * scale
+        expected.append((scores.softmax(-1) @ keys[:, :latent_dim]).bfloat16())
+    expected = torch.stack(expected).unsqueeze(1).npu()
+
+    q, q_rope = query.npu().split((latent_dim, rope_dim), dim=-1)
+    kv, k_rope = cache.npu().flatten(2).split((latent_dim, rope_dim), dim=-1)
+    kwargs = dict(
+        query_rope=q_rope.contiguous(),
+        key_rope=k_rope.contiguous(),
+        num_key_value_heads=1,
+        input_layout="BSND",
+        block_table=table.npu(),
+        block_size=page_size,
+        sparse_mode=0,
+    )
+    if name.endswith("_v2"):
+        kwargs.update(
+            num_query_heads=heads, actual_seq_kvlen=lengths, softmax_scale=scale
+        )
+    else:
+        kwargs.update(num_heads=heads, actual_seq_lengths_kv=lengths, scale=scale)
+    operator = getattr(attention, name)
+    latent = kv.contiguous()
+    output, _ = operator(q.contiguous(), latent, latent, impl=impl, **kwargs)
+    assert_accuracy(output, expected, _FIA_STANDARD)
+
+
 def generate_attention_update_data():
     generator = torch.Generator(device="cpu").manual_seed(42)
     # DeepSeek-V2 TP8 has 16 local MHA heads and 128 value channels.
