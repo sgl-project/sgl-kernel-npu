@@ -1,28 +1,24 @@
 # grouped_gemma_rmsnorm
 
-## 芯片支持
+## 硬件支持
 
-arch22 拆成两列，因为该家族的两个成员验证程度不同。A3 指 Ascend910_93 系列，
-A2 指 Ascend910B 系列。
+由于 arch22 系列成员验证方式不同，此处分开列出。A3 指 Ascend910_93 系列，A2 指 Ascend910B 系列。
 
 | 实现 | arch22 A3 | arch22 A2 | arch35 |
 | --- | --- | --- | --- |
-| `ascendc`（arch22 下 `auto`） | 支持 | 待验证 | 未实现 |
-| `triton`（arch35 下 `auto`） | 支持（`x[R,10240], group_size=2560`） | 待验证（`x[R,10240], group_size=2560`） | 支持（`x[R,10240], group_size=2560`） |
-| `torch_native` | 支持 | 待验证 | 支持 |
-| `tilelang` | 未实现 | 未实现 | 未实现 |
+| `triton`（`auto`） | 支持 | 未验证 | 支持 |
+| `ascendc` | 支持 | 未验证 | 不支持 |
+| `torch_native` | 支持 | 未验证 | 支持 |
 
-`ascendc` 实现在 arch22 上注册为默认 `"auto"`（覆盖 A2 与 A3）；
-`cmake/legacy_kernels.cmake` 中的 `SGL_KERNEL_ENABLE_A3_ONLY_OPS` 会为 Ascend950
-系列之外的所有 SoC 构建其 kernel，并在运行时通过 `GetCoreNumAiv()` 查询 Vector
-Core 数量。在 arch35 上，`"auto"` 选择 `triton` 实现（支持固定规模
-`x[R, 10240], weight[10240], group_size=2560`）。A3 硬件验证环境为
-Ascend910_9382、CANN 9.1.0、torch 2.10.0、torch_npu 2.10.0。
+`auto` 在 `arch22` 和 `arch35` 上均默认选择 `triton`（固定形状 `x[R, 10240]`、
+`weight[10240]`、`group_size=2560`）。显式指定 `impl="ascendc"` 时调用 arch22
+CANN/ACLNN 算子 `hyper_conn_grouped_norm`（`SUPPORTED_ARCHS 2201`，覆盖
+`ascend910b` 与 `ascend910_93`）；在 arch35 上由注册表直接抛出
+`UnsupportedGenerationError`。A2 因无硬件 CI 覆盖标注为“未验证”。
 
-## 函数原型
+## 接口
 
-不传 `impl` 或传 `"auto"` 时，在 `arch22` 上选择 `ascendc`，在 `arch35` 上选择
-`triton`。
+省略 `impl` 或传入 `"auto"` 时默认选择 `triton`，显式传入 `impl="ascendc"` 选择 CANN/ACLNN Ascend C 实现。
 
 ```python
 from typing import Optional
@@ -43,101 +39,46 @@ def grouped_gemma_rmsnorm(
 
 ## 功能说明
 
-对固定宽度的分组执行 Gemma 风格分组 RMS 归一化，并按 `1 + weight` 缩放。分组是
-`x` 按行优先顺序切出的连续 `group_size` 段，因此形状为 `[rows, branches * width]`
-（或 `[rows, branches, width]`）的 hyper-connection 残差在 `group_size = width`
-时，会对每行的每个分支分别归一化。
+沿最后一维按固定组宽 `group_size` 做独立 RMSNorm，并在 float32 下乘以 `1 + weight`，最终写回时舍入为 BF16：
 
-记 `W = group_size`（`group_size` 为 `None` 时取 `x.shape[-1]`）、
-`L = weight.numel()`，`g` 为按行优先顺序在整个张量上计数的分组下标：
+```text
+inv    = rsqrt(mean(x_g^2) + eps)
+out[g] = bf16((x_g * inv) * (1 + weight[(g * group_size) % weight.numel()]))
+```
 
-$$
-\mathrm{inv}_g=\left(\frac{1}{W}\sum_{j=0}^{W-1}x_{g,j}^{2}+\varepsilon\right)^{-1/2},
-\qquad
-y_{g,j}=\mathrm{bf16}\left(x_{g,j}\,\mathrm{inv}_g\left(1+w_{(gW \bmod L)+j}\right)\right)
-$$
-
-权重偏移以 `L / W` 个分组为周期轮转，算子要求分组总数是该周期的整数倍，从而确保
-不会有分组被错误的权重段缩放。每个分支各持一段权重时，各分支使用自身对应的切片；
-权重长度恰为一个分组宽度时，所有分组共享同一切片。平方和与缩放均在 float32 中累
-加，输出做一次 BF16 取整。
-
-本算子不含 bias、不含量化、不做残差相加。与常规 RMSNorm 的区别在于权重以单位偏置
-`1 + weight` 的形式参与计算，且归一化粒度是固定宽度分组而非仅限整行。
+`triton`（`auto`）面向 Qwen3.8-Flash-Next 形状 `x[R, 10240]`、`weight[10240]`、`group_size=2560`。
+`ascendc` 支持通用组宽（8 的倍数，最大 4096）、共享或分 branch 循环权重、2-D/3-D 连续输入以及零拷贝预分配 `out`。
 
 ## 参数与返回值
 
-公开 operator 在选择实现之前校验下表契约，非法输入在任何 kernel 下发之前抛出
-`ValueError`。
-
-| 参数 | 类型 | Shape | Dtype | 默认值 | 描述与约束 |
-| --- | --- | --- | --- | --- | --- |
-| `x` | `torch.Tensor` | `[..., H]` | `torch.bfloat16` | 必填 | 至少二维的输入；连续，位于 NPU 设备。`H` 必须是有效分组宽度的整数倍（`triton` 限定为 `x[R, 10240]`）。行数为 0 时返回空结果。 |
-| `weight` | `torch.Tensor` | `[L]` | `torch.bfloat16` | 必填 | 与 x 同设备的连续一维权重。`L` 必须是有效分组宽度 `width` 的正整数倍，且 `x.numel() / width` 必须是 `L / width` 的整数倍（`triton` 限定为 `L = 10240`）。 |
-| `group_size` | `int` 或 `None` | — | — | `None` | 分组宽度；`[8, 4096]` 内 8 的倍数（`triton` 限定为 `2560`）。`None` 表示取 `H`，即最后一维每段一个分组。`bool` 被拒绝。 |
-| `eps` | `int` 或 `float` | — | — | `1e-6` | 加到均方值上的有限正数。`bool` 被拒绝。 |
-| `out` | `torch.Tensor` 或 `None` | 与 x 相同或 — | `torch.bfloat16` 或 — | `None` | 可选的预分配连续输出缓冲区，须位于 x 所在设备、与 x 同 shape、`requires_grad=False`，且与 `x` 或 `weight` 无内存重叠；为 `None` 时新建张量。 |
-| `impl` | `str` | — | — | `"auto"` | 仅限关键字；可选 `"auto"`、`"ascendc"`、`"triton"`、`"torch_native"`。 |
-
-不支持自动求导：任何带 `requires_grad=True` 的输入或预分配 `out` 均会被拒绝。若
-提供 `out`，则其必须与 `x` 的 shape、dtype（`torch.bfloat16`）及设备一致，保持连
-续，且不得与 `x` 或 `weight` 存在别名或内存重叠。
-
-| 返回值 | 类型 | Shape | Dtype | 描述与约束 |
+| 参数 | 类型 | 形状 / 数据类型 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
-| `output` | `torch.Tensor` | 与 x 相同 | `torch.bfloat16` | 位于 x 所在设备上的归一化输出。提供 `out` 时原地写入并返回 `out`，否则返回新建的连续张量。不修改任何输入。 |
+| `x` | `torch.Tensor` | `[..., N]`，BF16 | 必填 | NPU 连续张量（`ndim >= 2`），`N` 需整除 `group_size`。 |
+| `weight` | `torch.Tensor` | `[W]`，BF16 | 必填 | 与 `x` 同设备的 1-D 连续张量，`W` 为 `group_size` 正整数倍且周期整除总组数。 |
+| `group_size` | `int` 或 `None` | — | `None` | `[8, 4096]` 内 8 的倍数（`None` 取 `x.shape[-1]`）；`triton` 固定为 `2560`。 |
+| `eps` | `float` | — | `1e-6` | 正有限 float32 稳定项。 |
+| `out` | `torch.Tensor` 或 `None` | `x.shape`，BF16 | `None` | 可选连续预分配输出，不可与 `x` 或 `weight` 别名或重叠。 |
+| `impl` | `str` | — | `"auto"` | 仅关键字：`auto`、`triton`、`ascendc`、`torch_native`。 |
 
-## ascendc 后端
+| 返回值 | 类型 | 形状 | 数据类型 | 说明 |
+| --- | --- | --- | --- | --- |
+| `output` | `torch.Tensor` | `x.shape` | `torch.bfloat16` | 归一化结果；提供 `out` 时原位写入并返回 `out`。 |
 
-- 调用内部 native helper `torch.ops.npu.hyper_conn_grouped_norm`，源码见
-  [`csrc/hyper_conn`](../../../../../csrc/hyper_conn/README.md)。
-- 一个 block 以跨步循环处理完整分组。权重被所有分组共享时只在循环外加载一次，否
-  则每个分组重新加载一次，因此相同 shape 下按分支切分的权重会慢于共享权重。
-- 功能上支持任意 `[*leading, cols]`（`ndim >= 2`）形状；block 数来自按分组宽度和
-  `x.size(0)`（`x` 的首维）查表得到的实测值，并裁剪到分组数与设备运行时 Vector
-  Core 数（`GetCoreNumAiv()`）之内。由于查表假设首维即 token 数，传入带前导
-  batch 维的形状（如 `[1, S, D]`）在数值上完全正确，但选出的 block 数会少于最优
-  值；若需完整吞吐，请展平为 `[S, D]` 或 `[B * S, D]`。65 到 1022 行之间由 128
-  行表项插值得到，未逐点实测。
-- 中间计算全程在 `float32` 中进行，仅在输出时取整一次为 `bfloat16`。平方和经
-  `ReduceSum` 归约后乘以预计算的 `1.0f / width` 倒数，并通过 `Sqrt` + `Div`（而
-  非 `torch.rsqrt`）求逆均方根，因此归一化因子在输出取整前可能与参考实现相差约 1
-  个 `float32` ulp。
+## 后端实现
 
-## triton 后端
+- **`triton`（`auto`）**：arch22 与 arch35 默认后端，支持 NPUGraph 捕获与回放。
+- **`ascendc`**：显式 arch22 CANN/ACLNN AIV 后端（`torch.ops.npu.hyper_conn_grouped_norm`），支持通用组宽与零拷贝 `out`，支持 NPUGraph。
+- **`torch_native`**：独立 CPU FP64 精度参考实现。
 
-- `arch35` 上的默认实现（在 `arch22` 和 `arch35` 上均可通过 `impl="triton"` 显式
-  选择，支持固定规模 `x[R, 10240], weight[10240], group_size=2560`）。
-- 复用 `_layer_norm_fwd_1pass_kernel_npu` 并按 `FP32 (1 + weight)` 缩放，支持
-  `NPUGraph` 捕获以及原地更新输入与权重后的 replay。
-
-## torch_native 后端
-
-- 独立的 PyTorch 实现，不调用任何自定义 native 算子。
-- 先 reshape 为 `[-1, L / width, width]`，使每个分组无需 gather 即可对上自己的权
-  重切片，再按上面的公式用 float32 计算。
-- 会额外分配一份 `x` 的 float32 副本，因此 prefill 规模的输入临时内存约为输入的
-  两倍。它是参考实现，不是性能路径。
-- 归约顺序与逆均方根计算方式与 kernel 不同，不保证逐位相等；精度测试采用收紧的
-  `BF16_TIGHT` 容差（`rtol = 8e-3`，1–2 个 BF16 ulp）。实测覆盖整个测试矩阵时，
-  两个后端至少 99.999% 的元素完全相同，最大差异为输出的一个 BF16 ulp。
-
-## 调用示例
+## 示例
 
 ```python
 import torch
 import torch_npu
-
-from sgl_kernel_npu.operators import list_impls
 from sgl_kernel_npu.operators.norm import grouped_gemma_rmsnorm
 
-rows, branches, width = 32, 4, 2048
-x = torch.randn(rows, branches * width, device="npu", dtype=torch.bfloat16)
-# 每个分支各持一段权重：切片偏移在一行内轮转。
-weight = torch.randn(branches * width, device="npu", dtype=torch.bfloat16) * 0.02
-
-print(list_impls(grouped_gemma_rmsnorm))  # ['ascendc', 'auto', 'torch_native', 'triton']
-out = grouped_gemma_rmsnorm(x, weight, width, 1e-6)
-out_native = grouped_gemma_rmsnorm(x, weight, width, 1e-6, impl="torch_native")
-torch.testing.assert_close(out, out_native, rtol=5e-2, atol=5e-2)
+x = torch.randn(32, 10240, device="npu", dtype=torch.bfloat16)
+weight = torch.zeros(10240, device="npu", dtype=torch.bfloat16)
+y_triton = grouped_gemma_rmsnorm(x, weight, 2560, 1e-6)
+y_ascendc = grouped_gemma_rmsnorm(x, weight, 2560, 1e-6, impl="ascendc")
 ```

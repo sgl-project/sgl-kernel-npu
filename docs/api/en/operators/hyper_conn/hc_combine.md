@@ -7,22 +7,19 @@ differently. A3 means Ascend910_93 series, A2 means Ascend910B series.
 
 | Implementation | arch22 A3 | arch22 A2 | arch35 |
 | --- | --- | --- | --- |
-| `ascendc` (`auto` on arch22) | Supported | Unverified | Not implemented |
-| `triton` (`auto` on arch35) | Supported (`HC=4, H=2560`) | Unverified (`HC=4, H=2560`) | Supported (`HC=4, H=2560`) |
+| `triton` (`auto`) | Supported | Unverified | Supported |
+| `ascendc` | Supported | Unverified | Unsupported |
 | `torch_native` | Supported | Unverified | Supported |
-| `tilelang` | Not implemented | Not implemented | Not implemented |
 
-The `ascendc` implementation is registered as `"auto"` on arch22, which covers
-both A2 and A3; `SGL_KERNEL_ENABLE_A3_ONLY_OPS` in `cmake/legacy_kernels.cmake`
-builds its kernel for every SoC outside the Ascend950 series with runtime vector
-core discovery (`GetCoreNumAiv()`). On arch35, `"auto"` selects the `triton`
-implementation (`hc_count=4, hidden_size=2560`). Hardware validation on A3 used
-Ascend910_9382 with CANN 9.1.0, torch 2.10.0 and torch_npu 2.10.0.
+`auto` selects `triton` on both `arch22` and `arch35` (`hc=4, hs=2560`).
+Explicit `impl="ascendc"` uses BF16 `F.linear` projection plus the arch22
+CANN/ACLNN AIV operator `hyper_conn_branch_combine` (`SUPPORTED_ARCHS 2201`);
+arch35 rejects `impl="ascendc"` via `UnsupportedGenerationError` in the registry.
 
 ## Signature
 
-Omitting `impl` or passing `"auto"` selects `ascendc` on `arch22` and `triton`
-on `arch35`.
+Omitting `impl` or passing `"auto"` selects `triton`. Select the Ascend C path
+explicitly with `impl="ascendc"`.
 
 ```python
 from typing import Optional
@@ -30,12 +27,12 @@ import torch
 from sgl_kernel_npu.operators.hyper_conn import hc_combine
 
 def hc_combine(
-    block_output: torch.Tensor,
+    block: torch.Tensor,
     residual: torch.Tensor,
-    normed_residual: torch.Tensor,
-    inject_weight: torch.Tensor,
-    hc_count: int,
-    hidden_size: int,
+    normed: torch.Tensor,
+    weight: torch.Tensor,
+    hc: int,
+    hs: int,
     out: Optional[torch.Tensor] = None,
     *,
     impl: str = "auto",
@@ -45,130 +42,48 @@ def hc_combine(
 
 ## Description
 
-Projects per-branch injection gates from `normed_residual` and adds the gated
-sub-block output `block_output` back into every branch of `residual`. With
-$C = \mathrm{hc\_count}$, $H = \mathrm{hidden\_size}$,
-$\hat{r} = \mathrm{normed\_residual}$, and $\sigma(z)=1/(1+e^{-z})$:
+Project per-branch injection gates from `normed` and add the gated `block`
+output onto every branch of `residual`:
 
-$$
-z = \hat{r}\,W_{\text{inject}}^{\top},
-\qquad
-g_{m,c} = 2\,\sigma\!\left(\frac{z_{m,c}}{C}\right)
-$$
+```text
+gate = 2 * sigmoid((normed @ weight.T) / hc)
+out[r, c * hs + d] = residual[r, c * hs + d] + gate[r, c] * block[r, d]
+```
 
-$$
-\mathrm{out}_{m,c,j} = \mathrm{bf16}\!\left(r_{m,c,j} + b_{m,j}\,g_{m,c}\right)
-$$
-
-where $r_{m,c,j} = \mathrm{residual}_{m,\,cH+j}$,
-$b_{m,j} = \mathrm{block\_output}_{m,j}$, and $\mathrm{out}_{m,c,j}$ is written
-to `output[m, c * H + j]`. Intermediate gate scaling, sigmoid evaluation,
-broadcast multiply, and residual addition all run in `float32`, rounding to
-`bfloat16` once on output, matching the upstream SGLang CUDA kernel contract.
-Both sigmoid tails saturate cleanly to 0 and 2 without producing NaN.
-
-Unlike `hc_post` and `mhc_post`, which take precomputed `post` and $4\times 4$
-`comb` stream-mixing matrices for fixed hidden sizes (`4096`/`7168`),
-`hc_combine` projects raw injection logits internally, applies the `2 * sigmoid`
-gate ladder with unit residual stream identity, and supports per-branch hidden
-sizes in `[16, 4096]` on `ascendc` and `torch_native`.
+- **`triton` (`auto`)**: keeps intermediate gate projection in FP32 and rounds
+  only the output to BF16 (`hc=4, hs=2560`).
+- **`ascendc`**: projects `gate_logits = F.linear(normed, weight)` in BF16 and
+  runs `torch.ops.npu.hyper_conn_branch_combine` in FP32 internally, rounding
+  once to BF16 when writing `out`. Supports power-of-two `hc` in `[1, 8]`,
+  multiples of 16 up to 4096 for `hs`, and zero-copy pre-allocated `out`.
 
 ## Parameters and return value
 
-The public operator validates the contract below before selecting an
-implementation, so invalid inputs raise `ValueError` before any kernel launch.
-
-| Parameter | Type | Shape | Dtype | Default | Description and constraints |
-| --- | --- | --- | --- | --- | --- |
-| `block_output` | `torch.Tensor` | `[rows, hidden_size]` | `torch.bfloat16` | Required | Sub-block output; contiguous 2-D tensor on an NPU device. |
-| `residual` | `torch.Tensor` | `[rows, hc_count * hidden_size]` | `torch.bfloat16` | Required | Multi-branch residual; contiguous 2-D tensor on block_output's device. `rows == 0` returns an empty result. |
-| `normed_residual` | `torch.Tensor` | `[rows, hc_count * hidden_size]` | `torch.bfloat16` | Required | Normalized residual input to the injection projection; contiguous 2-D tensor on block_output's device. |
-| `inject_weight` | `torch.Tensor` | `[hc_count, hc_count * hidden_size]` | `torch.bfloat16` | Required | Injection projection weight; contiguous 2-D tensor on block_output's device. |
-| `hc_count` | `int` | — | — | Required | Hyper-connection branch count; a power of two in `[1, 8]` (`4` on `triton`). `bool` is rejected. |
-| `hidden_size` | `int` | — | — | Required | Per-branch hidden size; a multiple of 16 in `[16, 4096]` (`2560` on `triton`). `bool` is rejected. |
-| `out` | `torch.Tensor` or `None` | `[rows, hc_count * hidden_size]` or — | `torch.bfloat16` or — | `None` | Optional pre-allocated contiguous output buffer on residual's device with residual's shape, `requires_grad=False`, and no memory overlap with any input tensor. When `None`, a new tensor is allocated. |
-| `impl` | `str` | — | — | `"auto"` | Keyword-only; accepts `"auto"`, `"ascendc"`, `"triton"` or `"torch_native"`. |
-
-Autograd is not supported: any input or pre-allocated `out` with
-`requires_grad=True` is rejected. When `out` is provided, it must match
-`residual`'s shape (`[rows, hc_count * hidden_size]`), dtype (`torch.bfloat16`),
-and device, be contiguous, and not alias or overlap `block_output`, `residual`,
-`normed_residual`, or `inject_weight`.
-
-| Return value | Type | Shape | Dtype | Description and constraints |
+| Parameter | Type | Shape / dtype | Default | Constraints |
 | --- | --- | --- | --- | --- |
-| `output` | `torch.Tensor` | `[rows, hc_count * hidden_size]` | `torch.bfloat16` | Combined output on residual's device. Returns `out` (written in place) when supplied, or a newly allocated contiguous tensor otherwise. Inputs are not modified (`residual` is not updated in place). |
+| `block` | `torch.Tensor` | `[R, hs]`, BF16 | Required | Contiguous NPU input. |
+| `residual` | `torch.Tensor` | `[R, hc * hs]`, BF16 | Required | Contiguous on `block.device`. |
+| `normed` | `torch.Tensor` | `[R, hc * hs]`, BF16 | Required | Contiguous on `block.device`. |
+| `weight` | `torch.Tensor` | `[hc, hc * hs]`, BF16 | Required | Contiguous on `block.device`. |
+| `hc` | `int` | — | Required | Power of two in `[1, 8]` (`triton` requires `4`). |
+| `hs` | `int` | — | Required | Multiple of 16 in `[16, 4096]` (`triton` requires `2560`). |
+| `out` | `torch.Tensor` or `None` | `[R, hc * hs]`, BF16 | `None` | Optional contiguous NPU buffer not aliasing or overlapping any input. |
+| `impl` | `str` | — | `"auto"` | Keyword-only: `"auto"`, `"triton"`, `"ascendc"`, or `"torch_native"`. |
 
-## ascendc backend
-
-- Projects `[rows, hc_count]` injection logits via `torch.nn.functional.linear`
-  (`aclnn`) and fuses the gate scaling, sigmoid, broadcast multiply and
-  residual add in the internal Ascend C helper
-  `torch.ops.npu.hyper_conn_branch_combine` (sources in
-  [`csrc/hyper_conn`](../../../../../csrc/hyper_conn/README.md)), keeping
-  intermediate arithmetic in `float32` throughout and rounding to `bfloat16`
-  once on output. Pass only tensors validated through the public operator
-  rather than calling the helper binding directly.
-- One kernel task covers one `(row, column tile)`. Each row's `hc_count` gates
-  are evaluated on an 8-lane float32 Unified Buffer block (and reused across
-  consecutive tiles of the same row on a core), while all branches of the
-  residual tile are transferred in single strided MTE2/MTE3 bursts.
-- Block counts and column tiles come from a measured table keyed on
-  `hidden_size` and `rows` (clamped to the task count and runtime vector core
-  count via `GetCoreNumAiv()`). Row counts between 65 and 1022 interpolate from
-  the 128-row entry.
-
-## triton backend
-
-- Default implementation on `arch35` (and selectable explicitly via
-  `impl="triton"` on `arch22` and `arch35` for `hc_count=4, hidden_size=2560`).
-- Supports `NPUGraph` capture and replay after in-place input and weight updates.
-
-## torch_native backend
-
-- Independent PyTorch implementation; it calls no custom native operator.
-- Runs `torch.nn.functional.linear` for the injection projection and evaluates
-  the intermediate gate scaling, `1 / (1 + exp(-x))` sigmoid, broadcast
-  multiply, and residual addition in `float32`, rounding to `bfloat16` once on
-  output.
-- Allocates float32 temporaries of the full residual size, so prefill-sized
-  calls are memory heavy. It is a reference, not a performance path.
-- Transcendental implementations differ across backends, so bitwise equality is
-  not guaranteed; accuracy tests enforce a tightened `BF16_TIGHT` tolerance
-  (`rtol = 8e-3`, 1–2 BF16 ulp).
+| Return | Type | Shape | Dtype | Description |
+| --- | --- | --- | --- | --- |
+| `output` | `torch.Tensor` | `[R, hc * hs]` | `torch.bfloat16` | Combined output on `residual.device`; returns `out` when supplied. |
 
 ## Example
 
 ```python
 import torch
 import torch_npu
-
-from sgl_kernel_npu.operators import list_impls
 from sgl_kernel_npu.operators.hyper_conn import hc_combine
 
-rows, hc_count, hidden_size = 32, 4, 2048
-total = hc_count * hidden_size
-block_output = torch.randn(
-    rows, hidden_size, device="npu", dtype=torch.bfloat16
-)
-residual = torch.randn(rows, total, device="npu", dtype=torch.bfloat16)
-normed_residual = torch.randn(rows, total, device="npu", dtype=torch.bfloat16)
-inject_weight = (
-    torch.randn(hc_count, total, device="npu", dtype=torch.bfloat16) * 0.1
-)
-
-print(list_impls(hc_combine))  # ['ascendc', 'auto', 'torch_native', 'triton']
-out = hc_combine(
-    block_output, residual, normed_residual, inject_weight, hc_count, hidden_size
-)
-out_native = hc_combine(
-    block_output,
-    residual,
-    normed_residual,
-    inject_weight,
-    hc_count,
-    hidden_size,
-    impl="torch_native",
-)
-torch.testing.assert_close(out, out_native, rtol=5e-2, atol=5e-2)
+residual = torch.randn(32, 10240, device="npu", dtype=torch.bfloat16)
+block = torch.randn(32, 2560, device="npu", dtype=torch.bfloat16)
+weight = torch.zeros(4, 10240, device="npu", dtype=torch.bfloat16)
+y_triton = hc_combine(block, residual, residual, weight, 4, 2560)
+y_ascendc = hc_combine(block, residual, residual, weight, 4, 2560, impl="ascendc")
 ```

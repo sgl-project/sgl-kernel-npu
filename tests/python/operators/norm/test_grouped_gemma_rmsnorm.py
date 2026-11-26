@@ -1,24 +1,18 @@
-"""Public grouped_gemma_rmsnorm operator: weight layouts, group widths, graphs and guards.
-
-Model dimensions follow Qwen3.8-Flash-Next (hidden_size=2048, hc_count=4;
-https://huggingface.co/Qwen/Qwen3.8-Flash-Next/blob/main/config.json) and its
-24-layer configuration (hidden_size=2560, hc_count=4), matching SGLang's
-GroupedGemmaRMSNorm in sglang/srt/layers/hyperconnection.py. Token counts are
-representative decode batch buckets and prefill chunks rather than runtime traces.
-"""
+"""Public grouped_gemma_rmsnorm operator: Triton default and explicit Ascend C backend."""
 
 import pytest
 
 torch = pytest.importorskip("torch")
 pytest.importorskip("torch_npu")
 
+from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
 from tests.python.utils.accuracy import assert_accuracy, check_accuracy
+from tests.python.utils.common import require_distinct_impls, require_test_impl
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
-# 1-2 BF16 ulp across a binade (1 ulp at 2^e is 2^-7 = 7.8125e-3), tight enough
-# to catch accidental intermediate BF16 rounding (~0.01-0.02) while leaving room
-# for fp32 transcendental and tree-reduction rounding differences.
+# Allow BF16 output rounding around FP32/FP64 computation differences.
 BF16_TIGHT = {"torch.bfloat16": AccuracyStandard(atol=0.0, rtol=8e-3)}
 STANDARD = {"torch.bfloat16": AccuracyStandard(atol=0.005, rtol=0.01)}
 
@@ -37,44 +31,18 @@ WEIGHT_LAYOUTS = [
 ]
 
 
-def _native_available():
-    """Report whether this build registered the A3-family native operator."""
-    try:
-        import sgl_kernel_npu  # noqa: F401
-
-        return hasattr(torch.ops.npu, "hyper_conn_grouped_norm")
-    except Exception:
-        return False
-
-
 def _supported_generation():
-    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
-
     return get_hardware().generation in {Generation.ARCH22, Generation.ARCH35}
 
 
-requires_native = pytest.mark.skipif(
-    not _native_available(),
-    reason="general grouped_gemma_rmsnorm cases need an arch22 A3-family native build",
-)
-
-
 def generate_data(shape, weight_layout, seed=11042026):
-    """Create NPU inputs using the device context supplied by conftest.
-
-    shape is (rows, branches, width). The input is the flat
-    [rows, branches * width] residual layout a hyper-connection block stores,
-    and width is the group size. weight_layout selects a per-branch weight,
-    whose slice offset cycles across the row, or a single shared slice.
-    """
+    """Create NPU inputs using the device context supplied by conftest."""
     if weight_layout not in WEIGHT_LAYOUTS:
         raise ValueError(f"Unknown weight layout: {weight_layout}")
     rows, branches, width = shape
     torch.npu.manual_seed(seed)
     x = torch.randn(rows, branches * width, dtype=torch.bfloat16)
     length = width if weight_layout == "shared" else branches * width
-    # The model initializes this weight near zero, where 1 + weight is close to
-    # one; keep that scale so the test exercises realistic magnitudes.
     weight = (torch.randn(length, dtype=torch.float32) * 0.02).to(torch.bfloat16)
     return x, weight
 
@@ -91,42 +59,6 @@ def _generate_2560_data(rows, row_offset=0):
     x = x.to("npu")[row_offset:]
     assert x.is_contiguous() and x.storage_offset() == row_offset * 10240
     return x, weight.to("npu"), 2560, 1e-6
-
-
-@requires_native
-@pytest.mark.parametrize("weight_layout", WEIGHT_LAYOUTS)
-@pytest.mark.parametrize(
-    "shape",
-    [
-        # Qwen3.8-Flash-Next: hidden_size=2048, hc_count=4; 24-layer variant:
-        # hidden_size=2560, hc_count=4.
-        pytest.param((32, 4, 2048), id="qwen38-flash-next-decode-32x4x2048"),
-        pytest.param((64, 4, 2560), id="qwen38-24l-decode-64x4x2560"),
-        pytest.param((2048, 4, 2048), id="qwen38-flash-next-prefill-2048x4x2048"),
-        pytest.param((1, 4, 2048), id="qwen38-flash-next-single-row"),
-        pytest.param((1, 1, 8), id="edge-minimum"),
-        pytest.param((7, 2, 24), id="edge-odd-rows-narrow-group"),
-        pytest.param((5, 8, 4096), id="edge-maximum-width"),
-        pytest.param((0, 4, 2048), id="edge-zero-rows"),
-    ],
-)
-@pytest.mark.parametrize("eps", [1e-6, 1e-5])
-def test_grouped_gemma_rmsnorm(shape, weight_layout, eps):
-    from sgl_kernel_npu.operators.norm import grouped_gemma_rmsnorm
-
-    x, weight = generate_data(shape, weight_layout)
-    executor = check_accuracy(
-        grouped_gemma_rmsnorm,
-        args=(x, weight, shape[2], eps),
-        standard=BF16_TIGHT,
-    )
-    # An accuracy failure raises before performance collection.
-    check_performance(
-        executor,
-        enable_perf=(
-            shape in perf_shape and weight_layout == perf_weight and eps == 1e-6
-        ),
-    )
 
 
 @pytest.mark.parametrize(
@@ -150,7 +82,6 @@ def test_grouped_gemma_rmsnorm_accuracy(rows, row_offset):
         pytest.skip("These model operators target arch22 and arch35")
     from sgl_kernel_npu.operators.norm import grouped_gemma_rmsnorm
 
-    # Each row contains four groups; an odd row count also checks the last tile.
     args = _generate_2560_data(rows, row_offset)
     saved = [x.clone() for x in args[:2]]
     executor = check_accuracy(grouped_gemma_rmsnorm, args=args, standard=STANDARD)
@@ -176,7 +107,59 @@ def test_grouped_gemma_rmsnorm_graph_updates(rows):
     )
 
 
-@requires_native
+@pytest.mark.parametrize("weight_layout", WEIGHT_LAYOUTS)
+@pytest.mark.parametrize(
+    "shape",
+    [
+        pytest.param((32, 4, 2048), id="qwen38-flash-next-decode-32x4x2048"),
+        pytest.param((64, 4, 2560), id="qwen38-24l-decode-64x4x2560"),
+        pytest.param((2048, 4, 2048), id="qwen38-flash-next-prefill-2048x4x2048"),
+        pytest.param((1, 4, 2048), id="qwen38-flash-next-single-row"),
+        pytest.param((1, 1, 8), id="edge-minimum"),
+        pytest.param((7, 2, 24), id="edge-odd-rows-narrow-group"),
+        pytest.param((5, 8, 4096), id="edge-maximum-width"),
+        pytest.param((0, 4, 2048), id="edge-zero-rows"),
+    ],
+)
+@pytest.mark.parametrize("eps", [1e-6, 1e-5])
+def test_grouped_gemma_rmsnorm_ascendc(shape, weight_layout, eps):
+    """Explicit Ascend C backend over general widths, layouts and eps values."""
+    from sgl_kernel_npu.operators.norm import grouped_gemma_rmsnorm
+
+    require_distinct_impls(grouped_gemma_rmsnorm, "ascendc", "torch_native")
+    x, weight = generate_data(shape, weight_layout)
+    executor = check_accuracy(
+        grouped_gemma_rmsnorm,
+        args=(x, weight, shape[2], eps),
+        impl="ascendc",
+        impl_ref="torch_native",
+        standard=BF16_TIGHT,
+    )
+    check_performance(
+        executor,
+        enable_perf=(
+            shape in perf_shape and weight_layout == perf_weight and eps == 1e-6
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "rows", [pytest.param(8, id="qwen3-8-flash-next-decode-r8-h10240")]
+)
+def test_grouped_gemma_rmsnorm_ascendc_graph_updates(rows):
+    from sgl_kernel_npu.operators.norm import grouped_gemma_rmsnorm
+
+    require_distinct_impls(grouped_gemma_rmsnorm, "ascendc", "torch_native")
+    args = _generate_2560_data(rows)
+    _check_graph_updates(
+        grouped_gemma_rmsnorm,
+        args,
+        [lambda: args[0].mul_(-0.5), lambda: args[1].add_(0.125)],
+        standard=STANDARD,
+        kwargs={"impl": "ascendc"},
+    )
+
+
 @pytest.mark.parametrize(
     "shape",
     [
@@ -185,15 +168,11 @@ def test_grouped_gemma_rmsnorm_graph_updates(rows):
         pytest.param((1, 1, 16), id="edge-minimum"),
     ],
 )
-def test_grouped_gemma_rmsnorm_defaults(shape, impl_pair):
-    """group_size=None and omitted eps must match explicit (row_width, 1e-6).
-
-    One implementation answers both calls after check_accuracy verifies the
-    default call across backends.
-    """
+def test_grouped_gemma_rmsnorm_ascendc_defaults(shape):
+    """group_size=None and omitted eps must match explicit (row_width, 1e-6)."""
     from sgl_kernel_npu.operators.norm import grouped_gemma_rmsnorm
 
-    impl = impl_pair[0]
+    require_distinct_impls(grouped_gemma_rmsnorm, "ascendc", "torch_native")
     rows, branches, width = shape
     row_width = branches * width
     x, _ = generate_data(shape, "per_branch")
@@ -201,39 +180,40 @@ def test_grouped_gemma_rmsnorm_defaults(shape, impl_pair):
     executor = check_accuracy(
         grouped_gemma_rmsnorm,
         args=(x, weight, None),
+        impl="ascendc",
+        impl_ref="torch_native",
         standard=BF16_TIGHT,
     )
-    explicit = grouped_gemma_rmsnorm(x, weight, row_width, 1e-6, impl=impl)
+    explicit = grouped_gemma_rmsnorm(x, weight, row_width, 1e-6, impl="ascendc")
     assert torch.equal(executor(), explicit)
-    assert torch.equal(grouped_gemma_rmsnorm(x, weight, impl=impl), explicit)
+    assert torch.equal(grouped_gemma_rmsnorm(x, weight, impl="ascendc"), explicit)
     check_performance(executor, enable_perf=False)
 
 
-@requires_native
 @pytest.mark.parametrize(
     "shape",
     [
-        # SGLang calls GroupedGemmaRMSNorm on [rows, hc_count, hidden_size] when
-        # hc_per_branch_norm is False.
         pytest.param((8, 4, 2048), id="qwen38-flash-next-3d-per-branch"),
         pytest.param((8, 4, 2048), id="qwen38-flash-next-3d-shared"),
         pytest.param((3, 2, 128), id="edge-small-3d"),
     ],
 )
-def test_grouped_gemma_rmsnorm_three_dimensional(shape, request, impl_pair):
+def test_grouped_gemma_rmsnorm_ascendc_three_dimensional(shape, request):
     """A [rows, branches, width] input must group identically to the flat view."""
     from sgl_kernel_npu.operators.norm import grouped_gemma_rmsnorm
 
-    impl = impl_pair[0]
+    require_distinct_impls(grouped_gemma_rmsnorm, "ascendc", "torch_native")
     rows, branches, width = shape
     layout = "shared" if "shared" in request.node.callspec.id else "per_branch"
     x, weight = generate_data(shape, layout)
-    flat = grouped_gemma_rmsnorm(x, weight, width, 1e-6, impl=impl)
+    flat = grouped_gemma_rmsnorm(x, weight, width, 1e-6, impl="ascendc")
     view_3d = x.reshape(rows, branches, width)
     group_arg = None if layout == "shared" else width
     executor = check_accuracy(
         grouped_gemma_rmsnorm,
         args=(view_3d, weight, group_arg, 1e-6),
+        impl="ascendc",
+        impl_ref="torch_native",
         standard=BF16_TIGHT,
     )
     assert torch.equal(executor().reshape(rows, branches * width), flat)
@@ -241,12 +221,12 @@ def test_grouped_gemma_rmsnorm_three_dimensional(shape, request, impl_pair):
 
 
 @pytest.mark.extra_checks
-@requires_native
 @pytest.mark.parametrize("impl", ["ascendc", "torch_native"])
 def test_grouped_gemma_rmsnorm_out_buffer(impl):
     """Pre-allocated out buffers are written in place without mutating inputs."""
     from sgl_kernel_npu.operators.norm import grouped_gemma_rmsnorm
 
+    require_test_impl(grouped_gemma_rmsnorm, impl)
     shape = (16, 4, 2048)
     _, branches, width = shape
     x, weight = generate_data(shape, "per_branch")
@@ -404,7 +384,6 @@ def test_grouped_gemma_rmsnorm_rejects_inputs(case, message):
     elif case == "weight_length":
         weight = torch.randn(2048 + 8, dtype=torch.bfloat16)
     elif case == "weight_period":
-        # Three slices do not divide the 32 groups of an 8-row, 4-branch input.
         weight = torch.randn(3 * 2048, dtype=torch.bfloat16)
     elif case == "bool_eps":
         eps = True
@@ -448,11 +427,7 @@ def _assert_unchanged(args, saved):
 def _check_graph_updates(
     operator, args, updates, *, standard=None, kwargs=None, compare=None
 ):
-    """Capture the public default; compare each replay to an independent reference.
-
-    updates mutate contents at stable addresses. References run outside capture.
-    compare can supply a semantic comparator for nonunique TopK outputs.
-    """
+    """Capture a call; compare each replay to an independent reference."""
     kwargs = dict(kwargs or {})
     inputs = _tensors(args)
     pointers = [x.data_ptr() for x in inputs]
@@ -469,7 +444,8 @@ def _check_graph_updates(
         graph.replay()
         torch.npu.synchronize()
         if compare is None:
-            reference = operator(*args, **kwargs, impl="torch_native")
+            ref_kwargs = {k: v for k, v in kwargs.items() if k != "impl"}
+            reference = operator(*args, **ref_kwargs, impl="torch_native")
             assert_accuracy(output, reference, standard)
         else:
             compare(output)

@@ -1,4 +1,4 @@
-"""Public grouped Gemma-style RMSNorm operator."""
+"""Public grouped Gemma RMSNorm with Triton default and explicit Ascend C backend."""
 
 import math
 from typing import Optional
@@ -44,12 +44,9 @@ def _tensors_overlap(a: torch.Tensor, b: torch.Tensor) -> bool:
 
 
 def _check_inputs(x, weight, group_size, eps, out=None):
-    """Reject inputs outside the operator contract before any kernel launch.
-
-    All backends share this contract, so it is checked once here instead of
-    being duplicated per backend. Only metadata is inspected; no
-    device-to-host data read happens.
-    """
+    """Reject inputs outside the operator contract before any kernel launch."""
+    if not isinstance(x, torch.Tensor) or not isinstance(weight, torch.Tensor):
+        raise ValueError("grouped_gemma_rmsnorm requires BF16 x and weight tensors")
     if x.dtype != torch.bfloat16 or weight.dtype != torch.bfloat16:
         raise ValueError("grouped_gemma_rmsnorm requires BF16 x and weight")
     if x.device.type != "npu" or weight.device != x.device:
@@ -77,8 +74,6 @@ def _check_inputs(x, weight, group_size, eps, out=None):
     slices, remainder = divmod(weight.numel(), width)
     if remainder or slices == 0:
         raise ValueError("weight length must be a positive multiple of the group size")
-    # The weight offset cycles every `slices` groups, so a partial period at the
-    # end of the tensor would scale its groups by the wrong slice.
     if (x.numel() // width) % slices:
         raise ValueError(
             "the group count must be a whole number of weight periods "
@@ -107,22 +102,10 @@ def _check_inputs(x, weight, group_size, eps, out=None):
             raise ValueError("out must not alias or overlap x or weight")
 
 
-# The native entry point is compiled by the A3-only operator set of an arch22
-# build, while arch35 defaults to the Triton implementation.
-@register_impl(
-    "norm.grouped_gemma_rmsnorm", "auto", supported_generations={Generation.ARCH22}
-)
 @register_impl(
     "norm.grouped_gemma_rmsnorm",
-    "ascendc",
-    supported_generations={Generation.ARCH22},
-)
-def _ascendc_impl(x, weight, group_size, eps, out=None):
-    return torch.ops.npu.hyper_conn_grouped_norm(x, weight, group_size, eps, out)
-
-
-@register_impl(
-    "norm.grouped_gemma_rmsnorm", "auto", supported_generations={Generation.ARCH35}
+    "auto",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 @register_impl(
     "norm.grouped_gemma_rmsnorm",
@@ -143,6 +126,17 @@ def _triton_impl(x, weight, group_size, eps, out=None):
         out.copy_(result)
         return out
     return result
+
+
+# Native CANN/ACLNN AIV kernel declares SUPPORTED_ARCHS 2201, so impl="ascendc"
+# is registered for arch22 only while auto remains on the Triton path.
+@register_impl(
+    "norm.grouped_gemma_rmsnorm",
+    "ascendc",
+    supported_generations={Generation.ARCH22},
+)
+def _ascendc_impl(x, weight, group_size, eps, out=None):
+    return torch.ops.npu.hyper_conn_grouped_norm(x, weight, group_size, eps, out)
 
 
 @register_impl(
@@ -179,44 +173,13 @@ def grouped_gemma_rmsnorm(
 ) -> torch.Tensor:
     """RMS-normalize fixed-width groups and scale by ``1 + weight``.
 
-    The default ``impl="auto"`` selects Ascend C on ``arch22`` and Triton on
-    ``arch35`` (fixed ``x[R, 10240], weight[10240], group_size=2560``). Groups
-    are the consecutive ``group_size``-long spans of ``x`` in row-major order,
-    so a hyper-connection residual of shape ``[rows, branches * width]`` with
-    ``group_size=width`` normalizes each branch of each row separately. Group
-    ``g`` scales by ``1 + weight[(g * group_size) % weight.numel() + j]``, so a
-    weight holding one slice per branch gives every branch its own slice, and a
-    weight of exactly one group is shared by all groups.
-
-    Args:
-        x (torch.Tensor): BF16 contiguous input on an NPU with at least two
-            dimensions. Its last dimension must be a multiple of group_size.
-        weight (torch.Tensor): BF16 contiguous 1-D weight on x's device. Its
-            length must be a positive multiple of group_size, and the number of
-            groups in x must be a whole number of weight periods, where one
-            period is weight.numel() // group_size groups.
-        group_size (int | None): Group width; a multiple of 8 up to 4096. None
-            uses x's last dimension, making one group per last-dimension span.
-            Defaults to None.
-        eps (float): Positive finite stability term added to the mean square.
-            Defaults to 1e-6.
-        out (torch.Tensor | None): Optional pre-allocated BF16 contiguous output
-            tensor on x's device with x's shape, not aliasing or overlapping x
-            or weight. Defaults to None.
-        impl (str): Implementation name: "auto", "ascendc", "triton" or
-            "torch_native". Defaults to "auto". Keyword-only.
-
-    Returns:
-        torch.Tensor: Normalized BF16 result with x's shape and device. Returns
-        ``out`` (written in place) when supplied, or a newly allocated tensor
-        otherwise. Inputs are not modified.
-
-    Normalization accumulates in float32 and rounds the result to BF16 once.
-    On ``ascendc``, the block-count lookup keys on ``x.size(0)``, so the
-    leading dimension should be the token count rather than a batch dimension
-    such as ``[1, S, D]`` (which would under-launch blocks). The Ascend C
-    reduction is grouped differently from the reference, so the two are not
-    bitwise equal; see the API documentation for the tolerance.
+    The default ``impl="auto"`` selects Triton on both ``arch22`` and
+    ``arch35`` (fixed ``x[R, 10240], weight[10240], group_size=2560``).
+    Explicit ``impl="ascendc"`` selects the arch22 CANN/ACLNN AIV kernel, which
+    supports general group widths (multiples of 8 up to 4096), shared or
+    per-branch cycling weights, 2-D/3-D contiguous inputs, and zero-copy
+    pre-allocated ``out`` buffers. ``torch_native`` is an independent CPU FP64
+    reference.
     """
     _check_inputs(x, weight, group_size, eps, out)
     impl_fn = get_impl_by_name("norm.grouped_gemma_rmsnorm", impl)

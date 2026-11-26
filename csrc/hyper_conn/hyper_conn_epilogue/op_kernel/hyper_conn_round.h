@@ -14,8 +14,8 @@
 #ifndef SGL_KERNEL_NPU_HYPER_CONN_ROUND_H
 #define SGL_KERNEL_NPU_HYPER_CONN_ROUND_H
 
-#include "kernel_operator.h"
 #include "hyper_conn_limits.h"
+#include "kernel_operator.h"
 
 namespace sglang {
 namespace npu_kernel {

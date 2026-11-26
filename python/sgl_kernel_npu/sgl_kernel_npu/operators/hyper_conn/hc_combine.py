@@ -1,4 +1,4 @@
-"""Public hyper-connection gated residual combine operator."""
+"""Public hyper-connection gated residual combine with Triton default and Ascend C backend."""
 
 from typing import Optional
 
@@ -43,22 +43,11 @@ def _tensors_overlap(a: torch.Tensor, b: torch.Tensor) -> bool:
     return a_begin < b_end and b_begin < a_end
 
 
-def _check_inputs(
-    block_output,
-    residual,
-    normed_residual,
-    inject_weight,
-    hc_count,
-    hidden_size,
-    out=None,
-):
-    """Reject inputs outside the operator contract before any kernel launch.
-
-    All backends share this contract, so it is checked once here instead of
-    being duplicated per backend. Only metadata is inspected; no
-    device-to-host data read happens.
-    """
-    tensors = (block_output, residual, normed_residual, inject_weight)
+def _check_inputs(block, residual, normed, weight, hc, hs, out=None):
+    """Reject inputs outside the operator contract before any kernel launch."""
+    tensors = (block, residual, normed, weight)
+    if any(not isinstance(t, torch.Tensor) for t in tensors):
+        raise ValueError("hc_combine requires BF16 tensor inputs")
     if any(t.dtype != torch.bfloat16 for t in tensors):
         raise ValueError("hc_combine requires BF16 inputs")
     if residual.device.type != "npu" or any(
@@ -66,45 +55,35 @@ def _check_inputs(
     ):
         raise ValueError("all inputs must be on the same NPU")
     if any(t.ndim != 2 for t in tensors):
-        raise ValueError(
-            "block_output, residual, normed_residual and inject_weight must be 2-D"
-        )
+        raise ValueError("block, residual, normed and weight must be 2-D")
     if any(not t.is_contiguous() for t in tensors):
-        raise ValueError(
-            "block_output, residual, normed_residual and inject_weight must be contiguous"
-        )
-    # The branch count divides the projected injection logit, and the kernel
-    # multiplies by the reciprocal, so only a power of two stays exact.
+        raise ValueError("block, residual, normed and weight must be contiguous")
     if (
-        isinstance(hc_count, bool)
-        or not isinstance(hc_count, int)
-        or hc_count <= 0
-        or hc_count > MAX_HC_COUNT
-        or hc_count & (hc_count - 1)
+        isinstance(hc, bool)
+        or not isinstance(hc, int)
+        or hc <= 0
+        or hc > MAX_HC_COUNT
+        or hc & (hc - 1)
     ):
-        raise ValueError("hc_count must be a power of two in [1, 8]")
+        raise ValueError("hc must be a power of two in [1, 8]")
     if (
-        isinstance(hidden_size, bool)
-        or not isinstance(hidden_size, int)
-        or hidden_size <= 0
-        or hidden_size > MAX_HIDDEN_SIZE
-        or hidden_size % WIDTH_ALIGNMENT
+        isinstance(hs, bool)
+        or not isinstance(hs, int)
+        or hs <= 0
+        or hs > MAX_HIDDEN_SIZE
+        or hs % WIDTH_ALIGNMENT
     ):
-        raise ValueError("hidden_size must be a multiple of 16 up to 4096")
+        raise ValueError("hs must be a multiple of 16 up to 4096")
     rows = residual.shape[0]
-    total_width = hc_count * hidden_size
+    total_width = hc * hs
     if residual.shape[1] != total_width:
-        raise ValueError("residual must have shape [rows, hc_count * hidden_size]")
-    if normed_residual.shape != (rows, total_width):
-        raise ValueError(
-            "normed_residual must have shape [rows, hc_count * hidden_size]"
-        )
-    if block_output.shape != (rows, hidden_size):
-        raise ValueError("block_output must have shape [rows, hidden_size]")
-    if inject_weight.shape != (hc_count, total_width):
-        raise ValueError(
-            "inject_weight must have shape [hc_count, hc_count * hidden_size]"
-        )
+        raise ValueError("residual must have shape [rows, hc * hs]")
+    if normed.shape != (rows, total_width):
+        raise ValueError("normed must have shape [rows, hc * hs]")
+    if block.shape != (rows, hs):
+        raise ValueError("block must have shape [rows, hs]")
+    if weight.shape != (hc, total_width):
+        raise ValueError("weight must have shape [hc, hc * hs]")
     if any(t.requires_grad for t in tensors):
         raise ValueError("hc_combine is inference only")
     if out is not None:
@@ -124,65 +103,43 @@ def _check_inputs(
             raise ValueError("out must not alias or overlap any input tensor")
 
 
-# The native entry point is compiled by the A3-only operator set of an arch22
-# build, while arch35 defaults to the Triton implementation.
 @register_impl(
-    "hyper_conn.hc_combine", "auto", supported_generations={Generation.ARCH22}
-)
-@register_impl(
-    "hyper_conn.hc_combine", "ascendc", supported_generations={Generation.ARCH22}
-)
-def _ascendc_impl(
-    block_output,
-    residual,
-    normed_residual,
-    inject_weight,
-    hc_count,
-    hidden_size,
-    out=None,
-):
-    if residual.shape[0] == 0:
-        return out if out is not None else torch.empty_like(residual)
-    gate_logits = F.linear(normed_residual, inject_weight)
-    return torch.ops.npu.hyper_conn_branch_combine(
-        block_output, residual, gate_logits, hc_count, out
-    )
-
-
-@register_impl(
-    "hyper_conn.hc_combine", "auto", supported_generations={Generation.ARCH35}
+    "hyper_conn.hc_combine",
+    "auto",
+    supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
 @register_impl(
     "hyper_conn.hc_combine",
     "triton",
     supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
-def _triton_impl(
-    block_output,
-    residual,
-    normed_residual,
-    inject_weight,
-    hc_count,
-    hidden_size,
-    out=None,
-):
+def _triton_impl(block, residual, normed, weight, hc, hs, out=None):
     global _triton_fn
     if _triton_fn is None:
         from ...implementation.triton.hyper_conn.hc import combine
 
         _triton_fn = combine
-    result = _triton_fn(
-        block_output,
-        residual,
-        normed_residual,
-        inject_weight,
-        hc_count,
-        hidden_size,
-    )
+    result = _triton_fn(block, residual, normed, weight, hc, hs)
     if out is not None:
         out.copy_(result)
         return out
     return result
+
+
+# Native CANN/ACLNN AIV kernel declares SUPPORTED_ARCHS 2201, so impl="ascendc"
+# is registered for arch22 only while auto remains on the Triton path.
+@register_impl(
+    "hyper_conn.hc_combine",
+    "ascendc",
+    supported_generations={Generation.ARCH22},
+)
+def _ascendc_impl(block, residual, normed, weight, hc, hs, out=None):
+    if residual.shape[0] == 0:
+        return out if out is not None else torch.empty_like(residual)
+    gate_logits = F.linear(normed, weight)
+    return torch.ops.npu.hyper_conn_branch_combine(
+        block, residual, gate_logits, hc, out
+    )
 
 
 @register_impl(
@@ -190,25 +147,15 @@ def _triton_impl(
     "torch_native",
     supported_generations={Generation.ARCH22, Generation.ARCH35},
 )
-def _torch_native_impl(
-    block_output,
-    residual,
-    normed_residual,
-    inject_weight,
-    hc_count,
-    hidden_size,
-    out=None,
-):
+def _torch_native_impl(block, residual, normed, weight, hc, hs, out=None):
     global _torch_native_fn
     if _torch_native_fn is None:
-        from ...implementation.torch_native.hyper_conn.hc_combine import hc_combine
+        from ...implementation.torch_native.hyper_conn.hc import combine
 
-        _torch_native_fn = hc_combine
+        _torch_native_fn = combine
     if residual.shape[0] == 0 and out is not None:
         return out
-    result = _torch_native_fn(
-        block_output, residual, normed_residual, inject_weight, hc_count, hidden_size
-    )
+    result = _torch_native_fn(block, residual, normed, weight, hc, hs)
     if out is not None:
         out.copy_(result)
         return out
@@ -217,73 +164,25 @@ def _torch_native_impl(
 
 @register_operator("hyper_conn.hc_combine")
 def hc_combine(
-    block_output: torch.Tensor,
+    block: torch.Tensor,
     residual: torch.Tensor,
-    normed_residual: torch.Tensor,
-    inject_weight: torch.Tensor,
-    hc_count: int,
-    hidden_size: int,
+    normed: torch.Tensor,
+    weight: torch.Tensor,
+    hc: int,
+    hs: int,
     out: Optional[torch.Tensor] = None,
     *,
     impl: str = "auto",
 ) -> torch.Tensor:
-    """Project per-branch gates and inject ``block_output`` into ``residual``.
+    """Project per-branch gates and inject ``block`` into ``residual``.
 
-    The default ``impl="auto"`` selects Ascend C on ``arch22`` and Triton on
-    ``arch35`` (fixed ``hc_count=4, hidden_size=2560``). One gate per
-    ``(row, branch)`` is projected from ``normed_residual`` and
-    ``inject_weight``, scaled by ``2 * sigmoid(logit / hc_count)``, and used to
-    scale ``block_output`` onto every branch of ``residual``:
-
-    ``z = linear(normed_residual, inject_weight)``
-
-    ``g[m, c] = 2 * sigmoid(z[m, c] / hc_count)``
-
-    ``out[m, c, j] = bfloat16(residual[m, c, j] + block_output[m, j]
-    * g[m, c])``
-
-    Args:
-        block_output (torch.Tensor): BF16 contiguous ``[rows, hidden_size]``
-            sub-block output on an NPU.
-        residual (torch.Tensor): BF16 contiguous
-            ``[rows, hc_count * hidden_size]`` residual on block_output's
-            device.
-        normed_residual (torch.Tensor): BF16 contiguous
-            ``[rows, hc_count * hidden_size]`` normalized residual on
-            block_output's device.
-        inject_weight (torch.Tensor): BF16 contiguous
-            ``[hc_count, hc_count * hidden_size]`` injection projection weight
-            on block_output's device.
-        hc_count (int): Hyper-connection branch count; a power of two in [1, 8].
-        hidden_size (int): Per-branch hidden size; a multiple of 16 up to 4096.
-        out (torch.Tensor | None): Optional pre-allocated BF16 contiguous output
-            tensor on residual's device with residual's shape, not aliasing or
-            overlapping any input tensor. Defaults to None.
-        impl (str): Implementation name: "auto", "ascendc", "triton" or
-            "torch_native". Defaults to "auto". Keyword-only.
-
-    Returns:
-        torch.Tensor: Combined BF16 result with residual's shape and device.
-        Returns ``out`` (written in place) when supplied, or a newly allocated
-        tensor otherwise. Inputs are not modified; the residual is not updated
-        in place.
+    The default ``impl="auto"`` selects the Triton/native FP32-intermediate
+    path (``hc=4, hs=2560``) on both ``arch22`` and ``arch35``. Explicit
+    ``impl="ascendc"`` selects the arch22 CANN/ACLNN path using BF16
+    ``F.linear`` projection and the FP32-internal Ascend C AIV combine kernel
+    with optional zero-copy pre-allocated ``out`` buffers. ``torch_native`` is
+    an independent CPU FP64 reference.
     """
-    _check_inputs(
-        block_output,
-        residual,
-        normed_residual,
-        inject_weight,
-        hc_count,
-        hidden_size,
-        out,
-    )
+    _check_inputs(block, residual, normed, weight, hc, hs, out)
     impl_fn = get_impl_by_name("hyper_conn.hc_combine", impl)
-    return impl_fn(
-        block_output,
-        residual,
-        normed_residual,
-        inject_weight,
-        hc_count,
-        hidden_size,
-        out,
-    )
+    return impl_fn(block, residual, normed, weight, hc, hs, out)
