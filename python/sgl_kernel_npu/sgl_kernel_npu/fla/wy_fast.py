@@ -52,6 +52,7 @@ def recompute_w_u_fwd_kernel_npu_kernel(
             ).to(tl.int32)
             T = eos - bos
         else:
+            i_t = i_t_o
             bos, eos = i_b * T, i_b * T + T
 
         offs_t = tl.arange(0, BT)
