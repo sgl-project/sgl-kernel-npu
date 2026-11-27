@@ -54,14 +54,11 @@ def _copy_rows(
         tl.store(scratch + b_offset + bx, bv, bm)
 
 
-def _move_cache_rows(a, b, tgt_loc, src_loc):
+def _move_cache_rows(a, b, tgt_loc, src_loc, count):
     """Snapshot all sources; non-identity targets are unique, self-copies may repeat."""
-    if src_loc.numel() == 0:
-        return
     a, b = a.view(torch.int16), b.view(torch.int16)
     layers, _, aw = a.shape
     bw = b.shape[-1]
-    count = src_loc.numel()
     scratch = torch.empty(
         layers * count * (aw + bw), dtype=torch.int16, device=a.device
     )
@@ -117,4 +114,7 @@ def _page_rows(cache):
 
 def move_kv_cache_rows(keys, values, tgt_loc, src_loc):
     """Move page-major MHA rows while preserving their 16-bit payloads."""
-    _move_cache_rows(_page_rows(keys), _page_rows(values), tgt_loc, src_loc)
+    count = src_loc.numel()
+    if count == 0:
+        return
+    _move_cache_rows(_page_rows(keys), _page_rows(values), tgt_loc, src_loc, count)

@@ -126,4 +126,4 @@ def move_mla_kv_cache(
     else:
         k_rows = _page_rows(k_cache)
         r_rows = _page_rows(rope_cache)
-        _move_cache_rows(k_rows, r_rows, tgt_loc, src_loc)
+        _move_cache_rows(k_rows, r_rows, tgt_loc, src_loc, count)
