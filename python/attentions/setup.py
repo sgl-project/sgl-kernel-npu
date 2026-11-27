@@ -22,6 +22,11 @@ from setuptools import find_packages, setup
 from setuptools.command.build_py import build_py as _build_py
 from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
 
+_native_mode = os.environ.get("ATTENTIONS_BUILD_NATIVE", "1")
+if _native_mode not in ("0", "1"):
+    raise ValueError("ATTENTIONS_BUILD_NATIVE must be 0 or 1")
+BUILD_NATIVE = _native_mode == "1"
+
 
 def copy_so_files(src_dir, dest_dir):
     if not os.path.exists(dest_dir):
@@ -61,13 +66,15 @@ class CustomBuildPy(_build_py):
 class BDistWheel(_bdist_wheel):
     def finalize_options(self):
         super().finalize_options()
-        # 标记为二进制 wheel，否则会生成 py3-none-any
-        self.root_is_pure = False
+        self.root_is_pure = not BUILD_NATIVE
 
 
 if __name__ == "__main__":
     requirements = ["torch", "torch_npu"]
-    ensure_plugin_init()
+    if BUILD_NATIVE:
+        ensure_plugin_init()
+    else:
+        requirements.append("mindiesd")
 
     setup(
         name="attentions",
@@ -76,10 +83,24 @@ if __name__ == "__main__":
         description="build wheel for laser attention",
         setup_requires=[],
         install_requires=requirements,
+        extras_require={"mindiesd": ["mindiesd"]},
         zip_safe=False,
         python_requires=">=3.10",
-        include_package_data=True,
-        packages=find_packages(),
-        package_data={"": ["*.so", "ops/**/*"]},
+        include_package_data=BUILD_NATIVE,
+        packages=find_packages(
+            exclude=(
+                ()
+                if BUILD_NATIVE
+                else (
+                    "attentions.plugin",
+                    "attentions.plugin.*",
+                    "attentions.ops",
+                    "attentions.ops.*",
+                )
+            )
+        ),
+        package_data={"": ["*.so", "ops/**/*"]} if BUILD_NATIVE else {},
+        # Keep a previous native build/lib out of the pure Python wheel.
+        options={} if BUILD_NATIVE else {"build": {"build_base": "build/mindiesd"}},
         cmdclass={"build_py": CustomBuildPy, "bdist_wheel": BDistWheel},
     )
