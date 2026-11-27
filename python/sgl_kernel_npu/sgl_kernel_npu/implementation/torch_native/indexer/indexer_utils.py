@@ -120,11 +120,21 @@ def _indexer_reference(
     if (sparse or candidate_topk_blocks > 0) and candidate_block_size != 8:
         raise ValueError("Candidate blocks contain eight tokens")
     if sparse and layout_k == "PA_BBND":
-        if ks is not None or k.ndim != 3 or k.shape[-1] != 544:
-            raise ValueError("QSLI PA keys require combined [pages,groups,544] bytes")
-        pages, groups, _ = k.shape
-        ks = k[..., 512:].reshape(pages, groups * 8, 1, 2, 2)
-        k = k[..., :512].reshape(pages, groups * 8, 1, 64)
+        if ks is None:
+            if k.ndim != 3 or k.shape[-1] != 544:
+                raise ValueError("Combined QSLI PA keys require [pages,groups,544]")
+            pages, groups, _ = k.shape
+            ks = k[..., 512:].reshape(pages, groups * 8, 1, 2, 2)
+            k = k[..., :512].reshape(pages, groups * 8, 1, 64)
+        else:
+            if k.ndim != 4 or k.shape[2:] != (1, 64):
+                raise ValueError("Split QSLI PA keys require [pages,page_size,1,64]")
+            pages, rows = k.shape[:2]
+            if ks.shape not in ((pages, rows, 1, 4), (pages, rows, 1, 2, 2)):
+                raise ValueError("Split QSLI PA requires four scale bytes per K row")
+            if ks.dtype not in (torch.uint8, torch.float8_e8m0fnu):
+                raise TypeError("Split QSLI PA scales must contain E8M0 bytes")
+            ks = ks.view(torch.uint8).reshape(pages, rows, 1, 2, 2)
     if ks is None:
         raise ValueError("Separate keys require E8M0 descale_k")
     bounds = [0, q.shape[0]] if cu_seqlens_q is None else cpu(cu_seqlens_q).tolist()

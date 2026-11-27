@@ -66,7 +66,7 @@ T is query rows, B requests, P physical pages and S slots per page.
 | Parameter | Default | Type, shape and meaning |
 | --- | --- | --- |
 | `q` | Required | UINT8 [T,32,64], packed MXFP4 queries with logical dimension 128. |
-| `k` | Required | UINT8 K: TND [K,1,64] or PA_BBND [P,S,1,64]. QSLI PA uses combined [P,S/8,544] bytes. |
+| `k` | Required | UINT8 K: TND [K,1,64]. PA_BBND accepts [P,S,1,64] with separate scales, or combined [P,S/8,544] records. |
 | `w` | Required | FP32 [T,32], query-head score weights. |
 | `descale_q` | Required | UINT8/E8M0 [T,32,2,2], one scale per 32 logical features. |
 | `candidate_block_indices` | Required | INT32 [T,1,2048], candidate logical block IDs; valid prefix given by lengths. |
@@ -79,7 +79,7 @@ T is query rows, B requests, P physical pages and S slots per page.
 | `block_table` | `None` | Optional INT32 [B,max_blocks], logical-to-physical PA page map. |
 | `output_idx_offset` | `None` | Optional INT32 [T,1], added to each valid selected token index. |
 | `metadata` | `None` | INT32 [1024] device schedule required by cannbot_dsl; torch_native ignores it. |
-| `descale_k` | `None` | UINT8/E8M0 [K,1,2,2] or [P,S,1,2,2]; omit for QSLI combined PA storage. |
+| `descale_k` | `None` | UINT8/E8M0 [K,1,2,2] for TND. Split PA accepts [P,S,1,2,2] or [P,S,1,4]; both tensors use the same block table and may have different page strides. Omit for combined PA. |
 | `topk` | Required | int, maximum selected tokens per query, in [1,8192]. |
 | `candidate_block_size` | Required | int, use 8 tokens per candidate block when enabled. |
 | `quant_mode` | Required | int, use 1 for the supported quantized profile. |
