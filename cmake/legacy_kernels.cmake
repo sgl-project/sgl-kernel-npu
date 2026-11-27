@@ -344,7 +344,6 @@ if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
     ascendc_include_directories(kv_quant_sparse_attn_sharedkv_kernel PRIVATE
         ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_kernel
         ${PROJECT_OP_SRC_BASE}/kv_quant_sparse_attn_sharedkv/op_host
-        ${PROJECT_OP_SRC_BASE}/attentions/csrc/ops/utils/inc/kernel
         ${PROJECT_OP_SRC_BASE}/utils/kernel
     )
     ascendc_compile_definitions(kv_quant_sparse_attn_sharedkv_kernel PRIVATE
@@ -367,7 +366,6 @@ ascendc_library(sparse_flash_attention_kernel STATIC
 ascendc_include_directories(sparse_flash_attention_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel
     ${PROJECT_OP_SRC_BASE}/sparse_flash_attention/op_kernel/common
-    ${PROJECT_OP_SRC_BASE}/attentions/csrc/ops/utils/inc/kernel
     ${PROJECT_OP_SRC_BASE}/utils/kernel
 )
 ascendc_compile_definitions(sparse_flash_attention_kernel PRIVATE
