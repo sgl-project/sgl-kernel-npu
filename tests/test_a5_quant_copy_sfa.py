@@ -8,7 +8,7 @@ def test_a5_short_staging_matches_preloaded_attention(graph, width, prefix):
     """Compare a single token and a Q4 request accepting one row across a page."""
     pytest.importorskip("torch_npu")
     import acl
-    from sgl_kernel_npu.operators.attention import (
+    from sgl_kernel_npu.operators.attention.fused_quant_scatter_copy_sparse_flash_attention_v2 import (
         fused_quant_scatter_copy_sparse_flash_attention_v2,
     )
 
