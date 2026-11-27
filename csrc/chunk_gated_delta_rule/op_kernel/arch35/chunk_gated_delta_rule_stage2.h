@@ -53,6 +53,7 @@ struct StageTwoParams {
     int64_t Dv;
     int64_t Dk;
     int64_t stateStride1;
+    int64_t finalStateStride1;
     int64_t globalChunkOffset;
     bool useInitialState;
     bool isFirstGroup;
@@ -81,7 +82,7 @@ public:
         curDk_ = Ceil(Dk_, BLOCK_SIZE / sizeof(bfloat16_t)) * (BLOCK_SIZE / sizeof(bfloat16_t));
         curChunkSize_ = chunkSize_;
         useInitialState_ = sTP_->useInitialState;
-        stateStride1_ = (useInitialState_) ? sTP_->stateStride1 : Dv_ * Dk_;
+        stateStride1_ = sTP_->stateStride1;
         isFirstGroup_ = sTP_->isFirstGroup;
         globalChunkOffset_ = sTP_->globalChunkOffset;
         outputChunkState_ = sTP_->outputChunkState;
@@ -158,7 +159,7 @@ public:
             if (isFirstGroup_ && cId == 0) {
                 CopyIn<float>(sTP_->stateIn[nvId * stateStride1_], Dv_, Dk_);
             } else {
-                CopyIn<float>(sTP_->stateOut[nvId * Dv_ * Dk_], Dv_, Dk_);
+                CopyIn<float>(sTP_->stateOut[nvId * sTP_->finalStateStride1], Dv_, Dk_);
             }
             auto stateIn = inQueue_.DeQue<float>();
             DataCopy(stateFp32Ub_, stateIn, Dv_ * curDk_);
@@ -181,7 +182,7 @@ public:
             auto fp32Local = outQueue_.AllocTensor<float>();
             DataCopy(fp32Local, stateFp32Ub_, Dv_ * curDk_);
             outQueue_.EnQue(fp32Local);
-            CopyOut<float>(sTP_->stateOut[nvId * Dv_ * Dk_], Dv_, Dk_, false, curDk_);
+            CopyOut<float>(sTP_->stateOut[nvId * sTP_->finalStateStride1], Dv_, Dk_, false, curDk_);
         }
         CrossCoreSetFlag<0x2, PIPE_MTE3>(0x3);
         CrossCoreWaitFlag(0x2);
@@ -196,8 +197,8 @@ public:
 
     __aicore__ inline void ProcessAivBf16(int64_t nvId, int64_t cId, int64_t length)
     {
-        auto curState = (cId == 0) ? sTP_->curStateBf16[nvId * stateStride1_] : sTP_->stateOut[nvId * Dv_ * Dk_];
-        auto finalState = sTP_->stateOut[nvId * Dv_ * Dk_];
+        auto curState = (cId == 0) ? sTP_->curStateBf16[nvId * stateStride1_] : sTP_->stateOut[nvId * sTP_->finalStateStride1];
+        auto finalState = sTP_->stateOut[nvId * sTP_->finalStateStride1];
         if (GetSubBlockIdx() == 0) {
             CopyIn(curState, Dv_, Dk_);
             CalGCumExpBf16(sTP_->gCum[nvId * Sp_ + length], cId, nvId);
@@ -214,13 +215,13 @@ public:
     {
         uint64_t mm_offset0 = nvId * Sp_ * Dk_ + length * Dk_;
         uint64_t mm_offset1 = nvId * Sp_ * Dv_ + length * Dv_;
-        auto stateOut = sTP_->stateOut[nvId * Dv_ * Dk_];
+        auto stateOut = sTP_->stateOut[nvId * sTP_->finalStateStride1];
         GlobalTensor<bfloat16_t> stateForAic;
         if constexpr (kIsFp32) {
             CrossCoreWaitFlag(0x3);
             stateForAic = sTP_->curStateBf16[nvId * Dv_ * Dk_];
         } else {
-            stateForAic = (cId == 0) ? sTP_->curStateBf16[nvId * stateStride1_] : sTP_->stateOut[nvId * Dv_ * Dk_];
+            stateForAic = (cId == 0) ? sTP_->curStateBf16[nvId * stateStride1_] : sTP_->stateOut[nvId * sTP_->finalStateStride1];
         }
         CalVPrime(sTP_->kCumdecay[mm_offset0], stateForAic, sTP_->vInner[mm_offset1]);
         CalAttnInter(sTP_->qPrime[mm_offset0], stateForAic, sTP_->out[nvId * Dv_ + cId * chunkSize_ * Nv_ * Dv_]);
