@@ -130,4 +130,4 @@ def test_verify_tree_greedy_simple():
 
 
 if __name__ == "__main__":
-    pytest.main([__file__])
+    raise SystemExit(pytest.main([__file__]))

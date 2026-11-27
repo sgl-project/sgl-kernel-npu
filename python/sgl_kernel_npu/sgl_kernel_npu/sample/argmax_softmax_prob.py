@@ -41,7 +41,11 @@ def _argmax_prob_kernel(
     row_pid = tl.program_id(0)
     n_prog = tl.num_programs(0)
     for row in tl.range(row_pid, B, n_prog):
-        base = row * stride_b
+        # int64 before the multiply: Triton binds a stride that fits in int32 as
+        # int32, so row * stride_b wraps once the tensor passes 2**31 elements
+        # (13662 rows at vocab 157184) and addresses outside it. Once per row,
+        # not in the tile loop below.
+        base = row.to(tl.int64) * stride_b
         m = tl.full((), float("-inf"), tl.float32)
         arg = tl.zeros((), tl.int64)
         s = tl.zeros((), tl.float32)
@@ -78,24 +82,43 @@ def argmax_softmax_prob_fused(
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Per-row argmax id and the softmax probability of that argmax token.
 
-    ``logits``: ``[B, V]``, any float dtype, last dim contiguous (an arbitrary
+    ``logits``: ``[B, V]``, fp32, bf16 or fp16, last dim contiguous (an arbitrary
     row stride is fine, so a vocab-truncated view costs no copy). Returns
     ``(argmax_ids [B] int64, prob [B] float32)``. Accumulates in fp32; never
     materializes a ``[B, V]`` temporary.
 
-    ``block_v`` overrides the vocab tile width; the default derives it from the
-    logits dtype so the tile stays within the unified buffer.
+    ``block_v`` overrides the vocab tile width. It must be a positive power of
+    two, and is capped by the vocab and by the unified buffer; the default
+    derives it from the logits dtype.
     """
     assert logits.dim() == 2 and logits.stride(1) == 1
+    if logits.dtype not in (torch.float32, torch.bfloat16, torch.float16):
+        # The kernel has no fp64 path; without this the failure is an
+        # MLIRCompilationError naming neither the dtype nor this call.
+        raise ValueError(f"logits dtype must be fp32, bf16 or fp16, got {logits.dtype}")
     B, V = logits.shape
+    if V <= 0:
+        # Not covered by the block_v check below: sglang replaces
+        # triton.next_power_of_2 with a variant returning 1 at 0, so an empty
+        # vocab does not reach that check as a zero tile.
+        raise ValueError(f"logits must have a non-empty vocab, got V={V}")
     argmax = torch.empty(B, dtype=torch.int64, device=logits.device)
     prob = torch.empty(B, dtype=torch.float32, device=logits.device)
     grid = (min(_num_cores(), B),)
+    budget = _TILE_BYTES // logits.element_size()
     if block_v is None:
-        block_v = _TILE_BYTES // logits.element_size()
-    # A tile wider than the vocab only wastes unified buffer (and overflows it
-    # once the single-iteration loop is unrolled).
-    block_v = min(block_v, triton.next_power_of_2(V))
+        block_v = budget
+    elif not isinstance(block_v, int) or isinstance(block_v, bool):
+        raise ValueError(f"block_v must be an int, got {type(block_v).__name__}")
+    elif block_v <= 0 or block_v & (block_v - 1):
+        # tl.arange needs a positive power of two under SIMT; without this the
+        # failure is an opaque Triton compilation error.
+        raise ValueError(f"block_v must be a positive power of two, got {block_v}")
+    # Bound by the unified buffer before the vocab: a width that is legal on its
+    # own can still be several tiles wide in the input dtype (fp32
+    # block_v=16384 is 64 KiB), which fails to compile rather than running
+    # slowly. All three terms are powers of two, so the tile stays one.
+    block_v = min(block_v, budget, triton.next_power_of_2(V))
     _argmax_prob_kernel[grid](
         logits, argmax, prob, B, V, logits.stride(0), BLOCK_V=block_v
     )
