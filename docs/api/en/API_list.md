@@ -87,6 +87,7 @@
 | [ada_block_sparse_attention](operators/attention/ada_block_sparse_attention.md) | `ascendc` (ARCH22), `torch_native` |
 | [kv_quant_sparse_attn_sharedkv](operators/attention/kv_quant_sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [kv_quant_sparse_attn_sharedkv_metadata_host](operators/attention/kv_quant_sparse_attn_sharedkv_metadata_host.md) | `host`, `torch_native` |
+| [prepare_copy_sfa_metadata](operators/attention/prepare_copy_sfa_metadata.md) | `triton`, `torch_native` |
 | [kv_quant_sparse_flash_attention](operators/attention/kv_quant_sparse_flash_attention.md) | `ascendc`, `torch_native` |
 | [sparse_attn_sharedkv](operators/attention/sparse_attn_sharedkv.md) | `ascendc`, `torch_native` |
 | [sparse_flash_attention](operators/attention/sparse_flash_attention.md) | `ascendc`, `torch_native` |
