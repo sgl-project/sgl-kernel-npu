@@ -8,6 +8,8 @@
 #include "kernel_tiling/kernel_tiling.h"
 #include "moe_distribute_combine_v2_tiling.h"
 #include "moe_distribute_base.h"
+#include "moe_distribute_a2_layered_winsize.h"
+#include "check_winsize.h"
 
 namespace MoeDistributeCombineA2Impl {
 
@@ -51,11 +53,15 @@ public:
     constexpr static uint32_t B32_PER_BLOCK = 8U;
     constexpr static uint32_t B64_PER_BLOCK = 4U;
     constexpr static uint32_t SERVER_RANK_SIZE = 8U;
-    constexpr static uint32_t IPC_DATA_OFFSET = 4U * 1024U * 1024U;
-    constexpr static uint32_t RDMA_DATA_SIZE = 800U * 1024U * 1024U;
+    // Window layout constants are single-sourced from moe_distribute_a2_layered_winsize.h (shared with the host tiling
+    // check)
+    constexpr static uint32_t IPC_DATA_OFFSET = static_cast<uint32_t>(MoeDistributeA2Layered::IPC_DATA_OFFSET);
+    constexpr static uint32_t RDMA_DATA_SIZE = static_cast<uint32_t>(MoeDistributeA2Layered::RDMA_DATA_SIZE);
     constexpr static uint32_t VEC_LEN = 256U;
     constexpr static uint32_t MAGIC_OFFSET = 2U * 1024U * 1024U - 32U * 32U;
-    constexpr static uint32_t EXTRA_TOKEN_INFO_NUM = 4U;  // 专家信息 权重信息 量化Scale 到达标志位
+    // expert ids / weights / quant scales / arrival flag
+    constexpr static uint32_t EXTRA_TOKEN_INFO_NUM =
+        static_cast<uint32_t>(MoeDistributeA2Layered::EXTRA_TOKEN_INFO_NUM);
     constexpr static uint64_t MB_SIZE = 1024UL * 1024UL;
     constexpr static bool DynamicQuant = std::is_same<ExpandXTransType, int8_t>::value;
     constexpr static uint32_t TBUF_SIZE = 185U * 1024U;
@@ -64,7 +70,7 @@ public:
     constexpr static uint32_t WEIGHT_VALUE_NUM = 16U;
     constexpr static uint64_t GM2IPC_SYNC_FLAG = 12345ULL;
     constexpr static uint64_t RDMA_TOKEN_ARRIVED_FLAG = 123ULL;
-    constexpr static uint32_t NOTIFY_DATA_SIZE = 400U * 1024U * 1024U;
+    constexpr static uint32_t NOTIFY_DATA_SIZE = static_cast<uint32_t>(MoeDistributeA2Layered::NOTIFY_DATA_SIZE);
     constexpr static uint64_t RDMA_TOKEN_END_FLAG = 321ULL;
     constexpr static uint32_t MAX_BS_NUM = 512U;  // 适配bs=512
     constexpr static uint32_t FLAG_SINGLE_CNT = 4;
@@ -393,7 +399,13 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
     qp_info_ = (__gm__ HcclAiRMAInfo *)(((__gm__ HcclA2CombineOpParam *)contextGM)->aiRMAInfo);
 
     halfWinSize_ = RDMA_DATA_SIZE / 2U;
-    IPC_DATA_SIZE = winContext_->winSize - RDMA_DATA_SIZE - IPC_DATA_OFFSET - NOTIFY_DATA_SIZE;
+    // Fixed overhead = RDMA double buffer + IPC offset + NOTIFY region. On a smaller window
+    // the unsigned subtraction would wrap around into a huge offset; clamp to 0
+    // (CheckWindowSize below reports deterministically).
+    constexpr uint64_t FIXED_WIN_OVERHEAD = MoeDistributeA2Layered::FIXED_WIN_OVERHEAD;
+    IPC_DATA_SIZE = (winContext_->winSize > FIXED_WIN_OVERHEAD)
+                        ? static_cast<uint32_t>(winContext_->winSize - FIXED_WIN_OVERHEAD)
+                        : 0U;
     dataSpaceSize_ = halfWinSize_ - STATE_SPACE_SIZE;
     windowInGM_ = hccl_.GetWindowsInAddr(rankId_);
     bufferIdGlobal_.SetGlobalBuffer((__gm__ uint32_t *)(windowInGM_ + dataSpaceSize_ + worldSize_ * STATE_OFFSET));
@@ -435,6 +447,9 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
            tilingData.moeDistributeCombineV2Info.globalBs, tilingData.moeDistributeCombineV2Info.bs,
            tilingData.moeDistributeCombineV2Info.k, tilingData.moeDistributeCombineV2Info.h,
            tilingData.moeDistributeCombineV2Info.aivNum, tilingData.moeDistributeCombineV2Info.totalUbSize);
+    // The assert above is compiled out in release builds; report through the shared
+    // exception path so an undersized window fails deterministically.
+    CheckWindowSize(winSizeMin, static_cast<uint64_t>(winContext_->winSize), tpipe_, XOut);
 
     GlobalTensor<int32_t> selfStatusTensor;
     selfStatusTensor.SetGlobalBuffer((__gm__ int32_t *)(statusSpaceGm_ + SELF_STATE_OFFSET));
