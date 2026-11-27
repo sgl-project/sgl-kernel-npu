@@ -12,10 +12,11 @@ from .utils import EventOverlap
 class NormalStrategy:
     DEFAULT = "default"
     ALLTOALL = "alltoall"
+    ALLGATHER = "allgather"
 
     @classmethod
     def get_all_strategies(cls) -> list:
-        return [cls.DEFAULT, cls.ALLTOALL]
+        return [cls.DEFAULT, cls.ALLTOALL, cls.ALLGATHER]
 
 
 # Low latency mode strategy names
@@ -67,6 +68,10 @@ class StrategyMap:
         ("alltoall"): (
             NormalStrategy.ALLTOALL,
             LowLatencyStrategy.ALLTOALL,
+        ),
+        ("allgather"): (
+            NormalStrategy.ALLGATHER,
+            LowLatencyStrategy.DEFAULT,
         ),
         ("ops"): (
             NormalStrategy.DEFAULT,
