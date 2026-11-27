@@ -14,18 +14,18 @@ from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
 perf_shape = [(576, 2048)]
-exact = {"torch.float16": AccuracyStandard(0, 0)}
+exact = {dtype: AccuracyStandard(0, 0) for dtype in ("torch.float16", "torch.int8")}
 
 
-def generate_data(shape):
+def generate_data(shape, dtype=torch.float16):
     width, mappings = shape
     if mappings == 2048:
         src = torch.randn(1, mappings, 1, width, dtype=torch.float16)
         dst = torch.full_like(src, -1)
         dst_index = torch.arange(mappings, dtype=torch.int64)
         return src, dst, dst_index.flip(0), dst_index, dst_index % 2 == 0, 2, 2
-    src = torch.arange(8 * width, dtype=torch.float16).reshape(2, 2, 2, width)
-    dst = torch.full((2, 2, width), -1, dtype=torch.float16)
+    src = torch.arange(8 * width, dtype=torch.int32).to(dtype).reshape(2, 2, 2, width)
+    dst = torch.full((2, 2, width), -1, dtype=dtype)
     src_index = torch.tensor([0, 3, 5, 7], dtype=torch.int64)
     dst_index = torch.tensor([0, 1, 2, 3], dtype=torch.int64)
     valid_mask = torch.tensor([True, False, True, True])
@@ -33,25 +33,26 @@ def generate_data(shape):
 
 
 @pytest.mark.parametrize(
-    "shape,raw_mode",
+    "shape,raw_mode,dtype",
     [
-        pytest.param((32, 4), None, id="aligned-rows"),
-        pytest.param((15, 4), None, id="unaligned-rows"),
-        pytest.param((328, 4), None, id="packed-c8-656-byte-row"),
-        pytest.param((32, 4), "src", id="raw-source"),
-        pytest.param((32, 4), "dst", id="raw-destination"),
-        pytest.param((32, 4), "both", id="raw-both"),
-        pytest.param(perf_shape[0], None, id="deepseek-v3-2-mla-row"),
+        pytest.param((32, 4), None, torch.float16, id="aligned-rows"),
+        pytest.param((15, 4), None, torch.float16, id="unaligned-rows"),
+        pytest.param((656, 4), "src", torch.int8, id="packed-c8-raw-source"),
+        pytest.param((656, 4), "dst", torch.int8, id="packed-c8-raw-destination"),
+        pytest.param((32, 4), "src", torch.float16, id="raw-source"),
+        pytest.param((32, 4), "dst", torch.float16, id="raw-destination"),
+        pytest.param((32, 4), "both", torch.float16, id="raw-both"),
+        pytest.param(perf_shape[0], None, torch.float16, id="deepseek-v3-2-mla-row"),
     ],
 )
-def test_unidex_copy(shape, raw_mode):
+def test_unidex_copy(shape, raw_mode, dtype):
     from sgl_kernel_npu.operators.mem_cache import unidex_copy_inplace
 
     impl, impl_ref = get_test_impls()
     require_test_impl(unidex_copy_inplace, impl)
     if raw_mode and impl not in ("auto", "ascendc"):
         pytest.skip("Raw addresses require AscendC")
-    src, dst, *mapping = generate_data(shape)
+    src, dst, *mapping = generate_data(shape, dtype)
     kwargs = {"block_dim": 24 if shape in perf_shape else 8}
     if raw_mode in ("src", "both"):
         kwargs["src_ptr"] = src.data_ptr()

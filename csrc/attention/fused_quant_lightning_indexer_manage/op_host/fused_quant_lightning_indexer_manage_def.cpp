@@ -78,9 +78,9 @@ static ge::graphStatus Tiling(gert::TilingContext *ctx)
     auto physical_rows = [&](size_t input, uint32_t stride, int64_t width) -> int64_t {
         const auto *shape = ctx->GetInputShape(input);
         if (!shape || shape->GetStorageShape().GetDimNum() != 1 || stride < width) return 0;
-        const auto bytes_or_elements = shape->GetStorageShape().GetDim(0);
-        if (bytes_or_elements < width || (bytes_or_elements - width) % stride != 0) return 0;
-        return (bytes_or_elements - width) / stride + 1;
+        const auto elements = shape->GetStorageShape().GetDim(0);
+        if (elements < width || (elements - width) % stride != 0) return 0;
+        return (elements - width) / stride + 1;
     };
     const auto key_pages = physical_rows(2, t.keyStride, lim_request_limits::BLOCK_SIZE * 128);
     const auto *query_scale = ctx->GetInputShape(3);
