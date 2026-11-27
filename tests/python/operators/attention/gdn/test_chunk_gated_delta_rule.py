@@ -1,5 +1,7 @@
 """CGDR accuracy and state contracts through the public attention interface."""
 
+from unittest.mock import sentinel
+
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -150,3 +152,71 @@ def test_chunk_gated_delta_rule(scale, chunk_layout, state_dtype):
         executor,
         enable_perf=scale == 128**-0.5 and chunk_layout == "absent",
     )
+
+
+def test_chunk_gated_delta_rule_ascendc_forwards_keyword_args(monkeypatch):
+    """Ensure the AscendC wrapper passes optional arguments by keyword."""
+    from sgl_kernel_npu.operators.attention.gdn import chunk_gated_delta_rule
+
+    recorded = {}
+
+    def keyword_only_op(
+        query,
+        key,
+        value,
+        *,
+        beta=None,
+        initial_state=None,
+        actual_seq_lengths=None,
+        scale=None,
+        g=None,
+        chunk_state=None,
+    ):
+        recorded["args"] = (query, key, value)
+        recorded["kwargs"] = {
+            "beta": beta,
+            "initial_state": initial_state,
+            "actual_seq_lengths": actual_seq_lengths,
+            "scale": scale,
+            "g": g,
+            "chunk_state": chunk_state,
+        }
+        return sentinel.out, sentinel.final_state
+
+    monkeypatch.setattr(
+        torch.ops.npu, "chunk_gated_delta_rule", keyword_only_op, raising=False
+    )
+
+    result = chunk_gated_delta_rule(
+        sentinel.query,
+        sentinel.key,
+        sentinel.value,
+        beta=sentinel.beta,
+        initial_state=sentinel.initial_state,
+        actual_seq_lengths=sentinel.actual_seq_lengths,
+        scale=0.0,
+        g=sentinel.g,
+        chunk_state=sentinel.chunk_state,
+        impl="ascendc",
+    )
+
+    assert result == (sentinel.out, sentinel.final_state)
+    assert recorded["args"] == (sentinel.query, sentinel.key, sentinel.value)
+    assert recorded["kwargs"] == {
+        "beta": sentinel.beta,
+        "initial_state": sentinel.initial_state,
+        "actual_seq_lengths": sentinel.actual_seq_lengths,
+        "scale": 0.0,
+        "g": sentinel.g,
+        "chunk_state": sentinel.chunk_state,
+    }
+
+
+def test_chunk_gated_delta_rule_torch_op_rejects_positional_optional_args():
+    """Verify torch.ops.npu.chunk_gated_delta_rule keeps optional args keyword-only."""
+    if not hasattr(torch.ops.npu, "chunk_gated_delta_rule"):
+        pytest.skip("torch.ops.npu.chunk_gated_delta_rule is not registered")
+
+    dummy = torch.empty((1, 1, 1), dtype=torch.bfloat16)
+    with pytest.raises((TypeError, RuntimeError)):
+        torch.ops.npu.chunk_gated_delta_rule(dummy, dummy, dummy, None)
