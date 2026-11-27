@@ -107,10 +107,20 @@ public:
                                         MAX_BATCH_SIZE * (1 + 2 * serverNum_ + numTopk_));
             expertRankTokenIdxGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ + serverNum_ +
                                                   MAX_BATCH_SIZE * (1 + 2 * serverNum_ + numTopk_ * 2));
-            tempExpertGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ + serverNum_ +
-                                          MAX_BATCH_SIZE * (1 + 2 * serverNum_ + numTopk_ * 2));
-            tempServerGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ * (1 + aivNum_) + serverNum_ +
-                                          MAX_BATCH_SIZE * (1 + 2 * serverNum_ + numTopk_ * 2));
+            // Cross-core prefix staging scratch lives in a dedicated tail region
+            // right after the per-expert token-index table (expertRankTokenIdxGM_,
+            // numExperts_ * MAX_BATCH_SIZE elements), instead of aliasing its head.
+            // With the alias, output-table writes from a fast core could overwrite
+            // scratch slots a slow core had not read yet (scratch-reuse race).
+            // The host allocates notifySendData with at::zeros per call and sizes
+            // the tail for LAYOUT_SCRATCH_CORES (>= GetBlockNum()) cores, so the
+            // scratch needs no in-kernel zeroing before the atomic-add staging.
+            uint64_t scratchBase = static_cast<uint64_t>(numExperts_) + serverNum_ +
+                                   static_cast<uint64_t>(MAX_BATCH_SIZE) * (1 + 2 * serverNum_ + numTopk_ * 2) +
+                                   static_cast<uint64_t>(numExperts_) * MAX_BATCH_SIZE;
+            tempExpertGM_.SetGlobalBuffer((__gm__ T *)notifySendData + scratchBase);
+            tempServerGM_.SetGlobalBuffer((__gm__ T *)notifySendData + scratchBase +
+                                          static_cast<uint64_t>(aivNum_) * numExperts_);
             sendTokenIdxSmallGM_.SetGlobalBuffer((__gm__ T *)(sendTokenIdxSmall + topkIdxOffset / 2));
         }
     }

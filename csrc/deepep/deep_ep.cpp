@@ -31,6 +31,10 @@ constexpr uint32_t MXFP4_HALF = 2;
 constexpr int LOCAL_RANK_SIZE = 8;
 constexpr int MAX_BATCH_SIZE = 4096;
 constexpr int EXPERT_DATA_SIZE = 1 + MAX_BATCH_SIZE;  // 4097
+// Upper bound of AIV cores used by DispatchLayoutA2 (tiling sets blockDim =
+// GetCoreNumAiv(), <= 48 on 910B). Keep in sync with Moe::MAX_CORE_NUM in
+// ops2/op_kernel/comm_args.h.
+constexpr int LAYOUT_SCRATCH_CORES = 48;
 constexpr int A3_MAX_HCCS_PEERS = 384;
 constexpr int A2_MAX_HCCS_PEERS = 8;
 constexpr uint32_t MAX_ROUNDS = 256;
@@ -141,8 +145,16 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     auto num_tokens_per_expert = at::zeros({round, num_experts}, at::dtype(at::kInt).device(device));
     auto num_tokens_per_rank = at::zeros({num_ranks}, at::dtype(at::kInt).device(device));
     auto is_token_in_rank = at::zeros({num_tokens, num_ranks}, at::dtype(at::kInt).device(device));
-    const int notify_send_data_size =
-        num_experts * EXPERT_DATA_SIZE + server_num + MAX_BATCH_SIZE * (1 + 2 * server_num + 2 * num_topk);
+    // Tail scratch region for DispatchLayoutA2's cross-core prefix staging
+    // (tempExpertGM_/tempServerGM_). It used to alias the head of the
+    // per-expert token-index table (item 8 below), so a fast core writing the
+    // output table could race with a slow core still reading its prefix
+    // scratch, corrupting the indices consumed by DispatchNormalA2. Keeping
+    // the scratch in a dedicated zeroed tail (this tensor is allocated with
+    // at::zeros per call) removes the alias and the race.
+    const int notify_send_data_size = num_experts * EXPERT_DATA_SIZE + server_num +
+                                      MAX_BATCH_SIZE * (1 + 2 * server_num + 2 * num_topk) +
+                                      LAYOUT_SCRATCH_CORES * (num_experts + server_num);
     /*
     The notify send data is constructed by 7 parameters and the 7 parameters are ordered as follows:
     1. the number of the tokens that every expert received from this NPU.
