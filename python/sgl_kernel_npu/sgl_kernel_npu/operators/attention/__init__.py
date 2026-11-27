@@ -21,6 +21,12 @@ from .fused_infer_attention_score import (
     fused_infer_attention_score_v2_out,
 )
 from .gqa_share_sparse_decode import gqa_share_sparse_decode
+from .int8_csa import (
+    check_int8_csa_support,
+    int8_csa_attention,
+    int8_csa_metadata,
+    int8_csa_write,
+)
 from .kda import chunk_kda_fwd
 from .kv_quant_sparse_attn_sharedkv import kv_quant_sparse_attn_sharedkv
 from .kv_quant_sparse_attn_sharedkv_metadata import (
@@ -63,6 +69,7 @@ __all__ = [
     "attention_sinks",
     "attention_sinks_prefill",
     "attention_update",
+    "check_int8_csa_support",
     "chunk_kda_fwd",
     "compressor",
     "compressor_v2",
@@ -81,6 +88,9 @@ __all__ = [
     "get_mixed_quant_sparse_flash_mla_metadata_size",
     "get_sparse_flash_mla_metadata_size",
     "gqa_share_sparse_decode",
+    "int8_csa_attention",
+    "int8_csa_metadata",
+    "int8_csa_write",
     "kv_quant_sparse_attn_sharedkv",
     "kv_quant_sparse_attn_sharedkv_metadata_host",
     "kv_quant_sparse_flash_attention",
