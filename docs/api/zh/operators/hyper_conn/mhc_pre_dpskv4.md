@@ -7,7 +7,7 @@
 | `cann_ops_transformers_cann920` | 支持 | 支持 |
 | `cann_ops_transformers_cann920_v2` | 支持 | 支持 |
 | `cann_recipes_infer_cann910` | 支持 | 支持 |
-| `cann_recipes_infer_cann920`（V2 兼容名称） | | 支持 |
+| `cann_recipes_infer_cann920` | 不支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
 DeepSeek V4.1 路径需要安装包含目标架构融合后端的 CANN 9.2 wheel。
@@ -23,10 +23,6 @@ def mhc_pre_dpskv4(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm
 ```
 
 传入 `pre_mix` 或设置 `return_pre=True` 时，`auto` 在 A3 和 A5 上都选择 CANN MhcPreSinkhornV2。两项均未指定时，按初始化的 SDK 选择 DeepSeek V4 路径。
-
-### V2 直接入口
-
-`mhc_pre_sinkhorn_v2(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm_eps, *, pre_mix, impl='auto')` 在 A3 和 A5 上均调用 wheel 内的 V2 算子并返回 `(y, post, comb, pre)`。`pre_mix` 是上一子层的权重，返回的 `pre` 由当前残差计算。
 
 ## 说明
 
@@ -71,7 +67,7 @@ Source: [cann-recipes-infer; aclnnHcPre](https://gitcode.com/cann/cann-recipes-i
 
 ## cann_recipes_infer_cann920
 
-这是旧版 A5 `mhc_pre_dpskv4` 调用方的兼容名称，调用 wheel 内相同的 V2 算子。
+A5 Recipes 后端需要 CANN 9.2.x。它调用 wheel 内的 `torch.ops.sgl_cann_recipes_infer.npu_hc_pre_v2`，支持 `pre_mix` 与 `return_pre`。
 
 ## cann_ops_transformers_cann920_v2
 
@@ -86,7 +82,7 @@ A3 和 A5 使用 wheel 内的 MhcPreSinkhornV2 和 HF32。打包时将其注册�
 ```python
 import torch
 import torch_npu
-from sgl_kernel_npu.operators.hyper_conn import mhc_pre_dpskv4, mhc_pre_sinkhorn_v2
+from sgl_kernel_npu.operators.hyper_conn import mhc_pre_dpskv4
 
 x = torch.randn(1, 4, 5120, device="npu", dtype=torch.bfloat16)
 fn = torch.randn(24, 4 * 5120, device="npu", dtype=torch.float32)
@@ -96,9 +92,10 @@ y, post, comb = mhc_pre_dpskv4(x, fn, scale, base, 4, 20, 1e-6, 1e-6, impl="torc
 
 # DeepSeek V4.1 使用上一子层的 pre 权重。
 pre_mix = torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=x.device)
-y, post, comb, pre = mhc_pre_sinkhorn_v2(
+y, post, comb, pre = mhc_pre_dpskv4(
     x, fn, scale, base, 4, 20, 1e-6, 1e-6,
     pre_mix=pre_mix,
+    return_pre=True,
 )
 ```
 

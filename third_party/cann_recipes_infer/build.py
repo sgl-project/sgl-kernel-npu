@@ -49,10 +49,12 @@ def configure(config, jobs):
     return config
 
 
-# Bridge source names that differ from the interface name.
+# Bridge source names that differ from the interface name. npu_hc_pre_v2
+# shares the npu_hc_pre bridge and is selected line by line below.
 _BRIDGE_SOURCES = {
     "indexer_compress_epilog": "npu_indexer_compress_epilog",
     "kv_compress_epilog_v2": "npu_kv_compress_epilog_v2",
+    "npu_hc_pre_v2": "npu_hc_pre",
 }
 
 

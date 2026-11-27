@@ -5,6 +5,7 @@ from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _cann_920_fn = None
+_cann_920_v2_fn = None
 _cann_920_sinkhorn_v2_fn = None
 _cann_910_fn = None
 _torch_native_fn = None
@@ -85,13 +86,50 @@ def _cann_9_1_mhc_pre(
     return y.to(x.dtype), post, comb
 
 
-@register_impl("hyper_conn.mhc_pre_sinkhorn_v2", "auto")
-@register_impl("hyper_conn.mhc_pre_dpskv4", "cann_ops_transformers_cann920_v2")
 @register_impl(
     "hyper_conn.mhc_pre_dpskv4",
     "cann_recipes_infer_cann920",
     supported_generations={Generation.ARCH35},
 )
+def _cann_9_2_mhc_pre_v2(
+    x,
+    fn,
+    scale,
+    base,
+    hc_mult,
+    sinkhorn_iters,
+    hc_eps,
+    rms_norm_eps,
+    *,
+    pre_mix=None,
+    return_pre=False,
+):
+    global _cann_920_v2_fn
+    cann_version = detect_cann_version()
+    if not cann_version.startswith("9.2."):
+        raise RuntimeError(
+            f"This implementation requires CANN 9.2.x, got {cann_version}"
+        )
+    if _cann_920_v2_fn is None:
+        from ..._third_party.sgl_cann_recipes_infer import npu_hc_pre_v2
+
+        _cann_920_v2_fn = npu_hc_pre_v2
+    y, post, comb, pre = _cann_920_v2_fn(
+        x,
+        fn,
+        scale,
+        base,
+        pre_mix,
+        hc_mult=hc_mult,
+        hc_sinkhorn_iters=sinkhorn_iters,
+        norm_eps=rms_norm_eps,
+        hc_eps=hc_eps,
+    )
+    y = y.to(x.dtype)
+    return (y, post, comb, pre) if return_pre else (y, post, comb)
+
+
+@register_impl("hyper_conn.mhc_pre_dpskv4", "cann_ops_transformers_cann920_v2")
 def _cann_mhc_pre_sinkhorn_v2(
     x,
     fn,
@@ -130,35 +168,6 @@ def _cann_mhc_pre_sinkhorn_v2(
     )
     output = y, post, comb.view(x.shape[0], hc_mult, hc_mult)
     return (*output, pre) if return_pre else output
-
-
-@register_operator("hyper_conn.mhc_pre_sinkhorn_v2")
-def mhc_pre_sinkhorn_v2(
-    x,
-    fn,
-    scale,
-    base,
-    hc_mult,
-    sinkhorn_iters,
-    hc_eps,
-    rms_norm_eps,
-    *,
-    pre_mix,
-    impl="auto",
-):
-    """Use the previous [T,n] FP32 pre-mix and return (y, post, comb, pre)."""
-    return get_impl_by_name("hyper_conn.mhc_pre_sinkhorn_v2", impl)(
-        x,
-        fn,
-        scale,
-        base,
-        hc_mult,
-        sinkhorn_iters,
-        hc_eps,
-        rms_norm_eps,
-        pre_mix=pre_mix,
-        return_pre=True,
-    )
 
 
 @register_impl("hyper_conn.mhc_pre_dpskv4", "torch_native")
@@ -222,7 +231,7 @@ def mhc_pre_dpskv4(
 
     impl: auto (SDK-selected), cann_ops_transformers_cann920,
     cann_ops_transformers_cann920_v2, cann_recipes_infer_cann910,
-    cann_recipes_infer_cann920 (ARCH35 compatibility name for V2), or torch_native.
+    cann_recipes_infer_cann920 (ARCH35 Recipes backend), or torch_native.
     """
     if not isinstance(return_pre, bool):
         raise TypeError("return_pre must be bool")

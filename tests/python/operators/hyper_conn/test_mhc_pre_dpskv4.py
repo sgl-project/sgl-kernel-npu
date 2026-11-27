@@ -91,7 +91,7 @@ def test_mhc_pre_dpskv4_pre_outputs_rejected():
     ],
 )
 def test_mhc_pre_dpskv4_premix_graph_replay(tokens):
-    from sgl_kernel_npu.operators.hyper_conn import mhc_pre_dpskv4, mhc_pre_sinkhorn_v2
+    from sgl_kernel_npu.operators.hyper_conn import mhc_pre_dpskv4
 
     with torch.device("cpu"):
         x, fn, scale, base, *_ = generate_data((tokens, 4, 5120))
@@ -103,7 +103,7 @@ def test_mhc_pre_dpskv4_premix_graph_replay(tokens):
     )
 
     def run():
-        return mhc_pre_sinkhorn_v2(
+        return mhc_pre_dpskv4(
             x_npu,
             fn_npu,
             scale_npu,
@@ -113,6 +113,7 @@ def test_mhc_pre_dpskv4_premix_graph_replay(tokens):
             1e-6,
             1e-20,
             pre_mix=premix_npu,
+            return_pre=True,
         )
 
     torch.testing.assert_close(run()[0].cpu(), x[:, 0], atol=0, rtol=0)
