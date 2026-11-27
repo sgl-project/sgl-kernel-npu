@@ -1,16 +1,7 @@
 name: PR Test for SGL-KERNEL-NPU DeepEP (Ascend NPU)
 
 on:
-  pull_request:
-    branches: [ main ]
-    paths:
-      - "build.sh"
-      - "cmake/**"
-      - "python/deep_ep/deep_ep**"
-      - "csrc/deepep**"
-      - "tests/python/deepep**"
-      - "scripts/**"
-      - ".github/workflows/pr-test-deepep-npu.yml"
+  # Temporarily disable PR auto-runs during coverage validation.
   workflow_dispatch:
   workflow_call:
 
