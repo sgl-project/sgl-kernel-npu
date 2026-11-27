@@ -406,7 +406,7 @@ def test_main(
             else recv_x.clone()
         )
         quant_scales = (
-            recv_x[1].view(torch.uint8).clone().view(recv_x[1].dtype)
+            recv_x[1].contiguous().view(torch.uint8).clone().view(recv_x[1].dtype)
             if isinstance(recv_x, tuple)
             else None
         )
