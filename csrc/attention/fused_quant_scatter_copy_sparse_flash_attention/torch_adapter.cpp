@@ -161,8 +161,7 @@ void ValidateV2(const at::Tensor &queryNope, const at::Tensor &queryRope, const 
                     "v2 topk indices must be [T, 1, 2048].");
     }
     for (const auto *ids : {&missSrcIds, &missDstSlots}) {
-        TORCH_CHECK(ids->sizes() == at::IntArrayRef({batchSize, COPY_CAPACITY}),
-                    "v2 miss indices must be [B, 32768].");
+        TORCH_CHECK(ids->sizes() == at::IntArrayRef({batchSize, COPY_CAPACITY}), "v2 miss indices must be [B, 32768].");
     }
     TORCH_CHECK(topkMissCounts.sizes() == at::IntArrayRef({totalQueries}) &&
                     actualSeqLengthsQuery.sizes() == at::IntArrayRef({batchSize}) &&
@@ -201,12 +200,10 @@ void ValidateV2(const at::Tensor &queryNope, const at::Tensor &queryRope, const 
         TORCH_CHECK(current->scalar_type() == at::kChar &&
                         current->sizes() == at::IntArrayRef({totalQueries, PACKED_KV_ROW_BYTES}),
                     "current must be int8 [T, 656].");
-        TORCH_CHECK(positions->scalar_type() == at::kLong &&
-                        positions->sizes() == at::IntArrayRef({totalQueries}) &&
+        TORCH_CHECK(positions->scalar_type() == at::kLong && positions->sizes() == at::IntArrayRef({totalQueries}) &&
                         currentValid->scalar_type() == at::kBool && currentValid->sizes() == positions->sizes(),
                     "positions and current_valid must be int64 [T] and bool [T].");
-        TORCH_CHECK(requestSlots->scalar_type() == at::kInt &&
-                        requestSlots->sizes() == at::IntArrayRef({batchSize}) &&
+        TORCH_CHECK(requestSlots->scalar_type() == at::kInt && requestSlots->sizes() == at::IntArrayRef({batchSize}) &&
                         reqToToken->scalar_type() == at::kInt && reqToToken->dim() == 2 && reqToToken->size(0) > 1 &&
                         reqToToken->size(0) <= UINT32_MAX && reqToToken->size(1) > 0 &&
                         reqToToken->size(1) <= UINT32_MAX && residentEnd->scalar_type() == at::kInt &&
@@ -218,10 +215,9 @@ void ValidateV2(const at::Tensor &queryNope, const at::Tensor &queryRope, const 
 
 void RunAclnn(const at::Tensor &query, at::Tensor hbmKvBytes, const at::Tensor &dramKvBytes, int64_t dramKvDevPtr,
               const at::Tensor &hbmBlockTable, const at::Tensor &dramBlockTable, const at::Tensor &topkDstSlots,
-              const at::Tensor &topkSrcIds, const at::Tensor &topkMissCounts,
-              const at::Tensor &actualSeqLengthsQuery, const at::Tensor &actualSeqLengthsKv,
-              const at::Tensor &numCacheTokens, const at::Tensor &missSrcIds, const at::Tensor &missDstSlots,
-              const at::Tensor &missCounts, double scaleValue, at::Tensor attentionOut,
+              const at::Tensor &topkSrcIds, const at::Tensor &topkMissCounts, const at::Tensor &actualSeqLengthsQuery,
+              const at::Tensor &actualSeqLengthsKv, const at::Tensor &numCacheTokens, const at::Tensor &missSrcIds,
+              const at::Tensor &missDstSlots, const at::Tensor &missCounts, double scaleValue, at::Tensor attentionOut,
               const std::optional<at::Tensor> &queryRope, const std::optional<at::Tensor> &current,
               const std::optional<at::Tensor> &positions, const std::optional<at::Tensor> &currentValid,
               const std::optional<at::Tensor> &requestSlots, const std::optional<at::Tensor> &reqToToken,
@@ -277,24 +273,12 @@ void RunAclnn(const at::Tensor &query, at::Tensor hbmKvBytes, const at::Tensor &
 
     auto workspace = at::empty({static_cast<int64_t>(workspaceSize)}, query.options().dtype(at::kByte));
     auto stream = c10_npu::getCurrentNPUStream();
-    std::vector<at::Tensor> owners{query,
-                                   hbmKvBytes,
-                                   dramKvBytes,
-                                   hbmBlockTable,
-                                   dramBlockTable,
-                                   topkDstSlots,
-                                   topkSrcIds,
-                                   topkMissCounts,
-                                   actualSeqLengthsQuery,
-                                   actualSeqLengthsKv,
-                                   numCacheTokens,
-                                   missSrcIds,
-                                   missDstSlots,
-                                   missCounts,
-                                   attentionOut,
-                                   workspace};
-    for (const auto *tensor : {&queryRope, &current, &positions, &currentValid, &requestSlots, &reqToToken,
-                               &residentEnd}) {
+    std::vector<at::Tensor> owners{
+        query,        hbmKvBytes,     dramKvBytes,           hbmBlockTable,      dramBlockTable, topkDstSlots,
+        topkSrcIds,   topkMissCounts, actualSeqLengthsQuery, actualSeqLengthsKv, numCacheTokens, missSrcIds,
+        missDstSlots, missCounts,     attentionOut,          workspace};
+    for (const auto *tensor :
+         {&queryRope, &current, &positions, &currentValid, &requestSlots, &reqToToken, &residentEnd}) {
         if (tensor->has_value()) owners.push_back(**tensor);
     }
     for (const auto &tensor : owners) {
@@ -331,13 +315,12 @@ void fused_quant_scatter_copy_sparse_flash_attention(
 }
 
 void fused_quant_scatter_copy_sparse_flash_attention_v2(
-    const at::Tensor &queryNope, const at::Tensor &queryRope, at::Tensor hbmKvBytes,
-    const at::Tensor &dramKvBytes, int64_t dramKvDevPtr, const at::Tensor &hbmBlockTable,
-    const at::Tensor &dramBlockTable, const at::Tensor &topkDstSlots, const at::Tensor &topkSrcIds,
-    const at::Tensor &topkMissCounts, const at::Tensor &actualSeqLengthsQuery,
-    const at::Tensor &actualSeqLengthsKv, const at::Tensor &numCacheTokens, const at::Tensor &missSrcIds,
-    const at::Tensor &missDstSlots, const at::Tensor &missCounts, double scaleValue, at::Tensor attentionOut,
-    const std::optional<at::Tensor> &current, const std::optional<at::Tensor> &positions,
+    const at::Tensor &queryNope, const at::Tensor &queryRope, at::Tensor hbmKvBytes, const at::Tensor &dramKvBytes,
+    int64_t dramKvDevPtr, const at::Tensor &hbmBlockTable, const at::Tensor &dramBlockTable,
+    const at::Tensor &topkDstSlots, const at::Tensor &topkSrcIds, const at::Tensor &topkMissCounts,
+    const at::Tensor &actualSeqLengthsQuery, const at::Tensor &actualSeqLengthsKv, const at::Tensor &numCacheTokens,
+    const at::Tensor &missSrcIds, const at::Tensor &missDstSlots, const at::Tensor &missCounts, double scaleValue,
+    at::Tensor attentionOut, const std::optional<at::Tensor> &current, const std::optional<at::Tensor> &positions,
     const std::optional<at::Tensor> &currentValid, const std::optional<at::Tensor> &requestSlots,
     const std::optional<at::Tensor> &reqToToken, const std::optional<at::Tensor> &residentEnd, bool nativeLimPlan)
 {
@@ -348,8 +331,8 @@ void fused_quant_scatter_copy_sparse_flash_attention_v2(
     if (queryNope.is_meta()) return;
     RunAclnn(queryNope, hbmKvBytes, dramKvBytes, dramKvDevPtr, hbmBlockTable, dramBlockTable, topkDstSlots, topkSrcIds,
              topkMissCounts, actualSeqLengthsQuery, actualSeqLengthsKv, numCacheTokens, missSrcIds, missDstSlots,
-             missCounts, scaleValue, attentionOut, queryRope, current, positions, currentValid, requestSlots, reqToToken,
-             residentEnd, nativeLimPlan);
+             missCounts, scaleValue, attentionOut, queryRope, current, positions, currentValid, requestSlots,
+             reqToToken, residentEnd, nativeLimPlan);
 }
 
 }  // namespace sglang::npu_kernel

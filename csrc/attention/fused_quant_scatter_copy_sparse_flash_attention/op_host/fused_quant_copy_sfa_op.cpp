@@ -80,8 +80,8 @@ ge::graphStatus Tiling(gert::TilingContext *context)
     const auto &missDst = missDstSlots->GetOriginShape();
     const auto &missCountShape = missCounts->GetOriginShape();
     const bool splitQuery = queryRope != nullptr;
-    const int64_t queryDim = splitQuery ? fused_quant_scatter_copy_sfa::ATTENTION_OUTPUT_DIM
-                                        : fused_quant_scatter_copy_sfa::QUERY_DIM;
+    const int64_t queryDim =
+        splitQuery ? fused_quant_scatter_copy_sfa::ATTENTION_OUTPUT_DIM : fused_quant_scatter_copy_sfa::QUERY_DIM;
     if (q.GetDimNum() != 3 || h.GetDimNum() != 4 || d.GetDimNum() != 4 || ht.GetDimNum() != 2 || dt.GetDimNum() != 2 ||
         n.GetDimNum() != 1 || q.GetDim(0) <= 0 || q.GetDim(1) <= 0 || q.GetDim(2) != queryDim || h.GetDim(0) <= 0 ||
         h.GetDim(1) != fused_quant_scatter_copy_sfa::CACHE_BLOCK_SIZE ||
@@ -89,11 +89,10 @@ ge::graphStatus Tiling(gert::TilingContext *context)
         h.GetDim(3) != fused_quant_scatter_copy_sfa::PACKED_KV_ROW_BYTES || d.GetDim(0) <= 0 ||
         d.GetDim(1) != fused_quant_scatter_copy_sfa::CACHE_BLOCK_SIZE ||
         d.GetDim(2) != fused_quant_scatter_copy_sfa::KV_HEAD_COUNT ||
-        d.GetDim(3) != fused_quant_scatter_copy_sfa::PACKED_KV_ROW_BYTES || ht.GetDim(0) <= 0 ||
-        ht.GetDim(1) <= 0 || ht.GetDim(1) > fused_quant_scatter_copy_sfa::MAX_BLOCKS_PER_REQUEST ||
-        dt.GetDim(0) != ht.GetDim(0) || dt.GetDim(1) <= 0 ||
-        dt.GetDim(1) > fused_quant_scatter_copy_sfa::MAX_BLOCKS_PER_REQUEST || n.GetDim(0) != ht.GetDim(0) ||
-        n.GetDim(0) > UINT32_MAX || q.GetDim(0) < n.GetDim(0) ||
+        d.GetDim(3) != fused_quant_scatter_copy_sfa::PACKED_KV_ROW_BYTES || ht.GetDim(0) <= 0 || ht.GetDim(1) <= 0 ||
+        ht.GetDim(1) > fused_quant_scatter_copy_sfa::MAX_BLOCKS_PER_REQUEST || dt.GetDim(0) != ht.GetDim(0) ||
+        dt.GetDim(1) <= 0 || dt.GetDim(1) > fused_quant_scatter_copy_sfa::MAX_BLOCKS_PER_REQUEST ||
+        n.GetDim(0) != ht.GetDim(0) || n.GetDim(0) > UINT32_MAX || q.GetDim(0) < n.GetDim(0) ||
         q.GetDim(0) > fused_quant_scatter_copy_sfa::MAX_QUERY_COUNT * n.GetDim(0)) {
         return ge::GRAPH_FAILED;
     }
@@ -118,9 +117,8 @@ ge::graphStatus Tiling(gert::TilingContext *context)
     const auto *scale = attrs->GetFloat(0);
     const auto *nativeLimPlan = attrs->GetBool(1);
     if (!scale || !nativeLimPlan || (*nativeLimPlan && !splitQuery) ||
-        q.GetDim(0) > std::numeric_limits<uint32_t>::max() || q.GetDim(1) > UINT32_MAX ||
-        h.GetDim(0) > UINT32_MAX || d.GetDim(0) > UINT32_MAX || ht.GetDim(1) > UINT32_MAX ||
-        dt.GetDim(1) > UINT32_MAX) {
+        q.GetDim(0) > std::numeric_limits<uint32_t>::max() || q.GetDim(1) > UINT32_MAX || h.GetDim(0) > UINT32_MAX ||
+        d.GetDim(0) > UINT32_MAX || ht.GetDim(1) > UINT32_MAX || dt.GetDim(1) > UINT32_MAX) {
         return ge::GRAPH_FAILED;
     }
     if (splitQuery) {
@@ -147,11 +145,11 @@ ge::graphStatus Tiling(gert::TilingContext *context)
         const auto &endShape = residentEnd->GetOriginShape();
         if (currentShape.GetDimNum() != 2 || currentShape.GetDim(0) != q.GetDim(0) ||
             currentShape.GetDim(1) != fused_quant_scatter_copy_sfa::PACKED_KV_ROW_BYTES ||
-            positionsShape.GetDimNum() != 1 || positionsShape.GetDim(0) != q.GetDim(0) ||
-            validShape.GetDimNum() != 1 || validShape.GetDim(0) != q.GetDim(0) || slotsShape.GetDimNum() != 1 ||
-            slotsShape.GetDim(0) != n.GetDim(0) || tableShape.GetDimNum() != 2 || tableShape.GetDim(0) <= 1 ||
-            tableShape.GetDim(1) <= 0 || tableShape.GetDim(0) > UINT32_MAX || tableShape.GetDim(1) > UINT32_MAX ||
-            endShape.GetDimNum() != 1 || endShape.GetDim(0) != tableShape.GetDim(0)) {
+            positionsShape.GetDimNum() != 1 || positionsShape.GetDim(0) != q.GetDim(0) || validShape.GetDimNum() != 1 ||
+            validShape.GetDim(0) != q.GetDim(0) || slotsShape.GetDimNum() != 1 || slotsShape.GetDim(0) != n.GetDim(0) ||
+            tableShape.GetDimNum() != 2 || tableShape.GetDim(0) <= 1 || tableShape.GetDim(1) <= 0 ||
+            tableShape.GetDim(0) > UINT32_MAX || tableShape.GetDim(1) > UINT32_MAX || endShape.GetDimNum() != 1 ||
+            endShape.GetDim(0) != tableShape.GetDim(0)) {
             return ge::GRAPH_FAILED;
         }
         requestRows = static_cast<uint32_t>(tableShape.GetDim(0));
@@ -163,8 +161,7 @@ ge::graphStatus Tiling(gert::TilingContext *context)
 
     auto *raw = context->GetRawTilingData();
     auto *workspace = context->GetWorkspaceSizes(1);
-    if (!raw || !raw->GetData() || raw->GetCapacity() < sizeof(FusedQuantCopySfaResidentTilingData) ||
-        !workspace) {
+    if (!raw || !raw->GetData() || raw->GetCapacity() < sizeof(FusedQuantCopySfaResidentTilingData) || !workspace) {
         return ge::GRAPH_FAILED;
     }
     auto *td = context->GetTilingData<FusedQuantCopySfaResidentTilingData>();
