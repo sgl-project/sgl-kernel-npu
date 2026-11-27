@@ -61,8 +61,7 @@ residency planner may operate on the LIM slot map.
 The Torch adapter checks tensor shapes and dtypes before calling ACLNN.
 CANN tiling selects the core schedule and reports the workspace size for
 that launch. The adapter keeps the tensors and their descriptors alive on
-the current stream. The legacy wheel uses the same device computation
-through its direct-launch entry.
+the current stream.
 
 ## Tests
 

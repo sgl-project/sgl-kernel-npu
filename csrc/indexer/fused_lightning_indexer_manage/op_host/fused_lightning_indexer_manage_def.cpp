@@ -5,7 +5,7 @@
 #include <cstring>
 
 namespace optiling {
-static ge::graphStatus Tiling(gert::TilingContext *ctx)
+static ge::graphStatus TilingFusedLightningIndexerManage(gert::TilingContext *ctx)
 {
     auto *q = ctx->GetInputShape(1);
     auto *table = ctx->GetInputShape(3);
@@ -112,7 +112,10 @@ public:
                 .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND});
         this->Attr("full_visible").AttrType(REQUIRED).Bool();
         this->SetInferShape(optiling::InferShape).SetInferDataType(optiling::InferDtype);
-        this->AICore().SetTiling(optiling::Tiling).AddConfig("ascend910b").AddConfig("ascend910_93");
+        this->AICore()
+            .SetTiling(optiling::TilingFusedLightningIndexerManage)
+            .AddConfig("ascend910b")
+            .AddConfig("ascend910_93");
     }
 };
 OP_ADD(SglFusedLightningIndexerManage);

@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Huawei Technologies Co., Ltd.
-#include "../cann_copy_sfa_tiling_data.h"
+#include "../fused_scatter_copy_sparse_flash_attention_split_tiling_data.h"
 #include "../../sparse_flash_attention/op_host/sparse_flash_attention_tiling.h"
 #include <cstring>
 #include <initializer_list>
@@ -18,7 +18,7 @@ bool HasShape(const gert::StorageShape *shape, std::initializer_list<int64_t> ex
     return true;
 }
 
-ge::graphStatus TileCopySfa(gert::TilingContext *ctx)
+ge::graphStatus TilingFusedScatterCopySparseFlashAttentionSplit(gert::TilingContext *ctx)
 {
     if (!ctx || !ctx->GetPlatformInfo() || !ctx->GetAttrs()) return ge::GRAPH_FAILED;
     auto input = [ctx](size_t i) { return ctx->GetRequiredInputShape(i); };
@@ -131,5 +131,7 @@ ge::graphStatus Prepare(gert::TilingParseContext *)
     return ge::GRAPH_SUCCESS;
 }
 }  // namespace
-IMPL_OP_OPTILING(SglFusedCopySfa).Tiling(TileCopySfa).TilingParse<CopySfaCompileInfo>(Prepare);
+IMPL_OP_OPTILING(SglFusedCopySfa)
+    .Tiling(TilingFusedScatterCopySparseFlashAttentionSplit)
+    .TilingParse<CopySfaCompileInfo>(Prepare);
 }  // namespace optiling

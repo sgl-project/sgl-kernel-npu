@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Huawei Technologies Co., Ltd.
-#include "cann_copy_sfa_tiling_data.h"
+#include "fused_scatter_copy_sparse_flash_attention_split_tiling_data.h"
 #include "fused_copy_sfa_impl.h"
 
 extern "C" __global__ __aicore__ void sgl_fused_copy_sfa(

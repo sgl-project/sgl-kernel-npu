@@ -150,13 +150,12 @@
     "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_service_cube_mla.h",
     "csrc/fused_scatter_copy_sparse_flash_attention/op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_service_vector_mla.h"
   ],
-  "integrated_source_file_count": 11,
+  "integrated_source_file_count": 10,
   "integrated_source_files": [
     "README.md",
     "UPSTREAM_PROVENANCE.json",
     "fused_copy_sfa_tiling_data.h",
     "op_host/fused_copy_sfa.cpp",
-    "op_kernel/fused_scatter_copy_sparse_flash_attention_combined.cpp",
     "op_kernel/sparse_flash_attention_impl/copy_sfa_address_math.h",
     "op_kernel/first_fill_scatter_copy_kernel.h",
     "op_kernel/sparse_flash_attention_impl/fused_scatter_copy_sparse_flash_attention_common.h",
