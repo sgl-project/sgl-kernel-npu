@@ -88,6 +88,8 @@ FP16 descale tensors. For `TND/PA_BBND`, `q_descale` is shaped `[T, H]`
 and `k_descale` is shaped `[block_num, block_size, N2]` with the same page
 ordering as `pool_key`. INT8 queries and keys use the original basis.
 
+The `pool_key_indexer` operator does not perform Hadamard rotation.
+
 ## torch_native backend
 
 An independent FP32 reference for BSND/BSND and TND/{TND, PA_BBND} inputs, runnable

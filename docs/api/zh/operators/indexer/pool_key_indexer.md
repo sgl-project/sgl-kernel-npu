@@ -86,6 +86,8 @@ INT8 模式要求 query 和 pooled key 为 INT8，weights 和两个 descale 为 
 在 `TND/PA_BBND` 布局下，`q_descale` 形状为 `[T, H]`，`k_descale` 形状为
 `[block_num, block_size, N2]`，页的顺序与 `pool_key` 一致。INT8 的 Q/K 保持原坐标系。
 
+`pool_key_indexer` 算子内部不执行 Hadamard 旋转。
+
 ## torch_native 后端
 
 独立 FP32 reference，支持 BSND/BSND 和 TND/{TND, PA_BBND}，可在 CPU 或 NPU 执行。
