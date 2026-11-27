@@ -73,6 +73,26 @@ def stage_python(wheel, item, package):
             'sys.modules["cann_ops_transformer.ops"]',
             'sys.modules["{}.ops"]'.format(qualified),
         )
+        if item.get("isolate_torch_namespace", False):
+            source = source.replace(
+                "torch.ops.cann_ops_transformer", "torch.ops." + name
+            )
+            source = source.replace('"cann_ops_transformer::', '"' + name + "::")
+            source = source.replace(
+                'Library("cann_ops_transformer",', 'Library("' + name + '",'
+            )
+            if path == destination / "op_builder/builder.py":
+                dispatcher, marker, jit = source.partition("\n    def load(")
+                if not marker:
+                    raise RuntimeError("Unexpected ops-transformer JIT builder layout")
+                # Keep schema names intact and separate JIT modules and locks.
+                source = (
+                    dispatcher
+                    + "\n    @property\n    def _jit_name(self):\n"
+                    + f'        return "{name}_" + self.name\n'
+                    + marker
+                    + jit.replace("self.name", "self._jit_name")
+                )
         path.write_text(source)
     # Do not discover globally installed entry points or import unrelated operators.
     (destination / "__init__.py").write_text("from .ops import *  # noqa: F403\n")

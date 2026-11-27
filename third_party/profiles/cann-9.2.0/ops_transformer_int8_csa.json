@@ -1,0 +1,21 @@
+{
+  "name": "sgl_ops_transformer_int8_csa",
+  "builder": "ops_transformer",
+  "repository": "https://gitcode.com/cann/ops-transformer.git",
+  "commit": "d90a9a94d6f6de79111ef7253361b5d898ee0983",
+  "ops": {
+    "arch22": [
+      "kv_compress_epilog",
+      "mixed_quant_sparse_flash_mla",
+      "mixed_quant_sparse_flash_mla_metadata"
+    ]
+  },
+  "commands": [
+    ["bash", "build.sh", "--pkg", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"],
+    ["bash", "build.sh", "--torch_extension", "--ops=kv_compress_epilog,mixed_quant_sparse_flash_mla", "--vendor_name={vendor_name}"]
+  ],
+  "has_aicpu": true,
+  "license": "LICENSE",
+  "isolate_torch_namespace": true,
+  "opt_in": true
+}
