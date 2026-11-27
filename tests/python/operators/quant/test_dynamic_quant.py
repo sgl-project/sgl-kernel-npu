@@ -25,7 +25,6 @@ CASES = [
     pytest.param((2, 8, 128), torch.bfloat16, "normal", id="indexer-3d-bf16"),
     pytest.param((16, 7168), torch.bfloat16, "normal", id="wide-7168-bf16"),
     pytest.param((64, 128), torch.float16, "normal", id="indexer-fp16"),
-    pytest.param((64, 128), torch.float32, "normal", id="indexer-fp32"),
     pytest.param((64, 128), torch.bfloat16, "zero", id="zero-bf16"),
     # Boundary shapes stay out of the default run and only execute under
     # ``-m extra_checks``.

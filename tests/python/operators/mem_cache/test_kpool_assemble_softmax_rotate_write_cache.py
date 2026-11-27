@@ -24,9 +24,6 @@ PAGE_SIZE = 128
 CACHE_STANDARD = {
     "torch.bfloat16": AccuracyStandard(atol=1e-2, rtol=1e-2),
 }
-EXACT_STANDARD = {
-    "torch.bfloat16": AccuracyStandard(atol=0, rtol=0),
-}
 INT8_CACHE_STANDARD = {
     "torch.bfloat16": AccuracyStandard(atol=5e-2, rtol=5e-2),
 }
@@ -323,10 +320,13 @@ def test_kpool_assemble_softmax_rotate_write_cache(case):
             )
         # Independent invariant: untouched rows must match the original exactly.
         for name, rows in unchanged.items():
+            if rows.numel() == 0:
+                continue
+            actual_bytes = actual[name].view(-1, HEAD_DIM).view(torch.uint8)
+            original_bytes = inputs[name].view(-1, HEAD_DIM).view(torch.uint8)
             assert_accuracy(
-                actual[name].view(-1, HEAD_DIM).index_select(0, rows),
-                inputs[name].view(-1, HEAD_DIM).index_select(0, rows),
-                EXACT_STANDARD,
+                actual_bytes.index_select(0, rows),
+                original_bytes.index_select(0, rows),
                 path=f"{name}.unchanged",
             )
 

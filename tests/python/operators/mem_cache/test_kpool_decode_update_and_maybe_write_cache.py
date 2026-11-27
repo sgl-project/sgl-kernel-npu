@@ -333,8 +333,7 @@ def test_decode_cache_write(case):
 
 
 @pytest.mark.extra_checks
-@pytest.mark.parametrize("impl", ["auto", "torch_native"])
-def test_decode_fp8_rejects_non_128_head_dim(impl):
+def test_decode_fp8_rejects_non_128_head_dim():
     from sgl_kernel_npu.operators.mem_cache import (
         kpool_decode_update_and_maybe_write_cache,
     )
@@ -343,6 +342,8 @@ def test_decode_fp8_rejects_non_128_head_dim(impl):
     if get_hardware().generation != Generation.ARCH35:
         pytest.skip("FP8 KPool cache coverage targets Ascend A5")
 
+    impl, _ = get_test_impls()
+    require_test_impl(kpool_decode_update_and_maybe_write_cache, impl)
     inputs, _ = generate_test_data(
         batch=1,
         block_table_cols=64,

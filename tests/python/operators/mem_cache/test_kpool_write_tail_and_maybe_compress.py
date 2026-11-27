@@ -339,10 +339,13 @@ def test_kpool_write_tail_and_maybe_compress(case):
             assert_accuracy(actual[name], reference[name], EXACT_STANDARD, path=name)
         # Independent invariant: untouched rows must match the original exactly.
         for name, rows in unchanged.items():
+            if rows.numel() == 0:
+                continue
+            actual_bytes = actual[name].view(-1, HEAD_DIM).view(torch.uint8)
+            original_bytes = inputs[name].view(-1, HEAD_DIM).view(torch.uint8)
             assert_accuracy(
-                actual[name].view(-1, HEAD_DIM).index_select(0, rows),
-                inputs[name].view(-1, HEAD_DIM).index_select(0, rows),
-                EXACT_STANDARD,
+                actual_bytes.index_select(0, rows),
+                original_bytes.index_select(0, rows),
                 path=f"{name}.unchanged",
             )
 
