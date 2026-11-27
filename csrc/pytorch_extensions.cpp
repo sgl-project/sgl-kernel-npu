@@ -150,6 +150,14 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int attention_mode=2, bool return_softmax_lse=False) "
         "-> (Tensor attention_out, Tensor softmax_max, Tensor softmax_sum)");
 
+#if defined(SGL_KERNEL_ENABLE_A3_ONLY_OPS) || defined(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    m.def(
+        "unidex_copy(Tensor src, Tensor(a!) dst, Tensor src_index, "
+        "Tensor dst_index, Tensor valid_mask, int src_rows, int dst_rows, "
+        "int block_bytes, int max_copy, int block_dim=8, "
+        "int? src_ptr=None, int? dst_ptr=None) -> ()");
+#endif
+
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.def(
         "mla_preprocess(Tensor hiddenState, Tensor gamma0, Tensor beta0, Tensor wdqkv, "
@@ -205,12 +213,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "bool return_softmax_lse=False) -> (Tensor, Tensor)");
 
     m.def("triangular_inverse(Tensor x) -> Tensor");
-
-    m.def(
-        "unidex_copy(Tensor src, Tensor(a!) dst, Tensor src_index, "
-        "Tensor dst_index, Tensor valid_mask, int src_rows, int dst_rows, "
-        "int block_bytes, int max_copy, int block_dim=8, "
-        "int? src_ptr=None, int? dst_ptr=None) -> ()");
 
     m.def(
         "slot_map_lookup(Tensor slot_map, Tensor req_indices, Tensor topk_indices, "
@@ -390,9 +392,11 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
     m.impl("sgl_sparse_flash_attention", TORCH_FN(sglang::npu_kernel::sparse_flash_attention));
 
-#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+#if defined(SGL_KERNEL_ENABLE_A3_ONLY_OPS) || defined(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
     m.impl("unidex_copy", TORCH_FN(sglang::npu_kernel::unidex_copy));
+#endif
 
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.impl("slot_map_lookup", TORCH_FN(sglang::npu_kernel::slot_map_lookup));
 #endif
 

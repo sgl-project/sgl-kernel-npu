@@ -339,7 +339,8 @@ chunk_kda_fwd(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v,
               bool stateVFirst, bool outputFinalState, bool outputGk,
               bool outputW, bool outputU, bool outputQG, bool outputKg,
               bool outputVNew, bool outputH);
-#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+#if defined(SGL_KERNEL_ENABLE_A3_ONLY_OPS) ||                                  \
+    defined(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
 /**
  * @brief Sparse row copy: for each i where valid_mask[i] is true,
  *   dst[dst_index[i]] = src[src_index[i]]
@@ -355,6 +356,9 @@ void unidex_copy(const at::Tensor &src, at::Tensor &dst,
                  int64_t block_dim, c10::optional<int64_t> src_ptr,
                  c10::optional<int64_t> dst_ptr);
 
+#endif
+
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
 /**
  * @brief Look up slot_map[req_indices[b], topk_indices[b, k]] for each query.
  *
