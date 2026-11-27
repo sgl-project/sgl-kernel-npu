@@ -137,7 +137,7 @@ def test_memfabric_aicpu_h2d(offload_runtime, shape, dtype, layout):
 
 
 @pytest.fixture
-def offload_runtime():
+def offload_runtime(mf_local_device):
     pytest.importorskip("memfabric_hybrid")
     from memfabric_hybrid import offload
     from sgl_kernel_npu.operators.mem_cache.memfabric.host_memory import (
@@ -147,7 +147,7 @@ def offload_runtime():
 
     pool = offload.Offload()
     config = offload.OffloadConfig()
-    config.device_id = torch.npu.current_device()
+    config.device_id = mf_local_device
     config.reserve_size = 8 << 30
     config.alloc_size = 8 << 30
     config.flags = 0
