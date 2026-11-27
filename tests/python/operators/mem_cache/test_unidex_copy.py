@@ -37,6 +37,7 @@ def generate_data(shape):
     [
         pytest.param((32, 4), None, id="aligned-rows"),
         pytest.param((15, 4), None, id="unaligned-rows"),
+        pytest.param((328, 4), None, id="packed-c8-656-byte-row"),
         pytest.param((32, 4), "src", id="raw-source"),
         pytest.param((32, 4), "dst", id="raw-destination"),
         pytest.param((32, 4), "both", id="raw-both"),
