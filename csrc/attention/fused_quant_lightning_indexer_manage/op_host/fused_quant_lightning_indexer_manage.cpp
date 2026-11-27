@@ -2,14 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 #include <algorithm>
 #include <limits>
+#include "lim_launch_geometry.h"
+#include "../op_kernel/arch35/lim_simt_config.h"
+#ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
 #include "batch_kernel_launch.h"
 #include "ge_helper.h"
 #include "owned_kernel_launch.h"
 #include "torch_npu/csrc/core/npu/NPUGuard.h"
-#include "../op_kernel/arch35/fused_quant_lightning_indexer_manage_tiling.h"
-#include "../op_kernel/arch35/fused_quant_lightning_indexer_manage_workspace.h"
-#include "../op_kernel/arch35/lim_payload_layout.h"
-#include "../op_kernel/arch35/lim_simt_config.h"
 #include "aclrtlaunch_fused_quant_lightning_indexer_manage_full_visible.h"
 
 extern "C" uint32_t LaunchFullVisibleLimKernel(void *binary, uint64_t entry, uint32_t blocks, void **args,
@@ -18,6 +17,13 @@ extern "C" uint32_t LaunchFullVisibleLimKernel(void *binary, uint64_t entry, uin
     return sglang::npu_kernel::LaunchKernelWithBatchScheduling(binary, entry, blocks, args, args_size, stream,
                                                                LIM_SIMT_USER_UB_BYTES);
 }
+#else
+#include "aclnn_runtime.h"
+#include "aclnn_sgl_fused_quant_lightning_indexer_manage.h"
+#include <array>
+#include <c10/core/DeviceGuard.h>
+#include <torch/library.h>
+#endif
 
 namespace {
 
@@ -85,17 +91,12 @@ void fused_quant_lightning_indexer_manage_full_visible(
     }
     if (query.is_meta()) return;
 
+#ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
     c10_npu::OptionalNPUGuard guard(device);
     auto *platform = platform_ascendc::PlatformAscendCManager::GetInstance();
     TORCH_CHECK(platform != nullptr, "A5 LIM: Ascend platform is unavailable.");
     const uint32_t cores = std::min<uint32_t>(platform->GetCoreNumAic(), platform->GetCoreNumAiv() / 2);
     TORCH_CHECK(cores > 0, "A5 LIM requires paired mix cores.");
-    const uint64_t route_rows = std::max<uint64_t>(4ULL * batch, rows);
-    const uint64_t segments = fused_quant_li_manage_workspace::CandidateSegmentCapacity(source_capacity, cores);
-    const uint64_t qli_bytes = fused_quant_li_manage_workspace::TotalBytes(
-        source_capacity, route_rows, segments, source_capacity > lim_payload_layout::PACKED_SOURCE_CAPACITY);
-    TORCH_CHECK(route_rows <= max_u32 && qli_bytes <= max_u32, "A5 LIM workspace exceeds uint32.");
-
     FusedQuantLightningIndexerManageTilingData t{};
     t.usedCoreNum = cores;
     t.batchSize = batch;
@@ -107,14 +108,10 @@ void fused_quant_lightning_indexer_manage_full_visible(
     t.weightStride = weights.stride(0);
     t.keyStride = key.stride(0);
     t.scaleStride = key_scale.stride(0);
-    t.managementWorkspaceOffset = qli_bytes;
-    t.scoreWorkspaceStride = 4 * source_capacity * sizeof(uint16_t);
-    t.scoreRowStride = source_capacity;
-    t.queryTileSize = heads == 32 && (rows > 64 || batch * 2 > cores) ? 4 : 2;
-    t.routeStorageRows = route_rows;
+    TORCH_CHECK(InitQuantLimGeometry(t), "A5 LIM workspace exceeds uint32.");
     const uint32_t blocks = platform->CalcTschBlockDim(cores * 2, cores, cores * 2);
     auto tiling = sglang::ge_helper::TilingTensorCache<FusedQuantLightningIndexerManageTilingData>::Get(t, "a5_lim");
-    const uint64_t bytes = platform->GetLibApiWorkSpaceSize() + qli_bytes + (batch + rows) * 32;
+    const uint64_t bytes = QuantLimWorkspaceBytes(t, platform->GetLibApiWorkSpaceSize());
     auto workspace = at::empty({static_cast<int64_t>(bytes)}, query.options().dtype(at::kByte));
     auto owners = metadata;
     owners.insert(owners.end(), {query, weights, key, query_scale, key_scale, workspace, tiling});
@@ -122,6 +119,58 @@ void fused_quant_lightning_indexer_manage_full_visible(
                           query, key_scale, key, block_table, query_ends, lengths, cache_tokens, request_state,
                           pool_entries, slot_pool, topk_sources, topk_slots, topk_miss_counts, miss_sources, miss_slots,
                           miss_counts, workspace, tiling);
+#else
+    const c10::DeviceGuard guard(device);
+    // Describe the physical span so that ACLNN does not materialize a full
+    // contiguous copy of strided index keys or scales. Tiling carries the
+    // original strides in elements and the kernel indexes those same bytes.
+    auto physical_span = [](const at::Tensor &tensor, int64_t row_width) {
+        return tensor.as_strided({(tensor.size(0) - 1) * tensor.stride(0) + row_width}, {1});
+    };
+    const std::array<at::Tensor, 18> tensors = {query,
+                                                physical_span(weights, heads),
+                                                physical_span(key, BLOCK_SIZE * head_dim),
+                                                query_scale,
+                                                physical_span(key_scale, BLOCK_SIZE),
+                                                block_table,
+                                                query_ends,
+                                                lengths,
+                                                cache_tokens,
+                                                request_state,
+                                                pool_entries,
+                                                slot_pool,
+                                                topk_sources,
+                                                topk_slots,
+                                                topk_miss_counts,
+                                                miss_sources,
+                                                miss_slots,
+                                                miss_counts};
+    std::array<std::shared_ptr<aclTensor>, 18> desc;
+    const aclDataType types[] = {ACL_FLOAT8_E4M3FN, ACL_BF16, ACL_FLOAT8_E4M3FN, ACL_FLOAT, ACL_FLOAT};
+    for (size_t i = 0; i < tensors.size(); ++i)
+        desc[i] = sgl_cann::tensor_descriptor(tensors[i], i < 5 ? types[i] : ACL_INT32);
+    static auto get_workspace = reinterpret_cast<decltype(&aclnnSglFusedQuantLightningIndexerManageGetWorkspaceSize)>(
+        sgl_cann::op_api_symbol("aclnnSglFusedQuantLightningIndexerManageGetWorkspaceSize"));
+    static auto execute = reinterpret_cast<decltype(&aclnnSglFusedQuantLightningIndexerManage)>(
+        sgl_cann::op_api_symbol("aclnnSglFusedQuantLightningIndexerManage"));
+    aclOpExecutor *executor = nullptr;
+    uint64_t bytes = 0;
+    auto status = get_workspace(desc[0].get(), desc[1].get(), desc[2].get(), desc[3].get(), desc[4].get(),
+                                desc[5].get(), desc[6].get(), desc[7].get(), desc[8].get(), desc[9].get(),
+                                desc[10].get(), desc[11].get(), weights.stride(0), key.stride(0), key_scale.stride(0),
+                                desc[12].get(), desc[13].get(), desc[14].get(), desc[15].get(), desc[16].get(),
+                                desc[17].get(), desc[11].get(), &bytes, &executor);
+    TORCH_CHECK(status == ACL_SUCCESS, "A5 LIM workspace query failed: ", aclGetRecentErrMsg());
+    TORCH_CHECK(bytes <= INT64_MAX, "A5 LIM workspace is too large.");
+    auto workspace = at::empty({static_cast<int64_t>(bytes)}, query.options().dtype(at::kByte));
+    auto stream = c10_npu::getCurrentNPUStream().stream(false);
+    auto launch = [tensors, desc, workspace, bytes, executor, stream]() -> int {
+        auto result = execute(bytes ? workspace.data_ptr() : nullptr, bytes, executor, stream);
+        TORCH_CHECK(result == ACL_SUCCESS, "A5 LIM execution failed: ", aclGetRecentErrMsg());
+        return result;
+    };
+    at_npu::native::OpCommand::RunOpApi("aclnnSglFusedQuantLightningIndexerManage", launch);
+#endif
 }
 
 TORCH_LIBRARY_FRAGMENT(npu, m)
