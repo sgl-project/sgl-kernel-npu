@@ -212,6 +212,8 @@ def chunk_gated_delta_rule_fwd(
     initial_state: torch.Tensor,
     output_final_state: bool,
     cu_seqlens: Optional[torch.LongTensor] = None,
+    cu_seqlens_cpu: Optional[torch.Tensor] = None,
+    prebuilt_meta=None,
 ):
     if _use_mega_gdn():
         g, o, A, final_state, w, h, v_new = run_mega_chunk_gdn(
@@ -220,13 +222,45 @@ def chunk_gated_delta_rule_fwd(
         if SUPPRESS_LEVEL < 3:
             return g, o, A, final_state, None, h, None
         return g, o, A, final_state, w, h, v_new
+    
+    block_indices_cumsum = (
+        None if prebuilt_meta is None else prebuilt_meta.block_indices_cumsum
+    )
+    chunk_indices_chunk64 = (
+        None if prebuilt_meta is None else prebuilt_meta.chunk_indices_chunk64
+    )
+    chunk_offsets_chunk64 = (
+        None if prebuilt_meta is None else prebuilt_meta.chunk_offsets_chunk64
+    )
+    chunk_indices_large_block = (
+        None if prebuilt_meta is None else prebuilt_meta.chunk_indices_large_block
+    )
 
-    g = chunk_local_cumsum(g, chunk_size=64, cu_seqlens=cu_seqlens)
+    g = chunk_local_cumsum(
+        g,
+        chunk_size=64,
+        cu_seqlens=cu_seqlens,
+        cu_seqlens_cpu=cu_seqlens_cpu,
+        block_indices=block_indices_cumsum,
+    )
     # obtain WY representation. u is actually the new v.
     A = chunk_scaled_dot_kkt_fwd(
-        k=k, beta=beta, g_cumsum=g, cu_seqlens=cu_seqlens, output_dtype=torch.float32
+        k=k,
+        beta=beta,
+        g_cumsum=g,
+        cu_seqlens=cu_seqlens,
+        cu_seqlens_cpu=cu_seqlens_cpu,
+        chunk_indices=chunk_indices_chunk64,
+        output_dtype=torch.float32,
     )
-    A = solve_tril(A=A, cu_seqlens=cu_seqlens, output_dtype=k.dtype)
+    A = solve_tril(
+        A=A,
+        cu_seqlens=cu_seqlens,
+        cu_seqlens_cpu=cu_seqlens_cpu,
+        chunk_indices_large_block=chunk_indices_large_block,
+        chunk_indices_bt=chunk_indices_chunk64,
+        output_dtype=k.dtype,
+    )
     w, u = recompute_w_u_fwd(
         k=k,
         v=v,
@@ -234,6 +268,8 @@ def chunk_gated_delta_rule_fwd(
         A=A,
         g_cumsum=g,
         cu_seqlens=cu_seqlens,
+        cu_seqlens_cpu=cu_seqlens_cpu,
+        chunk_indices=chunk_indices_chunk64,
     )
     h, v_new, final_state = chunk_gated_delta_rule_fwd_h(
         k=k,
@@ -243,6 +279,9 @@ def chunk_gated_delta_rule_fwd(
         initial_state=initial_state,
         output_final_state=output_final_state,
         cu_seqlens=cu_seqlens,
+        cu_seqlens_cpu=cu_seqlens_cpu,
+        chunk_indices=chunk_indices_chunk64,
+        chunk_offsets=chunk_offsets_chunk64,
     )
     o = chunk_fwd_o(
         q=q,
@@ -252,6 +291,9 @@ def chunk_gated_delta_rule_fwd(
         g=g,
         scale=scale,
         cu_seqlens=cu_seqlens,
+        cu_seqlens_cpu=cu_seqlens_cpu,
+        chunk_indices=chunk_indices_chunk64,
+        chunk_offsets=chunk_offsets_chunk64,
     )
     if SUPPRESS_LEVEL < 3:
         return g, o, A, final_state, None, h, None
@@ -271,6 +313,8 @@ def chunk_gated_delta_rule_npu(
     initial_state: torch.Tensor = None,
     output_final_state: bool = True,
     cu_seqlens: Optional[torch.LongTensor] = None,
+    cu_seqlens_cpu: Optional[torch.Tensor] = None,
+    prebuilt_meta=None,
     head_first: bool = False,
     use_qk_l2norm_in_kernel: bool = False,
 ):
@@ -346,6 +390,12 @@ def chunk_gated_delta_rule_npu(
         len(beta.shape) == 3
     ), "beta must be of shape [B, T, H] if head_first=False, or [B, H, T] otherwise."
 
+    # cu_seqlens_cpu and prebuilt_meta are only meaningful in varlen mode.
+    # Clear them when cu_seqlens is None to prevent silent misuse.
+    if cu_seqlens is None:
+        cu_seqlens_cpu = None
+        prebuilt_meta = None
+
     if head_first:
         raise DeprecationWarning(
             "head_first is deprecated and will be removed in a future version. "
@@ -380,9 +430,27 @@ def chunk_gated_delta_rule_npu(
         k = l2norm_fwd(k)
 
     _, o, _, final_state, _, h, _ = chunk_gated_delta_rule_fwd(
-        q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
+        q,
+        k,
+        v,
+        g,
+        beta,
+        scale,
+        initial_state,
+        output_final_state,
+        cu_seqlens,
+        cu_seqlens_cpu=cu_seqlens_cpu,
+        prebuilt_meta=prebuilt_meta,
     )
     o = o.to(q.dtype)
     if head_first:
         o = rearrange(o, "b t h ... -> b h t ...")
+    if cu_seqlens is not None:
+        if cu_seqlens_cpu is not None:
+            # CPU tensor index → Python int, zero D2H sync.
+            act_sq = int(cu_seqlens_cpu[-1])
+        else:
+            # legacy fallback: triggers a D2H sync; callers should pass cu_seqlens_cpu.
+            act_sq = int(cu_seqlens[-1].cpu())
+        o = o[:, :act_sq, :, :]
     return o, final_state, h
