@@ -334,8 +334,9 @@ __aicore__ inline void CompressorBlockCubePerf<COMP>::ComputeMm1(const RunInfo &
 
     // hSize is a multiple of K_SIZE=512
     uint32_t hSize = constInfo_.hSize;
-    uint32_t hIdxStart = (constInfo_.aiCoreIdx % constInfo_.dBasicBlockNum) *
-                         K_L1_BASE;  // the h loop start differs within each group of cores
+    // Small batches use narrower D tiles. Anchor the K traversal to a fixed
+    // output-column block so a column keeps the same accumulation order.
+    uint32_t hIdxStart = (constInfo_.dIdx / 64) * K_L1_BASE;
     for (uint32_t h = 0; h < hSize; h += K_SIZE) {
         for (uint32_t k = 0; k < K_SIZE; k += K_L1_BASE) {
             bool isFirst = (h == 0 && k == 0);
