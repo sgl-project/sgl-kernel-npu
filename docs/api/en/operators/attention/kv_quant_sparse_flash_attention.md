@@ -4,8 +4,8 @@
 
 | Implementation | arch22 (2201) | arch35 (3510) |
 | --- | --- | --- |
-| `ascendc` | INT8 | E4M3 FP8 |
-| `torch_native` | INT8 | INT8 and E4M3 FP8 |
+| `ascendc` | Supported | Supported |
+| `torch_native` | Supported | Supported |
 
 ## Signature
 
@@ -40,7 +40,6 @@ values. Latent multiplication is in FP32 and the result is rounded to BF16
 before attention. A RoPE0 record contains 528 bytes, with the four scales at
 byte offset 512. Pass an empty final dimension in query_rope for RoPE0.
 For causal attention, pass indices that already encode causal visibility.
-With return_softmax_lse=False, the two softmax tensors are empty.
 
 ```text
 latent[d] = BF16(FP32(quantized_latent[d]) * scale[d // 128])
@@ -69,23 +68,26 @@ query head count, `B` counts requests, and `K` is the Top-K capacity.
 | `actual_seq_lengths_query` | INT32 `[B]` | Cumulative query lengths without a leading zero. |
 | `actual_seq_lengths_kv` | INT32 `[B]` | Number of valid KV tokens per request on this rank. |
 | `scale_value` | float | Score multiplier applied before softmax. |
+| `return_softmax_lse` | bool, default `True` | Keyword-only flag that controls whether to return softmax statistics. |
 | `impl` | str, default `"auto"` | Keyword-only implementation selector. |
 
 | Return | Type and shape | Description |
 | --- | --- | --- |
 | `attention_out` | BF16 `[T, H, 512]` | Rank-local attention output. |
-| `softmax_max` | FP32 `[1, T, H]` | Maximum score per query and head. |
-| `softmax_sum` | FP32 `[1, T, H]` | Sum of the exponentials shifted by the maximum. |
+| `softmax_max` | FP32 `[1, T, H]` or empty | Maximum score per query and head. Empty when `return_softmax_lse=False`. |
+| `softmax_sum` | FP32 `[1, T, H]` or empty | Sum of the exponentials shifted by the maximum. Empty when `return_softmax_lse=False`. |
 
 ## Ascend C backend
 
-Both kernels read paged packed KV and can return softmax statistics for
-cross-rank LSE merging.
+On A2/A3 (arch22), pass packed KV as `torch.int8`. On A5 (arch35), pass the
+E4M3 FP8 records as `torch.uint8` bytes. Both kernels read paged packed KV and
+can return softmax statistics for cross-rank LSE merging.
 
 ## torch_native backend
 
 The accuracy reference decodes the cache on CPU and computes attention with
-PyTorch. It keeps the softmax statistics in FP32 and rounds the exponential
+PyTorch. It decodes `torch.int8` as INT8 and `torch.uint8` as E4M3 FP8.
+It keeps the softmax statistics in FP32 and rounds the exponential
 weights to BF16 before multiplying by V. It returns tensors on the query device.
 
 ## Example
@@ -96,6 +98,7 @@ import torch_npu
 from sgl_kernel_npu.operators.attention import kv_quant_sparse_flash_attention
 
 device = "npu"
+packed_dtype = torch.uint8  # A5 (E4M3 FP8). Use torch.int8 on A2/A3.
 query = torch.zeros((1, 32, 512), dtype=torch.bfloat16, device=device)
 query_rope = torch.zeros((1, 32, 64), dtype=torch.bfloat16, device=device)
 packed = torch.cat(
@@ -105,7 +108,7 @@ packed = torch.cat(
         torch.ones((1, 128, 1, 4), dtype=torch.float32, device="cpu").view(torch.uint8),
     ),
     dim=-1,
-).to(device)
+).view(packed_dtype).to(device)
 indices = torch.tensor([[[0]]], dtype=torch.int32, device=device)
 table = torch.tensor([[0]], dtype=torch.int32, device=device)
 lengths = torch.tensor([1], dtype=torch.int32, device=device)
