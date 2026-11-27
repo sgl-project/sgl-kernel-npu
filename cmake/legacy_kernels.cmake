@@ -133,8 +133,27 @@ if(BUILD_CATLASS_MODULE)
     endif()
 endif()
 
+# Resolve the Ascend driver directory: prefer an explicit override, then derive it
+# from the CANN installation (ASCEND_HOME_PATH is exported by set_env.sh / build.sh)
+# so non-standard installations (per-user or CANNLab container installs) also work,
+# and finally fall back to the legacy default path.
 if(NOT DEFINED ASCEND_DRIVER_PATH)
-    set(ASCEND_DRIVER_PATH "/usr/local/Ascend/driver")
+    if(DEFINED ENV{ASCEND_DRIVER_PATH} AND NOT "$ENV{ASCEND_DRIVER_PATH}" STREQUAL "")
+        set(ASCEND_DRIVER_PATH "$ENV{ASCEND_DRIVER_PATH}")
+    else()
+        set(_driver_candidates
+            "${ASCEND_HOME_PATH}/driver"
+            "$ENV{ASCEND_HOME_PATH}/driver"
+            "${ASCEND_HOME_PATH}/pkg_inc/driver"
+            "$ENV{ASCEND_HOME_PATH}/pkg_inc/driver")
+        set(ASCEND_DRIVER_PATH "/usr/local/Ascend/driver")
+        foreach(_cand IN LISTS _driver_candidates)
+            if(EXISTS "${_cand}")
+                set(ASCEND_DRIVER_PATH "${_cand}")
+                break()
+            endif()
+        endforeach()
+    endif()
 endif()
 
 # kernel side files without workspace
