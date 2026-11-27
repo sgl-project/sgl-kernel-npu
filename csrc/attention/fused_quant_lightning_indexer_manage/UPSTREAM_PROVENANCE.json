@@ -1,0 +1,135 @@
+{
+  "url": "https://github.com/vllm-project/vllm-ascend/pull/18383",
+  "commit": "7d5a4cd9d7e8c4e2e4f0f6415a71f0e80edcff8e",
+  "upstream_source_root": "csrc/attention/fused_quant_lightning_indexer_manage",
+  "files": [
+    {
+      "path": "op_kernel/arch35/arch35_payload_c8/lightning_indexer_common.h",
+      "sha256": "b98c31cf44e83411ed3acfbcd20c96dac595c5daf746aa495a3e78930c220c3d"
+    },
+    {
+      "path": "op_kernel/arch35/arch35_payload_c8/lightning_indexer_service_cube.h",
+      "sha256": "d593c2b8eb14e1e8c327d1a7bf46ce177f305ba57fc867692e7635affb353d63"
+    },
+    {
+      "path": "op_kernel/arch35/arch35_payload_c8/lightning_indexer_service_vector.h",
+      "sha256": "9c9ac58f714ef1893d4ff16aac74fd9eeda268b1a91ebf944185125794f1d60a"
+    },
+    {
+      "path": "op_kernel/arch35/arch35_payload_c8/payload/hist_topk_index_update_a5_common.h",
+      "sha256": "7c18fbd53cd0a50dc3f0a67eba30672a674c87dfa1e6239e8b2b803a85514c74"
+    },
+    {
+      "path": "op_kernel/arch35/arch35_payload_c8/payload/hist_topk_index_update_a5_evict_vf.h",
+      "sha256": "7727c59a61d2c798f19092b03c62126b72ee4e935880a7c97095b05806684993"
+    },
+    {
+      "path": "op_kernel/arch35/arch35_payload_c8/payload/hist_topk_index_update_a5_topk.h",
+      "sha256": "0f213d1107492cbd078f5c4f95b6db1d4365748cb0fa80f34c2ef1e8624c4ccf"
+    },
+    {
+      "path": "op_kernel/arch35/arch35_payload_c8/payload/li_update_ablation_config.h",
+      "sha256": "1dab0ede751251d12af297da306819e7f8a032f5d5d37537c427cc16f89730ad"
+    },
+    {
+      "path": "op_kernel/arch35/arch35_payload_c8/payload/lim_normalize_pool_slots_vf.h",
+      "sha256": "6711e73c30ee1aec5a0d28fd7a5bf9ceeb5d6396fb6747560e3894cd5f3e0175"
+    },
+    {
+      "path": "op_kernel/arch35/arch35_payload_c8/payload/vf_topk_16_gather.h",
+      "sha256": "7528836e8ca982b17d3d3fa58eb1e1650fee56735d804edd19d12b1f519d7f3c"
+    },
+    {
+      "path": "op_kernel/arch35/arch35_payload_c8/vf/lightning_indexer_vector1.h",
+      "sha256": "3fb3ba785d3e8ebfd3d6468fa9741ed1cffd7d2645185e6211f220acd69c298c"
+    },
+    {
+      "path": "op_kernel/arch35/fused_quant_lightning_indexer_manage_classify_vf.h",
+      "sha256": "83c1765529f996ceb52666341c7f5981990a23fd9402b180b2f90c8f8782f3c7"
+    },
+    {
+      "path": "op_kernel/arch35/fused_quant_lightning_indexer_manage_hit_sort_vf.h",
+      "sha256": "2fdc116474e07f06f795e23f2d9ca6779768c690bce045da4a6049b3843916c1"
+    },
+    {
+      "path": "op_kernel/arch35/fused_quant_lightning_indexer_manage_impl.h",
+      "sha256": "9358eca075357e3bfdf9432eab73568ce7d49b29ddbc9978bb557c1425f8c9a0"
+    },
+    {
+      "path": "op_kernel/arch35/fused_quant_lightning_indexer_manage_qli.h",
+      "sha256": "04a409bec74e8510a212d4a9edc22ca9326afb0d0d0f95bb2b7fc4b12d77d151"
+    },
+    {
+      "path": "op_kernel/arch35/fused_quant_lightning_indexer_manage_sort.h",
+      "sha256": "d92c5280179e22607bb3275aafa54721265c3cdaf56af3a62fdc5a3f81b646f0"
+    },
+    {
+      "path": "op_kernel/arch35/fused_quant_lightning_indexer_manage_tiling.h",
+      "sha256": "b3235c0b56e810109ad2ee91124d02e666252d9dbf0bb2e9c415e2bf4c3c9f8a"
+    },
+    {
+      "path": "op_kernel/arch35/fused_quant_lightning_indexer_manage_union.h",
+      "sha256": "3fb44125052a8ec36884da8006f2af697cfeb3c0e9fa8acc3b0032a92ef2f161"
+    },
+    {
+      "path": "op_kernel/arch35/fused_quant_lightning_indexer_manage_union_vf.h",
+      "sha256": "b616d1dffe7a527b843e3ff514552eef55427bb7ac954f2470ddbf68da42f38d"
+    },
+    {
+      "path": "op_kernel/arch35/fused_quant_lightning_indexer_manage_victim_scan.h",
+      "sha256": "f0b5119822d82803fe58a06cdd5791cd42b04405071fdb98d72ce32d378d5c8a"
+    },
+    {
+      "path": "op_kernel/arch35/fused_quant_lightning_indexer_manage_victim_vf.h",
+      "sha256": "5a8c95d38968e66a7f91af1a4cc7d9ddd55c14fbc77a7f2b89cc5a50fe0518c5"
+    },
+    {
+      "path": "op_kernel/arch35/fused_quant_lightning_indexer_manage_wide_victim.h",
+      "sha256": "e45aecb972a046ddaa2f7316da307fee5cb599b0ceea5c2b232a6248722661f2"
+    },
+    {
+      "path": "op_kernel/arch35/fused_quant_lightning_indexer_manage_workspace.h",
+      "sha256": "25149f56c56cddf3eb83217dadce75ac650b323ef81c57a0d6b699b56d5ac93e"
+    },
+    {
+      "path": "op_kernel/arch35/lim_cache_budget.h",
+      "sha256": "9cd245d82080758d9c6305b5c1ed1bf6a67ebf1ae9ee49fa96b65c221f9146bd"
+    },
+    {
+      "path": "op_kernel/arch35/lim_payload_layout.h",
+      "sha256": "2fca773715fc2419c0086efaff3c7c06804c62db622c9f41116bc817cef004d5"
+    },
+    {
+      "path": "op_kernel/arch35/lim_pool_contract.h",
+      "sha256": "644901e41d60d14fc76f4fdd0c52f7083c5b1aa3ac878109c5fa2750ac7a0425"
+    },
+    {
+      "path": "op_kernel/arch35/lim_request_contract.h",
+      "sha256": "54f00da1c2fd6ea68615d7d1c5f8d21d85ccd55ca3639f02098aa4c9a03d618d"
+    },
+    {
+      "path": "op_kernel/arch35/lim_request_limits.h",
+      "sha256": "e318a79c81a51d20a87aff8d731b43d193adf6caa65e61545c76938c727c56b0"
+    },
+    {
+      "path": "op_kernel/arch35/lim_simt_config.h",
+      "sha256": "01c7f90374d35032ee13a407732f784ab5f2f6f87f11a10ff6f5be35c2fec87e"
+    },
+    {
+      "path": "op_kernel/arch35/lim_simt_postprocess.h",
+      "sha256": "5baa6d2427c5f011ada78ac0ab22c37c6d9bc141e139256bfa41b09ccf836a26"
+    },
+    {
+      "path": "op_kernel/arch35/lim_simt_postprocess_algorithms.h",
+      "sha256": "4c135092f5baef427d8f91929989b6ffd86eced47005d35e83a8ea353a7445d8"
+    },
+    {
+      "path": "op_kernel/arch35/lim_simt_wide_postprocess.h",
+      "sha256": "a8944d5f2f11b9c27b2cd2a1875f89a4b9efcb5d7df87e1ad82120a5f1804c25"
+    },
+    {
+      "path": "op_kernel/arch35/lim_simt_wide_postprocess_algorithms.h",
+      "sha256": "33f9ef0ea91851a4a808935104c1603863bb9ba2745a76525aad7eb71e5bbe49"
+    }
+  ]
+}
