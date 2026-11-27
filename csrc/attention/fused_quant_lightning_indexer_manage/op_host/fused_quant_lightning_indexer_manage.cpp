@@ -147,8 +147,11 @@ void fused_quant_lightning_indexer_manage_full_visible(
                                                 miss_counts};
     std::array<std::shared_ptr<aclTensor>, 18> desc;
     const aclDataType types[] = {ACL_FLOAT8_E4M3FN, ACL_BF16, ACL_FLOAT8_E4M3FN, ACL_FLOAT, ACL_FLOAT};
-    for (size_t i = 0; i < tensors.size(); ++i)
+    const auto stream = c10_npu::getCurrentNPUStream();
+    for (size_t i = 0; i < tensors.size(); ++i) {
+        tensors[i].record_stream(stream);
         desc[i] = sgl_cann::tensor_descriptor(tensors[i], i < 5 ? types[i] : ACL_INT32);
+    }
     static auto get_workspace = reinterpret_cast<decltype(&aclnnSglFusedQuantLightningIndexerManageGetWorkspaceSize)>(
         sgl_cann::op_api_symbol("aclnnSglFusedQuantLightningIndexerManageGetWorkspaceSize"));
     static auto execute = reinterpret_cast<decltype(&aclnnSglFusedQuantLightningIndexerManage)>(
@@ -163,9 +166,9 @@ void fused_quant_lightning_indexer_manage_full_visible(
     TORCH_CHECK(status == ACL_SUCCESS, "A5 LIM workspace query failed: ", aclGetRecentErrMsg());
     TORCH_CHECK(bytes <= INT64_MAX, "A5 LIM workspace is too large.");
     auto workspace = at::empty({static_cast<int64_t>(bytes)}, query.options().dtype(at::kByte));
-    auto stream = c10_npu::getCurrentNPUStream().stream(false);
-    auto launch = [tensors, desc, workspace, bytes, executor, stream]() -> int {
-        auto result = execute(bytes ? workspace.data_ptr() : nullptr, bytes, executor, stream);
+    auto aclStream = stream.stream(false);
+    auto launch = [tensors, desc, workspace, bytes, executor, aclStream]() -> int {
+        auto result = execute(bytes ? workspace.data_ptr() : nullptr, bytes, executor, aclStream);
         TORCH_CHECK(result == ACL_SUCCESS, "A5 LIM execution failed: ", aclGetRecentErrMsg());
         return result;
     };
