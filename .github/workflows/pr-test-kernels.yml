@@ -18,7 +18,6 @@ on:
       - "cmake/**"
       - "scripts/prepare_kernel_tests.sh"
       - "scripts/run_kernel_tests.sh"
-      - "third_party/pto-isa/**"
       - "third_party/catlass/**"
       - ".gitmodules"
       - ".github/workflows/pr-test-kernels.yml"
