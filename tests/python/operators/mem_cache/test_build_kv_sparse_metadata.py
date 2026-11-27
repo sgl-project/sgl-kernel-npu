@@ -144,12 +144,16 @@ def offload_runtime():
         set_memfabric_pool,
         uninitialize_host_memory,
     )
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
     pool = offload.Offload()
     config = offload.OffloadConfig()
     config.device_id = torch.npu.current_device()
     config.reserve_size = 8 << 30
     config.alloc_size = 8 << 30
+    if get_hardware().generation == Generation.ARCH35:
+        # A5 local AICPU offload uses URMA for host/device transfers.
+        config.executor = offload.Executor.AICPU
     config.flags = 0
     config.scene = offload.Scene.LOCAL
     status = pool.initialize(config)
