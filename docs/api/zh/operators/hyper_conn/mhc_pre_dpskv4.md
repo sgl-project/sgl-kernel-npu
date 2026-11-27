@@ -71,7 +71,7 @@ A5 Recipes 后端需要 CANN 9.2.x。它调用 wheel 内的 `torch.ops.sgl_cann_
 
 ## cann_ops_transformers_cann920_v2
 
-A3 和 A5 使用 wheel 内的 MhcPreSinkhornV2 和 HF32。打包时将其注册为 `aclnnSglMhcPreSinkhornV2`，使 DeepSeek V4 和 V4.1 的算子可以同时加载。此后端使用 4 条残差流和 20 次 Sinkhorn 迭代，隐藏维度需按 128 对齐。[CANN 算子约束](https://gitcode.com/cann/ops-transformer/blob/53f5c56996be158b52579d9cdd484b54a38dfb64/mhc/mhc_pre_sinkhorn/docs/aclnnMhcPreSinkhornV2.md)
+A3 和 A5 使用 wheel 内的 MhcPreSinkhornV2 和 HF32。wheel 注册 OPP 类型 `MhcPreSinkhornV2`，并通过 `aclnnSglMhcPreSinkhornV2` 提供 ACLNN 入口，使 DeepSeek V4 和 V4.1 的算子可以同时加载。此后端使用 4 条残差流和 20 次 Sinkhorn 迭代，隐藏维度需按 128 对齐。[CANN 算子约束](https://gitcode.com/cann/ops-transformer/blob/53f5c56996be158b52579d9cdd484b54a38dfb64/mhc/mhc_pre_sinkhorn/docs/aclnnMhcPreSinkhornV2.md)
 
 ## torch_native
 

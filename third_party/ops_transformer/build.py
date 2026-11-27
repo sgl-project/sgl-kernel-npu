@@ -141,14 +141,17 @@ def inspect_vendor(vendor, item):
 
 
 def _isolate_mhc_pre_sinkhorn(source):
-    """Keep the new kernel and ACLNN symbols separate from the bundled V1."""
+    """Give the bundled V2 its own OPP type and ACLNN symbols."""
     op = source / "mhc/mhc_pre_sinkhorn"
 
     def rename(text):
         changes = (
-            (r"mhc_pre_sinkhorn(?!_backward)", "sgl_mhc_pre_sinkhorn"),
-            (r"MhcPreSinkhorn(?!Backward)", "SglMhcPreSinkhorn"),
-            (r"MHC_PRE_SINKHORN(?!_BACKWARD)", "SGL_MHC_PRE_SINKHORN"),
+            (r"(?<!aclnn_)mhc_pre_sinkhorn(?!_backward|_v2)", "mhc_pre_sinkhorn_v2"),
+            (r"(?<!aclnn)MhcPreSinkhorn(?!Backward|V2)", "MhcPreSinkhornV2"),
+            (r"(?<!ACLNN_)MHC_PRE_SINKHORN(?!_BACKWARD|_V2)", "MHC_PRE_SINKHORN_V2"),
+            (r"aclnn_mhc_pre_sinkhorn", "aclnn_sgl_mhc_pre_sinkhorn"),
+            (r"aclnnMhcPreSinkhorn", "aclnnSglMhcPreSinkhorn"),
+            (r"ACLNN_MHC_PRE_SINKHORN", "ACLNN_SGL_MHC_PRE_SINKHORN"),
         )
         for original, private in changes:
             text = re.sub(original, private, text)
@@ -163,11 +166,11 @@ def _isolate_mhc_pre_sinkhorn(source):
         name = rename(path.name)
         if name != path.name:
             path.rename(path.with_name(name))
-    op.rename(source / "experimental/mhc/sgl_mhc_pre_sinkhorn")
+    op.rename(source / "experimental/mhc/mhc_pre_sinkhorn_v2")
 
 
 def build(item, source, directory):
-    if "sgl_mhc_pre_sinkhorn" in item["ops"]:
+    if "mhc_pre_sinkhorn_v2" in item["ops"]:
         _isolate_mhc_pre_sinkhorn(source)
     for index, command in enumerate(item["commands"]):
         run(command, directory / ("build-{}.log".format(index)), cwd=source)

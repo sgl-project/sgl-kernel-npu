@@ -46,7 +46,7 @@ def test_mhc_pre_dpskv4(shape):
 
 
 HAS_SINKHORN_V2 = any(
-    "sgl_mhc_pre_sinkhorn" in item["ops"]
+    "mhc_pre_sinkhorn_v2" in item["ops"]
     for item in getattr(sgl_kernel_npu, "_manifest", {}).get("third_party", ())
 )
 

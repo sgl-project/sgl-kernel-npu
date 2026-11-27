@@ -71,7 +71,7 @@ The A5 Recipes backend requires CANN 9.2.x. It uses the bundled `torch.ops.sgl_c
 
 ## cann_ops_transformers_cann920_v2
 
-On A3 and A5, uses the wheel-bundled MhcPreSinkhornV2 with HF32. The wheel registers it as `aclnnSglMhcPreSinkhornV2` so the DeepSeek V4 and V4.1 kernels can coexist. The backend uses four residual streams, 20 Sinkhorn iterations and a hidden dimension aligned to 128. [CANN operator contract](https://gitcode.com/cann/ops-transformer/blob/53f5c56996be158b52579d9cdd484b54a38dfb64/mhc/mhc_pre_sinkhorn/docs/aclnnMhcPreSinkhornV2.md)
+On A3 and A5, uses the wheel-bundled MhcPreSinkhornV2 with HF32. The wheel registers the OPP type `MhcPreSinkhornV2` and exposes `aclnnSglMhcPreSinkhornV2` so the DeepSeek V4 and V4.1 kernels can coexist. The backend uses four residual streams, 20 Sinkhorn iterations and a hidden dimension aligned to 128. [CANN operator contract](https://gitcode.com/cann/ops-transformer/blob/53f5c56996be158b52579d9cdd484b54a38dfb64/mhc/mhc_pre_sinkhorn/docs/aclnnMhcPreSinkhornV2.md)
 
 ## torch_native
 

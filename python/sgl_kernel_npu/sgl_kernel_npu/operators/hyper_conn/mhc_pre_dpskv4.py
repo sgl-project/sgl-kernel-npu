@@ -145,12 +145,12 @@ def _cann_mhc_pre_sinkhorn_v2(
 ):
     global _cann_920_sinkhorn_v2_fn
     if _cann_920_sinkhorn_v2_fn is None:
-        from ..._third_party.sgl_ops_transformer_experimental.ops.mhc.sgl_mhc_pre_sinkhorn.sgl_mhc_pre_sinkhorn import (
-            sgl_mhc_pre_sinkhorn_op_builder,
+        from ..._third_party.sgl_ops_transformer_experimental.ops.mhc.mhc_pre_sinkhorn_v2.mhc_pre_sinkhorn_v2 import (
+            mhc_pre_sinkhorn_v2_op_builder,
         )
 
         _cann_920_sinkhorn_v2_fn = (
-            sgl_mhc_pre_sinkhorn_op_builder.load().sgl_mhc_pre_sinkhorn
+            mhc_pre_sinkhorn_v2_op_builder.load().mhc_pre_sinkhorn_v2
         )
     y, post, comb, pre, *_ = _cann_920_sinkhorn_v2_fn(
         x,
