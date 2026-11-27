@@ -33,6 +33,21 @@ EXACT_STANDARD = {
     "torch.bfloat16": AccuracyStandard(atol=0, rtol=0),
     "torch.float32": AccuracyStandard(atol=0, rtol=0),
 }
+INT8_CACHE_STANDARD = {
+    "torch.bfloat16": AccuracyStandard(atol=5e-2, rtol=5e-2),
+}
+FP8_CACHE_STANDARD = {
+    "torch.bfloat16": AccuracyStandard(atol=1e-1, rtol=1e-1),
+}
+SCALE_STANDARD = {
+    "torch.float16": AccuracyStandard(atol=1e-3, rtol=1e-2),
+    "torch.float32": AccuracyStandard(atol=1e-6, rtol=1e-2),
+}
+
+
+def dequantize_cache(cache, scale):
+    rows = cache.float().reshape(-1, HEAD_DIM)
+    return (rows * scale.float().reshape(-1, 1)).reshape(cache.shape).to(torch.bfloat16)
 
 
 def generate_test_data(
@@ -44,18 +59,24 @@ def generate_test_data(
     cache_rank=4,
     score_dtype=torch.bfloat16,
     invalid_row=False,
+    cache_dtype=torch.bfloat16,
+    head_dim=128,
+    incomplete_pool=False,
 ):
     """Return operator kwargs and protected row IDs in the [-1, 128] view."""
     torch.manual_seed(420 + batch)
     tail_size = pool_size + 1
-    head_dim = 128
     logical_pages = (block_table_cols + pool_size - 1) // pool_size
     num_pages = batch * logical_pages + 1
 
     # P: GLM-5.3-Flash NPU decode uses [pages, slots, 1, head_dim] BF16 cache.
-    initial_buf = torch.zeros(
-        num_pages, slots_per_page, 1, head_dim, dtype=torch.bfloat16
-    )
+    initial_buf = torch.zeros(num_pages, slots_per_page, 1, head_dim, dtype=cache_dtype)
+    scale_cache = None
+    if cache_dtype != torch.bfloat16:
+        scale_cache = torch.zeros(
+            num_pages * slots_per_page,
+            dtype=torch.float16 if cache_dtype == torch.int8 else torch.float32,
+        )
     initial_tail_k = torch.randn(batch, tail_size, head_dim, dtype=torch.bfloat16) * 0.1
     initial_tail_score = (
         torch.randn(batch, tail_size, head_dim, dtype=score_dtype) * 0.1
@@ -76,7 +97,9 @@ def generate_test_data(
     ).contiguous()
     req_pool_indices = torch.arange(batch, dtype=torch.int32)
     positions = torch.arange(batch, dtype=torch.int32) * pool_size + pool_size - 1
-    if batch >= 3:
+    if incomplete_pool:
+        positions = torch.arange(batch, dtype=torch.int32) * pool_size
+    elif batch >= 3:
         positions[:3] = torch.tensor(
             [
                 slots_per_page * pool_size - 1,
@@ -113,6 +136,8 @@ def generate_test_data(
         slots_per_page=slots_per_page,
         head_dim=head_dim,
     )
+    if scale_cache is not None:
+        inputs["scale_cache"] = scale_cache
     invalid_tail_rows = torch.arange(tail_size, 2 * tail_size, dtype=torch.int64)
     unchanged = (
         {name: invalid_tail_rows for name in ("tail_k", "tail_score")}
@@ -143,6 +168,21 @@ def test_decode_rejects_noncontiguous_inplace_cache():
         # Case 02: Typical decode: B16, 4D BF16 cache and 64 page-table columns.
         pytest.param(
             dict(batch=16, block_table_cols=64), id="T-glm53-flash-decode-4d-bf16"
+        ),
+        # Case 02b: INT8 production decode shape; also profile this case.
+        pytest.param(
+            dict(batch=16, block_table_cols=64, cache_dtype=torch.int8),
+            id="T-glm53-flash-decode-4d-int8",
+        ),
+        # Case 02c: FP8 production decode shape; also profile this case on A5.
+        pytest.param(
+            dict(batch=16, block_table_cols=64, cache_dtype=torch.float8_e4m3fn),
+            id="T-glm53-flash-decode-4d-fp8",
+        ),
+        # Case 02d: An incomplete pool must still update the tail ring.
+        pytest.param(
+            dict(batch=2, block_table_cols=9, incomplete_pool=True),
+            id="edge-incomplete-pool-tail-update",
         ),
         # Case 03: 2D cache, FP32 scores, invalid row and an incomplete valid pool.
         pytest.param(
@@ -196,6 +236,12 @@ def test_decode_cache_write(case):
         kpool_decode_update_and_maybe_write_cache,
     )
 
+    if case.get("cache_dtype") == torch.float8_e4m3fn:
+        from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+        if get_hardware().generation != Generation.ARCH35:
+            pytest.skip("FP8 KPool cache coverage targets Ascend A5")
+
     # Inputs: named operator arguments and independent unchanged-row checks.
     inputs, unchanged = generate_test_data(**case)
     standards = {
@@ -203,7 +249,9 @@ def test_decode_cache_write(case):
         "tail_k": TAIL_K_STANDARD,
         "tail_score": TAIL_SCORE_STANDARD,
     }
-    state_names = tuple(standards)
+    state_names = list(standards)
+    if "scale_cache" in inputs:
+        state_names.append("scale_cache")
     # Accuracy: isolate DUT/reference state for this in-place operator.
     impl, impl_ref = get_test_impls()
     accuracy_checked = get_skip_acc_check() is not True
@@ -219,8 +267,28 @@ def test_decode_cache_write(case):
         reference = dict(inputs, **{name: inputs[name].clone() for name in state_names})
         kpool_decode_update_and_maybe_write_cache(**reference, impl=impl_ref)
         kpool_decode_update_and_maybe_write_cache(**actual, impl=impl)
-        for name, standard in standards.items():
-            assert_accuracy(actual[name], reference[name], standard, path=name)
+        if inputs["buf"].dtype == torch.bfloat16:
+            assert_accuracy(actual["buf"], reference["buf"], BUF_STANDARD, path="buf")
+        else:
+            standard = (
+                FP8_CACHE_STANDARD
+                if inputs["buf"].dtype == torch.float8_e4m3fn
+                else INT8_CACHE_STANDARD
+            )
+            assert_accuracy(
+                dequantize_cache(actual["buf"], actual["scale_cache"]),
+                dequantize_cache(reference["buf"], reference["scale_cache"]),
+                standard,
+                path="buf.dequantized",
+            )
+            assert_accuracy(
+                actual["scale_cache"],
+                reference["scale_cache"],
+                SCALE_STANDARD,
+                path="scale_cache",
+            )
+        for name in ("tail_k", "tail_score"):
+            assert_accuracy(actual[name], reference[name], standards[name], path=name)
         # Independent invariant: untouched rows must match the original exactly.
         for name, rows in unchanged.items():
             assert_accuracy(
@@ -262,3 +330,25 @@ def test_decode_cache_write(case):
         warmup=warmup,
         active=active,
     )
+
+
+@pytest.mark.extra_checks
+def test_decode_fp8_rejects_non_128_head_dim():
+    from sgl_kernel_npu.operators.mem_cache import (
+        kpool_decode_update_and_maybe_write_cache,
+    )
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if get_hardware().generation != Generation.ARCH35:
+        pytest.skip("FP8 KPool cache coverage targets Ascend A5")
+
+    impl, _ = get_test_impls()
+    require_test_impl(kpool_decode_update_and_maybe_write_cache, impl)
+    inputs, _ = generate_test_data(
+        batch=1,
+        block_table_cols=64,
+        cache_dtype=torch.float8_e4m3fn,
+        head_dim=64,
+    )
+    with pytest.raises(AssertionError, match="FP8 decode requires head_dim=128"):
+        kpool_decode_update_and_maybe_write_cache(**inputs, impl=impl)

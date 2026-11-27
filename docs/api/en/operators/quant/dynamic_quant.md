@@ -22,6 +22,10 @@ def dynamic_quant(input, *, impl="auto", **kwargs): ...
 
 For symmetric INT8 quantization, computes $s=\max|x|/127$ per token and quantizes $x/s$ with the SDK rounding and range. An optional smooth scale is applied before finding the maximum.
 
+Per-token quantization of an input shaped `[..., H]` returns values of the
+same shape and FP32 scales shaped `[...]`. Multiply each quantized row by its
+scale to dequantize it, using `values.float() * scales.unsqueeze(-1)`.
+
 ## Parameters and return value
 
 Tensor arguments use the same NPU device unless the table specifies host metadata. The examples exercise one SDK-supported configuration.
