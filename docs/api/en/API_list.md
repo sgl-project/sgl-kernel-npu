@@ -209,9 +209,9 @@ installation steps; see
 | [qsa_topk](operators/indexer/qsa_topk.md) | `triton`, `torch_native` |
 | [expand_qsa_blocks](operators/indexer/expand_qsa_blocks.md) | `triton`, `torch_native` |
 | [qsa_sparse_attention](operators/attention/qsa_sparse_attention.md) | `triton`, `torch_native` |
-| [grouped_gemma_rmsnorm](operators/norm/grouped_gemma_rmsnorm.md) | `triton`, `torch_native` |
-| [hc_mix](operators/hyper_conn/hc_mix.md) | `triton`, `torch_native` |
-| [hc_combine](operators/hyper_conn/hc_combine.md) | `triton`, `torch_native` |
+| [grouped_gemma_rmsnorm](operators/norm/grouped_gemma_rmsnorm.md) | `ascendc` (ARCH22), `triton`, `torch_native` |
+| [hc_mix](operators/hyper_conn/hc_mix.md) | `ascendc` (ARCH22), `triton`, `torch_native` |
+| [hc_combine](operators/hyper_conn/hc_combine.md) | `ascendc` (ARCH22), `triton`, `torch_native` |
 | [situ](operators/activation/situ.md) | `triton`, `torch_native` |
 | [swiglu_quant](operators/activation/swiglu_quant.md) | `triton`, `torch_native` |
 | [swiglu_oai](operators/activation/swiglu_oai.md) | `triton`, `torch_native` |

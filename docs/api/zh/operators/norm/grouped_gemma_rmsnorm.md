@@ -2,51 +2,73 @@
 
 ## 硬件支持
 
-| impl | arch22 | arch35 |
-| --- | --- | --- |
-| `triton` / `auto` | 支持 | 支持 |
-| `torch_native` | 支持 | 支持 |
+由于 arch22 系列成员验证方式不同，此处分开列出。A3 指 Ascend910_93 系列，A2 指 Ascend910B 系列。
 
-## 签名
+| 实现 | arch22 A3 | arch22 A2 | arch35 |
+| --- | --- | --- | --- |
+| `triton`（`auto`） | 支持 | 未验证 | 支持 |
+| `ascendc` | 支持 | 未验证 | 不支持 |
+| `torch_native` | 支持 | 未验证 | 支持 |
 
-`auto` → `triton`.
+`auto` 在 `arch22` 和 `arch35` 上均默认选择 `triton`（固定形状 `x[R, 10240]`、
+`weight[10240]`、`group_size=2560`）。显式指定 `impl="ascendc"` 时调用 arch22
+CANN/ACLNN 算子 `hyper_conn_grouped_norm`（`SUPPORTED_ARCHS 2201`，覆盖
+`ascend910b` 与 `ascend910_93`）；在 arch35 上由注册表直接抛出
+`UnsupportedGenerationError`。A2 因无硬件 CI 覆盖标注为“未验证”。
+
+## 接口
+
+省略 `impl` 或传入 `"auto"` 时默认选择 `triton`，显式传入 `impl="ascendc"` 选择 CANN/ACLNN Ascend C 实现。
 
 ```python
+from typing import Optional
+import torch
 from sgl_kernel_npu.operators.norm import grouped_gemma_rmsnorm
 
-def grouped_gemma_rmsnorm(x, weight, group_size, eps, *, impl="auto"):
+def grouped_gemma_rmsnorm(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    group_size: Optional[int] = None,
+    eps: float = 1e-6,
+    out: Optional[torch.Tensor] = None,
+    *,
+    impl: str = "auto",
+) -> torch.Tensor:
     ...
 ```
 
-## 说明
+## 功能说明
 
-分组 Gemma RMSNorm：连续 BF16 x[R,10240]、weight[10240]，group_size=2560，eps 为有限正数。每组独立计算均方，乘以 FP32 的 (1+weight)，输出 BF16。Triton 实现复用已有归一化 kernel。
+沿最后一维按固定组宽 `group_size` 做独立 RMSNorm，并在 float32 下乘以 `1 + weight`，最终写回时舍入为 BF16：
 
-所有张量位于同一 NPU，输入不修改；零行返回空输出。
+```text
+inv    = rsqrt(mean(x_g^2) + eps)
+out[g] = bf16((x_g * inv) * (1 + weight[(g * group_size) % weight.numel()]))
+```
 
-每组计算 `x * rsqrt(mean(x*x) + eps) * (1 + weight)`，统计量和缩放为 FP32，最后舍入到 BF16。
+`triton`（`auto`）面向 Qwen3.8-Flash-Next 形状 `x[R, 10240]`、`weight[10240]`、`group_size=2560`。
+`ascendc` 支持通用组宽（8 的倍数，最大 4096）、共享或分 branch 循环权重、2-D/3-D 连续输入以及零拷贝预分配 `out`。
 
 ## 参数与返回值
 
-| 参数 | 类型 | 形状 / 类型 | 默认值 | 约束 |
+| 参数 | 类型 | 形状 / 数据类型 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
-| `x` | Tensor | [R,10240], BF16 | required | 连续 NPU 输入。 |
-| `weight` | Tensor | [10240], BF16 | required | x 同设备连续权重；在 FP32 中加 1。 |
-| `group_size` | int | — | required | 2560；四个独立分组。 |
-| `eps` | float | — | required | 有限正数。 |
-| `impl` | str | — | "auto" | 仅关键字参数：auto、triton、torch_native。 |
+| `x` | `torch.Tensor` | `[..., N]`，BF16 | 必填 | NPU 连续张量（`ndim >= 2`），`N` 需整除 `group_size`。 |
+| `weight` | `torch.Tensor` | `[W]`，BF16 | 必填 | 与 `x` 同设备的 1-D 连续张量，`W` 为 `group_size` 正整数倍且周期整除总组数。 |
+| `group_size` | `int` 或 `None` | — | `None` | `[8, 4096]` 内 8 的倍数（`None` 取 `x.shape[-1]`）；`triton` 固定为 `2560`。 |
+| `eps` | `float` | — | `1e-6` | 正有限 float32 稳定项。 |
+| `out` | `torch.Tensor` 或 `None` | `x.shape`，BF16 | `None` | 可选连续预分配输出，不可与 `x` 或 `weight` 别名或重叠。 |
+| `impl` | `str` | — | `"auto"` | 仅关键字：`auto`、`triton`、`ascendc`、`torch_native`。 |
 
-| 返回值 | 类型 | 形状 | 类型 | 设备 / 布局 |
+| 返回值 | 类型 | 形状 | 数据类型 | 说明 |
 | --- | --- | --- | --- | --- |
-| `output` | Tensor | x.shape | BF16 | 输入设备；新分配的连续张量。 |
+| `output` | `torch.Tensor` | `x.shape` | `torch.bfloat16` | 归一化结果；提供 `out` 时原位写入并返回 `out`。 |
 
-## triton
+## 后端实现
 
-默认实现。启动前检查输入元数据，支持 graph capture，以及原地更新输入后的 replay。
-
-## torch_native
-
-独立 CPU FP64 参考实现，结果返回输入设备。仅在图外使用，通过 `impl="torch_native"` 显式选择。
+- **`triton`（`auto`）**：arch22 与 arch35 默认后端，支持 NPUGraph 捕获与回放。
+- **`ascendc`**：显式 arch22 CANN/ACLNN AIV 后端（`torch.ops.npu.hyper_conn_grouped_norm`），支持通用组宽与零拷贝 `out`，支持 NPUGraph。
+- **`torch_native`**：独立 CPU FP64 精度参考实现。
 
 ## 示例
 
@@ -55,7 +77,8 @@ import torch
 import torch_npu
 from sgl_kernel_npu.operators.norm import grouped_gemma_rmsnorm
 
-x = torch.randn(1, 10240, device="npu", dtype=torch.bfloat16)
-weight = torch.zeros(10240, device="npu", dtype=x.dtype)
-y = grouped_gemma_rmsnorm(x, weight, 2560, 1e-6, impl="auto")
+x = torch.randn(32, 10240, device="npu", dtype=torch.bfloat16)
+weight = torch.zeros(10240, device="npu", dtype=torch.bfloat16)
+y_triton = grouped_gemma_rmsnorm(x, weight, 2560, 1e-6)
+y_ascendc = grouped_gemma_rmsnorm(x, weight, 2560, 1e-6, impl="ascendc")
 ```

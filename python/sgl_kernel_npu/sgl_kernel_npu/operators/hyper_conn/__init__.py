@@ -8,12 +8,12 @@ from .mhc_pre_dpskv4 import mhc_pre_dpskv4
 from .mhc_pre_sinkhorn import mhc_pre_sinkhorn
 
 __all__ = [
-    "mhc_pre_dpskv4",
-    "mhc_post_dpskv4",
     "attn_res_mix_fused",
+    "hc_combine",
+    "hc_mix",
     "hc_post",
     "mhc_post",
+    "mhc_post_dpskv4",
+    "mhc_pre_dpskv4",
     "mhc_pre_sinkhorn",
-    "hc_mix",
-    "hc_combine",
 ]
