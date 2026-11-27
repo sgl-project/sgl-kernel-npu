@@ -138,8 +138,10 @@ void fused_lightning_indexer_manage(const at::Tensor &index_weights, const at::T
     at::Tensor workspace;
     if (bytes) workspace = at::empty({static_cast<int64_t>(bytes)}, query.options().dtype(at::kByte));
     auto aclStream = stream.stream(false);
-    auto launch = [tensors, d, workspace, bytes, executor, aclStream]() -> int {
-        auto result = exec(bytes ? workspace.data_ptr() : nullptr, bytes, executor, aclStream);
+    // Keep the workspace alive through submission and reuse it in stream order.
+    void *workspacePtr = bytes ? workspace.data_ptr() : nullptr;
+    auto launch = [tensors, d, workspacePtr, bytes, executor, aclStream]() -> int {
+        auto result = exec(workspacePtr, bytes, executor, aclStream);
         TORCH_CHECK(result == ACL_SUCCESS, "LIM execution failed: ", aclGetRecentErrMsg());
         return result;
     };
