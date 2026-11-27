@@ -33,9 +33,6 @@ constexpr uint32_t TOKEN_EXTRA_SPACE = 512;
 constexpr uint32_t INT32_COUNT_PER_BLOCK = 8;
 constexpr int64_t REDUCE_SUM_WORK_SIZE = 4096;  // 最大支持64k-fp32累加
 constexpr int32_t ODD_EVEN_BASE = 2;
-// TODO(debug): 1C1V 角色/同步验证插桩总开关（A5 首跑已验证通过）。
-// 需要复现调试时改为 true；确认不再需要后连同全部 debugRank 分支整体删除。
-constexpr bool GMM1_ROLE_DEBUG = false;
 constexpr int32_t BUFFER_NUM = 2;
 constexpr int32_t GATHER_SECOND_NUM = 2;
 constexpr uint32_t TOKEN_READY_FLAG_INDEX = 0;
@@ -240,7 +237,11 @@ public:
 
     // Methods
     CATLASS_DEVICE
+#if defined(DEEPEP_FUSED_MOE_1C1V)
+    explicit DispatchMxGmm1Swiglu(uint32_t activeAivNum) : aivNum(activeAivNum)
+#else
     DispatchMxGmm1Swiglu()
+#endif
     {
         aiCoreGroupNum = AscendC::GetBlockNum();
         subBlockNum = AscendC::GetSubBlockNum();
@@ -248,17 +249,20 @@ public:
         aicNum = aiCoreGroupNum;
         if ASCEND_IS_AIC {
             aicIdx = AscendC::GetBlockIdx();
-            // AIC 侧 GetSubBlockNum() 恒返回 1（AIC block 无 sub 划分），
-            // AIV 物理核数须按平台形态推导，保证与 AIV 侧计算一致，否则状态槽错位死锁
+            // AIC and AIV must use the same AIV count to address the same status slots.
+#if !defined(DEEPEP_FUSED_MOE_1C1V)
 #if (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510)
-            aivNum = aiCoreGroupNum * ODD_EVEN_BASE;  // 950(3510): 1C2V
+            aivNum = aiCoreGroupNum * ODD_EVEN_BASE;
 #else
-            aivNum = aiCoreGroupNum;  // 1C1V 架构
+            aivNum = aiCoreGroupNum;
+#endif
 #endif
         }
         if ASCEND_IS_AIV {
             aivIdx = AscendC::GetBlockIdx();
-            aivNum = aiCoreGroupNum * subBlockNum;  // AIV 侧真实 API：A5(1C2V)=2 / A6(1C1V)=1 自适应
+#if !defined(DEEPEP_FUSED_MOE_1C1V)
+            aivNum = aiCoreGroupNum * subBlockNum;
+#endif
         }
 
         winContext_ = (__gm__ Mc2Kernel::HcclOpParam *)AscendC::GetHcclContext<AscendC::HCCL_GROUP_ID_0>();
@@ -273,12 +277,9 @@ public:
             return;
         }
 
-        // 块级角色专属：角色核数 = 各自角色块数 × 每块 AIV 数，与 roleCoreIdx 映射精确匹配。
-        // 不做 aivNum/2 整除假设：奇数 grpNum 时偶块比奇块多 1，整除会导致 send 分片越界、
-        // recv 丢工作、shareQuant ready flag 永远凑不齐（死锁）。
-        // 每块 AIV 数 = aivNum/aiCoreGroupNum：AIV 侧等于 subBlockNum，AIC 侧随 aivNum 修正自动为 2，两侧一致。
-        uint32_t evenBlockNum = (aiCoreGroupNum + 1) / 2;  // 偶数块 = send
-        uint32_t oddBlockNum = aiCoreGroupNum / 2;         // 奇数块 = recv
+        // With an odd block count, send has one more block than recv.
+        uint32_t evenBlockNum = (aiCoreGroupNum + 1) / 2;
+        uint32_t oddBlockNum = aiCoreGroupNum / 2;
         uint32_t aivPerBlock = aivNum / aiCoreGroupNum;
         sendCoreNum = evenBlockNum * aivPerBlock;
         recvCoreNum = oddBlockNum * aivPerBlock;
@@ -293,7 +294,6 @@ public:
             vToCFlag = (cvDataState == 0) ? V_TO_C_FLAG_1 : V_TO_C_FLAG_2;
         }
         if ASCEND_IS_AIV {
-            // 块级角色专属：偶数块全员 send、奇数块全员 recv，逻辑索引跨块连续编号
             uint32_t roleCoreIdx = (aiCoreGroupIdx / 2) * subBlockNum + AscendC::GetSubBlockIdx();
             isSendCore = ((aiCoreGroupIdx % ODD_EVEN_BASE) == 0);
             sendCoreIdx = roleCoreIdx;
@@ -401,11 +401,6 @@ public:
     CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params)
     {
         AscendC::ICachePreLoad(1);
-        debugRank = params.epRankId;
-        if (GMM1_ROLE_DEBUG && debugRank == 0) {
-            // TODO(debug): AIC 侧 subBlockNum/aivNum 与构造自旋结果，验证后删除
-            AscendC::printf("I%u sub=%u aivN=%u cv=%d\n", aicIdx, subBlockNum, aivNum, cvDataState);
-        }
         uint32_t actualRecvCoreNumPerGroup = recvCoreNum;
         bool sparseFastPath = params.enableRoutedSparseFastPath;
 
@@ -460,13 +455,7 @@ public:
                 shareQuantTokenStateTensor.SetGlobalBuffer(
                     (__gm__ int32_t *)(statusDataSpaceGm + SHARE_QUANT_SOFT_SYNC_OFFSET));
                 uint32_t expected = waitFlagCount * vToCFlag;
-                if (GMM1_ROLE_DEBUG && debugRank == 0) {
-                    AscendC::printf("I%u S1+ exp=%d\n", aicIdx, static_cast<int32_t>(expected));
-                }
                 WaitGroupTokenNumReady(shareQuantTokenStateTensor, expected);
-                if (GMM1_ROLE_DEBUG && debugRank == 0) {
-                    AscendC::printf("I%u S1-\n", aicIdx);
-                }
             }
             for (uint32_t loopIdx = startLoopIdx; loopIdx < coreLoops; loopIdx += aicNum) {
                 GemmCoord blockCoord = matmulBlockScheduler.GetBlockCoord(loopIdx);
@@ -505,13 +494,7 @@ public:
             // Pair with the AIV-side barrier after RecvCoreFunc publishes
             // routed metadata and active-group information.
             AscendC::PipeBarrier<PIPE_ALL>();
-            if (GMM1_ROLE_DEBUG && debugRank == 0) {
-                AscendC::printf("I%u S2+\n", aicIdx);
-            }
             AscendC::SyncAll<false>();
-            if (GMM1_ROLE_DEBUG && debugRank == 0) {
-                AscendC::printf("I%u S2-\n", aicIdx);
-            }
             AscendC::PipeBarrier<PIPE_ALL>();
         }
         {
@@ -685,9 +668,6 @@ public:
         AscendC::PipeBarrier<PIPE_ALL>();
         if constexpr (!(EXEC_FLAG & EXEC_FLAG_DEEP_FUSE)) {
             AscendC::SyncAll<false>();
-        }
-        if (GMM1_ROLE_DEBUG && debugRank == 0) {
-            AscendC::printf("I%u MM\n", aicIdx);
         }
     }
 
@@ -1923,77 +1903,31 @@ public:
     {
         AscendC::SetCtrlSpr<60, 60>(0);
         AivInitParams(params);
-        // TODO(debug): 1C1V 角色/索引映射验证插桩，仅 rank0 打印，验证完成后删除
-        debugRank = params.epRankId;
-        if (GMM1_ROLE_DEBUG && debugRank == 0) {
-            AscendC::printf("blkNum=%u blkIdx=%u subNum=%u subIdx=%u grpIdx=%u aivNum=%u recvNum=%u\n",
-                            aiCoreGroupNum, AscendC::GetBlockIdx(), subBlockNum, AscendC::GetSubBlockIdx(),
-                            aiCoreGroupIdx, aivNum, recvCoreNum);
-            AscendC::printf("isSend=%u isRecv=%u roleIdx=%u\n", static_cast<uint32_t>(isSendCore),
-                            static_cast<uint32_t>(isRecvCore), recvCoreIdx);
-            AscendC::printf("V%u dS=%d cv=%d\n", aivIdx, dataState, cvDataState);
-        }
         if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
             AivInitState();
             if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
                 if (isShareQuantCore) {
-                    if (GMM1_ROLE_DEBUG && debugRank == 0) {
-                        AscendC::printf("V%u SQ+\n", aivIdx);
-                    }
                     shareQuantCoreFunc((GM_ADDR)params.gmX, (GM_ADDR)params.gmShareSmoothScales,
                                        (GM_ADDR)params.ptrShareA, (GM_ADDR)params.ptrShareMxScaleA);
-                    if (GMM1_ROLE_DEBUG && debugRank == 0) {
-                        AscendC::printf("V%u SQ-\n", aivIdx);
-                    }
                 }
             }
             if (isSendCore) {
-                if (GMM1_ROLE_DEBUG && debugRank == 0) {
-                    AscendC::printf("V%u SD+\n", aivIdx);
-                }
                 SendCoreFunc((GM_ADDR)params.gmX, (GM_ADDR)params.gmExpertIds, (GM_ADDR)params.gmMoeSmoothScales,
                              (GM_ADDR)params.gmExpandIdx, (GM_ADDR)params.gmXActiveMask,
                              params.enableRoutedSparseFastPath, params.profile);
                 CleanRoutedX2ReadyState();
-                if (GMM1_ROLE_DEBUG && debugRank == 0) {
-                    AscendC::printf("V%u SD-\n", aivIdx);
-                }
             }
             if (isRecvCore) {
-                if (GMM1_ROLE_DEBUG && debugRank == 0) {
-                    AscendC::printf("V%u RV+\n", aivIdx);
-                }
                 RecvCoreFunc((GM_ADDR)params.ptrA, (GM_ADDR)params.ptrMxScaleA, (GM_ADDR)params.gmEpSendCount,
                              (GM_ADDR)params.ptrGroupList, (GM_ADDR)params.gmExpertTokenNums, params.profile);
-                if (GMM1_ROLE_DEBUG && debugRank == 0) {
-                    AscendC::printf("V%u RV-\n", aivIdx);
-                }
             }
             if (!params.enableRoutedSparseFastPath) {
-                if (GMM1_ROLE_DEBUG && debugRank == 0) {
-                    AscendC::printf("V%u Y1+\n", aivIdx);
-                }
                 AivOnlySync();
-                if (GMM1_ROLE_DEBUG && debugRank == 0) {
-                    AscendC::printf("V%u Y1-\n", aivIdx);
-                }
                 FinalizeGroupMetaAfterRecv(params.ptrGroupList, params.gmEpSendCount, params.gmExpertTokenNums);
-                if (GMM1_ROLE_DEBUG && debugRank == 0) {
-                    AscendC::printf("V%u Y2+\n", aivIdx);
-                }
                 AivOnlySync();
-                if (GMM1_ROLE_DEBUG && debugRank == 0) {
-                    AscendC::printf("V%u Y2-\n", aivIdx);
-                }
             } else {
                 AscendC::PipeBarrier<PIPE_MTE3>();
-                if (GMM1_ROLE_DEBUG && debugRank == 0) {
-                    AscendC::printf("V%u S2+\n", aivIdx);
-                }
                 AscendC::SyncAll<false>();
-                if (GMM1_ROLE_DEBUG && debugRank == 0) {
-                    AscendC::printf("V%u S2-\n", aivIdx);
-                }
                 AscendC::PipeBarrier<PIPE_ALL>();
             }
         }
@@ -2106,9 +2040,6 @@ public:
                             groupTokenNumStateTensor.SetGlobalBuffer(
                                 (__gm__ int32_t *)(statusDataSpaceGm + GROUP_TOKEN_NUM_OFFSET) +
                                 groupIdx * GROUP_INFO_SIZE);
-                            if (GMM1_ROLE_DEBUG && debugRank == 0) {
-                                AscendC::printf("V%u W%u\n", aivIdx, target);
-                            }
                             CheckSyncFlag(reinterpret_cast<__gm__ int32_t *>(statusDataSpaceGm + SOFT_SYNC_OFFSET),
                                           static_cast<int32_t>(compCoreIdx), target);
                             target += 1;
@@ -2222,18 +2153,12 @@ public:
             }
         }
         icache_preload(8);
-        if (GMM1_ROLE_DEBUG && debugRank == 0) {
-            AscendC::printf("V%u S3+\n", aivIdx);
-        }
         if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
             AscendC::SyncAll<true>();
         } else {
             AscendC::SyncAll<false>();
         }
         AscendC::PipeBarrier<PIPE_ALL>();
-        if (GMM1_ROLE_DEBUG && debugRank == 0) {
-            AscendC::printf("V%u S3-\n", aivIdx);
-        }
 
         UpdateAndCleanInfo(params.ptrGroupList, params.gmEpSendCount, params.gmExpertTokenNums);
         AscendC::PipeBarrier<PIPE_ALL>();
@@ -2336,7 +2261,6 @@ private:
     uint32_t aicIdx{0};
     uint32_t sendCoreIdx{0};
     uint32_t recvCoreIdx{0};
-    uint32_t debugRank{0};  // TODO(debug): rank0-only printf filter, remove after verification
     uint32_t compCoreIdx{0};
     uint32_t shareQuantCoreIdx{0};
     uint32_t aivStateGlobalCoreIdx{0};

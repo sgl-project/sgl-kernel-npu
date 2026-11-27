@@ -15,6 +15,7 @@ CMAKE_SOC_VERSION="Ascend910_9382"
 SGL_KERNEL_NPU_BUILD_TARGET="Ascend910"
 DEEPEP_VARIANT="deepep"
 DEEPEP_IS_A5_BUILD="OFF"
+DEEPEP_TEST_1C1V="OFF"
 
 BUILD_ATTENTIONS_MODULE="OFF"
 BUILD_DEEPEP_MODULE="OFF"
@@ -76,6 +77,7 @@ separately.
 
 Options:
     -d             Enable debug logging.
+    --test-1c1v    Build an Ascend950 DeepEP wheel that launches FusedDeepMoE in 1C1V mode.
     -h             Show this help.
 
 Examples:
@@ -94,8 +96,14 @@ function parse_arguments()
     local opt
     OPTIND=1
 
-    while getopts ":a:hd" opt; do
+    while getopts ":a:hd-:" opt; do
         case "$opt" in
+            - )
+                case "$OPTARG" in
+                    test-1c1v ) DEEPEP_TEST_1C1V="ON" ;;
+                    * ) die "Unknown flag: --$OPTARG. Run './build.sh -h' for more information." ;;
+                esac
+                ;;
             a )
                 BUILD_TARGET="$OPTARG"
                 ;;
@@ -342,11 +350,18 @@ function configure_soc_version()
         unset ASCEND_COMPUTE_UNIT
     fi
 
+    if [[ "$DEEPEP_TEST_1C1V" == "ON" && ( "$BUILD_TARGET" != "deepep" || "$SOC_VERSION" != "Ascend950" ) ]]; then
+        die "--test-1c1v requires -a deepep with the Ascend950 target."
+    fi
+
     echo "Build target: $BUILD_TARGET"
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
         echo "DeepEP variant: $DEEPEP_VARIANT"
         echo "DeepEP SOC_VERSION: $SOC_VERSION"
         echo "DeepEP ASCEND_COMPUTE_UNIT: ${ASCEND_COMPUTE_UNIT:-<unset>}"
+        if [[ "$DEEPEP_TEST_1C1V" == "ON" ]]; then
+            echo "FusedDeepMoE test launch: 1C1V"
+        fi
     fi
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" || "$BUILD_KERNELS_MODULE" == "ON" ]]; then
         echo "CMake SOC_VERSION: $CMAKE_SOC_VERSION"
@@ -523,7 +538,7 @@ function build_deepep_kernels()
     (
         cd "$kernel_dir"
         chmod +x build.sh
-        ./build.sh
+        DEEPEP_TEST_1C1V="$DEEPEP_TEST_1C1V" ./build.sh
 
         custom_opp_file="$(find ./build_out \
             -maxdepth 1 \
@@ -555,12 +570,17 @@ function build_attentions_kernels()
 function make_deepep_package()
 {
     (
+        local wheel_dir="$OUTPUT_DIR"
+        if [[ "$DEEPEP_TEST_1C1V" == "ON" ]]; then
+            wheel_dir="$OUTPUT_DIR/a5-1c1v"
+            mkdir -p "$wheel_dir"
+        fi
         cd "$PROJECT_ROOT/python/deep_ep"
         cp -v "$OUTPUT_DIR"/lib/* "$PROJECT_ROOT/python/deep_ep/deep_ep/"
         rm -rf build dist
         python3 setup.py clean --all
         python3 setup.py bdist_wheel
-        mv -v dist/deep_ep*.whl "$OUTPUT_DIR/"
+        mv -v dist/deep_ep*.whl "$wheel_dir/"
         rm -rf dist
     )
 }

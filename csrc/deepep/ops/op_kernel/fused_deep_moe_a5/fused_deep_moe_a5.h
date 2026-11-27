@@ -190,7 +190,11 @@ CATLASS_DEVICE void DispatchMxGmm1SwigluQuantFunc(
                                          epilogueParams,
                                          profile};
 
+#if defined(DEEPEP_FUSED_MOE_1C1V)
+    MatmulKernel kernel(fusedDeepMoeInfo.aivNum);
+#else
     MatmulKernel kernel;
+#endif
     kernel(params);
 }
 
@@ -419,6 +423,17 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Process()
 {
     using ElementA = WeightType;
     using ElementB = WeightType;
+#if defined(DEEPEP_FUSED_MOE_REPORT_LAUNCH)
+    if ASCEND_IS_AIV {
+        if (tilingData_->fusedDeepMoeInfo.epRankId == 0 && AscendC::GetBlockIdx() == 0) {
+            AscendC::printf("FusedDeepMoE launch blocks=%u subNum=%u subIdx=%u activeAivs=%u\n",
+                            static_cast<uint32_t>(AscendC::GetBlockNum()),
+                            static_cast<uint32_t>(AscendC::GetSubBlockNum()),
+                            static_cast<uint32_t>(AscendC::GetSubBlockIdx()),
+                            tilingData_->fusedDeepMoeInfo.aivNum);
+        }
+    }
+#endif
     GemmCoord gmm1ProblemShape{maxTokenNum_, gmm1OutputDim_, tokenHiddenSize_};
     GemmCoord shareGmm1ProblemShape{bs_, shareGmm1OutputDim_, tokenHiddenSize_};
 

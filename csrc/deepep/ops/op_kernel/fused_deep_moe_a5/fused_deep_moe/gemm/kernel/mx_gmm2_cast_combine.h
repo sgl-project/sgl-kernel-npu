@@ -17,9 +17,6 @@
 
 using namespace Cam;
 
-// The V2 A5 build always exercises the serial GEMM2 path for 1C1V simulation.
-#define FUSED_MOE_SERIAL_MODE() (true)
-
 namespace Catlass::Gemm::Kernel {
 namespace GMM2 {
 constexpr uint64_t SOFT_SYNC_OFFSET = 982 * 1024;
@@ -509,12 +506,13 @@ public:
         gmX2ReadyState = params.gmX2ReadyState;
         auto *combiner = (MoeDistributeCombineImpl::CamMoeDistributeCombine<TemplateMC2TypeFunc> *)params.combiner;
 
-        uint32_t coreIdx = AscendC::GetBlockIdx() / AscendC::GetSubBlockNum();
+        const uint32_t subBlockNum = AscendC::GetSubBlockNum();
+        uint32_t coreIdx = AscendC::GetBlockIdx() / subBlockNum;
         uint32_t coreNum = AscendC::GetBlockNum();
 
-        const bool serialDeepFuse = (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) && FUSED_MOE_SERIAL_MODE();
+        const bool serialCombine = subBlockNum == 1;
+        const bool serialDeepFuse = (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) && serialCombine;
         const uint32_t subBlockIdx = AscendC::GetSubBlockIdx();
-        const uint32_t epRank = combiner->GetCalcInfo().epRankId_;
         uint32_t target = 1;
         if (!serialDeepFuse || subBlockIdx == 0) {
             AscendC::GlobalTensor<ElementC> gmC;
@@ -623,11 +621,8 @@ public:
             AscendC::PipeBarrier<PIPE_ALL>();
             if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
                 if (AscendC::GetSubBlockIdx() == 0) {
-                    if (AscendC::GetBlockIdx() < 2) {
-                        FUSED_MOE_DBG("sb%u\n", AscendC::GetBlockIdx());
-                    }
-                    if (!FUSED_MOE_SERIAL_MODE()) {
-                        // 1C2V：通知兄弟 sub1 开始 combine；串行模式（1C1V/A5 模拟）下无消费者，跳过避免事件残留
+                    if (!serialCombine) {
+                        // Only the parallel path exchanges combine events between subblocks.
                         AscendC::CrossCoreSetFlag<0x0, PIPE_MTE3>(MoeDistributeCombineImpl::SEND_SYNC_EVENT_ID);
                         if constexpr ((EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) == 0) {
                             AscendC::CrossCoreSetFlag<0x0, PIPE_MTE3>(MoeDistributeCombineImpl::RECV_SYNC_EVENT_ID);
@@ -667,11 +662,7 @@ public:
                         target += 1;
                         blockEpilogue(tensorBlockC, tensorBlockD, actualBlockShape, UINT32_MAX, 0, 0);
                     }
-                    if (AscendC::GetBlockIdx() < 2) {
-                        FUSED_MOE_DBG("sd%u\n", AscendC::GetBlockIdx());
-                    }
-                    if (!FUSED_MOE_SERIAL_MODE()) {
-                        // 1C2V：等 sub1 combine 完成；串行模式下 combine 在本段之后才执行，此处必跳过否则死等
+                    if (!serialCombine) {
                         AscendC::CrossCoreWaitFlag(MoeDistributeCombineImpl::SEND_SYNC_EVENT_ID);
                         AscendC::CrossCoreWaitFlag(MoeDistributeCombineImpl::RECV_SYNC_EVENT_ID);
                     }
@@ -679,18 +670,10 @@ public:
             }
         }
 
-        if (AscendC::GetBlockIdx() < 2) {
-            // 派发角色打印：d=dispatch，无此行说明卡在更早的 GEMM/epilogue 阶段
-            FUSED_MOE_DBG("d%u\n", AscendC::GetBlockIdx());
-        }
         if (serialDeepFuse) {
-            FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u routed_done enter\n",
-                          epRank, AscendC::GetBlockIdx(), subBlockIdx);
-            // All AIVs on this rank participate, including the idle sibling.
+            // All AIVs on this rank participate.
             // Routed EP window writes have drained on each active worker.
             Arch::CrossCoreBarrier<0x0, PIPE_MTE3>();
-            FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u routed_done pass\n",
-                          epRank, AscendC::GetBlockIdx(), subBlockIdx);
         }
 
         icache_preload(4);
@@ -707,11 +690,7 @@ public:
 
             // Each sub0 polls only its assigned source ranks. The reduction
             // can read experts from any source rank.
-            FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u remote_ready enter\n",
-                          epRank, AscendC::GetBlockIdx(), subBlockIdx);
             Arch::CrossCoreBarrier<0x0, PIPE_MTE3>();
-            FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u remote_ready pass\n",
-                          epRank, AscendC::GetBlockIdx(), subBlockIdx);
 
             if (subBlockIdx == 0) {
                 combiner->LocalWindowCopy();
@@ -725,28 +704,18 @@ public:
                 }
             }
         } else if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
-            if (FUSED_MOE_SERIAL_MODE()) {
-                // 1C1V（或 A5 模拟串行）：sub0 先写完共享专家输出，再串行跑 combine；sub1 空转
-                if (AscendC::GetSubBlockIdx() == 0) {
-                    resource.pipe.Init();
-                    combiner->TPipeSet(&resource.pipe);
-                    combiner->ProcessCombineSerial();
-                    combiner->TPipeSet(nullptr);
-                    resource.pipe.Destroy();
-                    if (AscendC::GetBlockIdx() < 2) {
-                        FUSED_MOE_DBG("S%u\n", AscendC::GetBlockIdx());
-                    }
-                }
-            } else if (AscendC::GetSubBlockIdx() == 1) {
-                // 1C2V: sub1 承担 combine（sub0 并行写共享专家输出）
+            if (serialCombine) {
+                resource.pipe.Init();
+                combiner->TPipeSet(&resource.pipe);
+                combiner->ProcessCombineSerial();
+                combiner->TPipeSet(nullptr);
+                resource.pipe.Destroy();
+            } else if (subBlockIdx == 1) {
                 resource.pipe.Init();
                 combiner->TPipeSet(&resource.pipe);
                 combiner->ProcessCombine();
                 combiner->TPipeSet(nullptr);
                 resource.pipe.Destroy();
-                if (AscendC::GetBlockIdx() < 2) {
-                    FUSED_MOE_DBG("s%u\n", AscendC::GetBlockIdx());
-                }
             }
         } else if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
             if (subBlockIdx == 0) {
@@ -787,22 +756,11 @@ public:
         }
         if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
             if (AscendC::GetSubBlockIdx() == 0) {
-                if (AscendC::GetBlockIdx() < 4) {
-                    // 尾段卡死定位：有 enter 无 PASS = SOFT_SYNC 计数未到 target（AIC 侧没跑完/没递增）
-                    FUSED_MOE_DBG("k+%u\n", coreIdx);
-                }
                 CheckSyncFlag(reinterpret_cast<__gm__ int32_t *>(syncGmAddr + GMM2::SOFT_SYNC_OFFSET),
                               static_cast<int32_t>(coreIdx), target);
-                if (AscendC::GetBlockIdx() < 4) {
-                    FUSED_MOE_DBG("k%u\n", coreIdx);
-                }
             }
             AscendC::PipeBarrier<PIPE_ALL>();
-            FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u tail enter\n",
-                          epRank, AscendC::GetBlockIdx(), subBlockIdx);
             AscendC::SyncAll<true>();
-            FUSED_MOE_DBG("gemm2 rank=%u block=%u sub=%u tail pass\n",
-                          epRank, AscendC::GetBlockIdx(), subBlockIdx);
             AscendC::PipeBarrier<PIPE_ALL>();
             // Each sub0 has observed its paired AIC's final SOFT_SYNC sentinel.
             // The AIV rendezvous makes it safe to clear X2 ready across the rank.
@@ -835,12 +793,6 @@ public:
                                            params.profile->Now());
                 }
             }
-            if (AscendC::GetBlockIdx() < 4) {
-                FUSED_MOE_DBG("z%u\n", AscendC::GetBlockIdx());
-            }
-        }
-        if (AscendC::GetBlockIdx() < 4) {
-            FUSED_MOE_DBG("E%u\n", AscendC::GetBlockIdx());
         }
     }
 

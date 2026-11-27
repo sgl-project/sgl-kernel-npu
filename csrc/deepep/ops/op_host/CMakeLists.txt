@@ -20,6 +20,9 @@ if("${ASCEND_COMPUTE_UNIT}" MATCHES "^ascend950")
         ${a5_fused_deep_moe_host_dir}/fused_deep_moe_tiling.cpp)
     list(APPEND op_codegen_options -D__DAV_C310__)
 endif()
+if(FUSED_DEEP_MOE_LAUNCH_DEFINITION)
+    list(APPEND op_codegen_options -D${FUSED_DEEP_MOE_LAUNCH_DEFINITION})
+endif()
 
 #1、使用npu_op_code_gen生成aclnn单算子调用代码、入图所需的原型定义代码等。
 npu_op_code_gen(
@@ -71,7 +74,7 @@ target_compile_options(cust_op_proto PRIVATE                                   #
      -fvisibility=hidden
 )
 if("${ASCEND_COMPUTE_UNIT}" MATCHES "^ascend950")
-    target_compile_definitions(cust_op_proto PRIVATE __DAV_C310__)
+    target_compile_definitions(cust_op_proto PRIVATE __DAV_C310__ ${FUSED_DEEP_MOE_LAUNCH_DEFINITION})
 endif()
 
 #4、使用npu_op_library编译Tiling相关库。
@@ -86,7 +89,7 @@ target_compile_options(cust_optiling PRIVATE                                   #
      -fvisibility=hidden
 )
 if("${ASCEND_COMPUTE_UNIT}" MATCHES "^ascend950")
-    target_compile_definitions(cust_optiling PRIVATE __DAV_C310__)
+    target_compile_definitions(cust_optiling PRIVATE __DAV_C310__ ${FUSED_DEEP_MOE_LAUNCH_DEFINITION})
 endif()
 
 #5、使用npu_op_package_add添加上述Host侧库到对应package中。

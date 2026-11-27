@@ -110,6 +110,6 @@ cmake_version=$(cmake --version | grep "cmake version" | awk '{print $3}')
 target=package
 if [ "$1"x != ""x ]; then target=$1; fi
 
-cmake -S . -B "$BUILD_DIR" --preset=default
-cmake --build "$BUILD_DIR" --target binary -j$(nproc)
+cmake -S . -B "$BUILD_DIR" --preset=default -DDEEPEP_TEST_1C1V="${DEEPEP_TEST_1C1V:-OFF}" || exit $?
+cmake --build "$BUILD_DIR" --target binary -j$(nproc) || exit $?
 cmake --build "$BUILD_DIR" --target $target -j$(nproc)
