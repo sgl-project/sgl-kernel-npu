@@ -5,7 +5,9 @@
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `triton` | Supported | Not supported |
-| `torch_native` | Supported | Supported |
+| `torch_native` | Supported | Not supported |
+
+The operator, including the default `auto` entry, is registered only on Ascend A3 (arch22).
 
 ## Signature
 
@@ -33,7 +35,7 @@ $$
 
 The normalized value is converted back to the input dtype before the weight multiply, which differs from interfaces such as `rmsnorm_bias` that multiply in FP32. The operator originated in Qwen-Image 2.1's Q/K normalization.
 
-The Triton backend reduces rows with `tl.sum`, which matches aten `mean`'s reduction tree on arch22 and therefore reproduces it bit for bit. On arch35 the two diverge: with shape `(1, 4096, 32, 128)` BF16, 23 of 16,777,216 outputs differ from the eager chain by one BF16 ulp (greatest difference `0.0078125` at index `(0, 175, 2, 75)`). The difference lands on a rounding boundary of the FP32 row statistics rather than in the computed value itself, but it breaks the bit-exact contract, so the backend is not supported there.
+The Triton backend reduces rows with `tl.sum`, which matches the reduction order of aten `mean` on arch22. On arch35, CI found 23 differing elements for a BF16 input of shape `(1, 4096, 32, 128)`, with a maximum absolute difference of `0.0078125`, failing the bit-exact comparison.
 
 ## Parameters and return value
 

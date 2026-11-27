@@ -1,13 +1,22 @@
 """Public RMSNorm operator with the cast-before-weight rounding."""
 
+from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _triton_fn = None
 _torch_native_fn = None
 
 
-@register_impl("diffusion.rmsnorm_cast_before_weight", "auto")
-@register_impl("diffusion.rmsnorm_cast_before_weight", "triton")
+@register_impl(
+    "diffusion.rmsnorm_cast_before_weight",
+    "auto",
+    supported_generations={Generation.ARCH22},
+)
+@register_impl(
+    "diffusion.rmsnorm_cast_before_weight",
+    "triton",
+    supported_generations={Generation.ARCH22},
+)
 def _triton_impl(x, weight, eps):
     global _triton_fn
     if _triton_fn is None:
@@ -19,7 +28,11 @@ def _triton_impl(x, weight, eps):
     return _triton_fn(x, weight, eps)
 
 
-@register_impl("diffusion.rmsnorm_cast_before_weight", "torch_native")
+@register_impl(
+    "diffusion.rmsnorm_cast_before_weight",
+    "torch_native",
+    supported_generations={Generation.ARCH22},
+)
 def _torch_native_impl(x, weight, eps):
     global _torch_native_fn
     if _torch_native_fn is None:
@@ -37,8 +50,8 @@ def rmsnorm_cast_before_weight(x, weight, eps, *, impl="auto"):
 
     Reproduces ``RMSNorm(cast_x_before_out_mul=True)``: the normalized FP32
     value is rounded to the input dtype before multiplying the weight, and the
-    product is rounded once more on store. The reduction is ``tl.sum``, which
-    matches aten's row reduction on the validated NPU architecture.
+    product is rounded once more on store. The operator is registered for
+    arch22 (Ascend A3).
 
     Args:
         x (torch.Tensor): Input of shape [..., D], BF16 or FP16, contiguous, on
