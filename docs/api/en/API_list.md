@@ -20,6 +20,7 @@
 | [dtype_cast](operators/data_move/dtype_cast.md) | `ops-math`, `torch_native` |
 | [format_cast](operators/data_move/format_cast.md) | `ops-math`, `torch_native` |
 | [prefetch](operators/data_move/prefetch.md) | `runtime` |
+| [fused_lightning_indexer_manage](operators/indexer/fused_lightning_indexer_manage.md) | `ascendc` (ARCH22) |
 | [lightning_indexer](operators/indexer/lightning_indexer.md) | `ops-transformer`, `torch_native` |
 | [dual_level_quant_matmul](operators/matmul/dual_level_quant_matmul.md) | `ops-nn`, `torch_native` |
 | [quant_matmul](operators/matmul/quant_matmul.md) | `ops-nn`, `torch_native` |
