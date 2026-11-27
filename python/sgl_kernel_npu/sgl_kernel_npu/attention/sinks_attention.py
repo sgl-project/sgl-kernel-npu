@@ -18,7 +18,8 @@ def attention_sinks_kernel(
     q_head_num: tl.constexpr,
     k_head_num: tl.constexpr,
     block_group_size: tl.constexpr,
-    D: tl.constexpr,
+    D_QK: tl.constexpr,
+    D_V: tl.constexpr,
     PAGE_SIZE: tl.constexpr,
     MAX_BLOCKS: tl.constexpr,
 ):
@@ -37,16 +38,19 @@ def attention_sinks_kernel(
 
     cur_page_start = i_s * MAX_BLOCKS
     offset_page = tl.arange(0, PAGE_SIZE)
-    offset_d = tl.arange(0, D)
+    offset_d_qk = tl.arange(0, D_QK)
+    offset_d_v = tl.arange(0, D_V)
     Br: tl.constexpr = block_group_size
 
     sink = tl.load(sinks + i_gh * block_group_size + tl.arange(0, Br))
     history_max = tl.zeros([Br], dtype=tl.float32) + sink
     l = tl.zeros([Br], dtype=tl.float32)
-    acc = tl.zeros([Br, D], dtype=tl.float32)
+    acc = tl.zeros([Br, D_V], dtype=tl.float32)
 
-    offset_seq = (i_s * q_head_num + i_gh * block_group_size + tl.arange(0, Br)) * D
-    q = tl.load(query + offset_seq[:, None] + offset_d[None, :]).to(tl.float32)
+    offset_q = (
+        i_s * q_head_num + i_gh * block_group_size + tl.arange(0, Br)
+    ) * D_QK
+    q = tl.load(query + offset_q[:, None] + offset_d_qk[None, :]).to(tl.float32)
 
     for page_idx in range(start_page_num, page_num):
         block_idx = tl.load(block_tables + cur_page_start + page_idx)
@@ -55,13 +59,19 @@ def attention_sinks_kernel(
         )
 
         offset_k = (
-            block_idx * PAGE_SIZE * k_head_num * D
-            + offset_page[:, None] * k_head_num * D
-            + i_kvh * D
-            + offset_d[None, :]
+            block_idx * PAGE_SIZE * k_head_num * D_QK
+            + offset_page[:, None] * k_head_num * D_QK
+            + i_kvh * D_QK
+            + offset_d_qk[None, :]
+        )
+        offset_v = (
+            block_idx * PAGE_SIZE * k_head_num * D_V
+            + offset_page[:, None] * k_head_num * D_V
+            + i_kvh * D_V
+            + offset_d_v[None, :]
         )
         k = tl.load(k_cache + offset_k, mask=mask_page[:, None]).to(tl.float32)
-        v = tl.load(v_cache + offset_k, mask=mask_page[:, None]).to(tl.float32)
+        v = tl.load(v_cache + offset_v, mask=mask_page[:, None]).to(tl.float32)
 
         k = tl.trans(k, (1, 0))
         qk = tl.dot(q, k)
@@ -72,17 +82,19 @@ def attention_sinks_kernel(
         re_scale = tl.exp(history_max - new_e_max)
         p_exp = tl.exp(qk - new_e_max[:, None])
 
-        # Online softmax update
         l = l * re_scale + tl.sum(p_exp, 1)
-        acc = acc * re_scale[:, None] + tl.dot(p_exp.to(v.dtype), v)
+        acc = acc * re_scale[:, None] + tl.dot(p_exp, v)
 
         history_max = new_e_max
 
-    sink = tl.math.exp(sink - history_max)
-    l = l + sink
+    sink_exp = tl.exp(sink - history_max)
+    l = l + sink_exp
     acc = acc / l[:, None]
+    offset_out = (
+        i_s * q_head_num + i_gh * block_group_size + tl.arange(0, Br)
+    ) * D_V
     tl.store(
-        attn_out + offset_seq[:, None] + offset_d[None, :],
+        attn_out + offset_out[:, None] + offset_d_v[None, :],
         acc.to(attn_out.type.element_ty),
     )
 
@@ -100,15 +112,19 @@ def attention_sinks_triton(
     k_head_num,
 ):
     S = query.shape[0]
-    D = query.shape[-1] // q_head_num
+    D_QK = query.shape[-1] // q_head_num
     PAGE_SIZE = k_cache.shape[1]
-    v_head_dim = v_cache.shape[-1]
+    D_V = v_cache.shape[-1]
+    assert D_QK == k_cache.shape[-1], (
+        f"query head dim ({D_QK}) must match k_cache head dim "
+        f"({k_cache.shape[-1]})"
+    )
 
     group_block_size = min(q_head_num // k_head_num, 16)
     group_block_num = q_head_num // group_block_size
 
     attn_output = torch.zeros(
-        (S, q_head_num, v_head_dim),
+        (S, q_head_num, D_V),
         dtype=query.dtype,
         device=query.device,
     )
@@ -127,12 +143,13 @@ def attention_sinks_triton(
         q_head_num,
         k_head_num,
         group_block_size,
-        D,
+        D_QK,
+        D_V,
         PAGE_SIZE,
         block_tables.stride(0),
     )
 
-    return attn_output.reshape(-1, q_head_num * v_head_dim)
+    return attn_output.reshape(-1, q_head_num * D_V)
 
 
 @triton.jit
@@ -149,7 +166,8 @@ def attention_sinks_prefill_kernel(
     sliding_window_size,
     q_head_num: tl.constexpr,
     k_head_num: tl.constexpr,
-    D: tl.constexpr,
+    D_QK: tl.constexpr,
+    D_V: tl.constexpr,
     PAGE_SIZE: tl.constexpr,
     MAX_BLOCKS: tl.constexpr,
 ):
@@ -162,7 +180,10 @@ def attention_sinks_prefill_kernel(
     if i_b > 0:
         q_start_offset = tl.load(cum_seq_lens + i_b - 1)
 
-    Br: tl.constexpr = 16
+    Br: tl.constexpr = 8
+
+    sink = tl.load(sinks + i_qh)
+    sink_history_max = tl.zeros([Br], dtype=tl.float32) + sink
 
     for i_s in range(q_start_offset, q_end_offset, Br):
         kv_seq_len = tl.load(kv_seq_lens + i_b) + i_s - q_end_offset + 1
@@ -174,6 +195,7 @@ def attention_sinks_prefill_kernel(
         start_kv_len_block = tl.zeros([Br], dtype=tl.int32)
 
         start_page_num = 0
+        start_kv_len = 0
         if sliding_window_size != -1:
             start_kv_len = max((kv_seq_len - sliding_window_size).to(tl.int32), 0)
             start_page_num = start_kv_len // PAGE_SIZE
@@ -183,18 +205,18 @@ def attention_sinks_prefill_kernel(
 
         cur_page_start = i_b * MAX_BLOCKS
         offset_page = tl.arange(0, PAGE_SIZE)
-        offset_d = tl.arange(0, D)
+        offset_d_qk = tl.arange(0, D_QK)
+        offset_d_v = tl.arange(0, D_V)
 
-        sink = tl.load(sinks + i_qh)
-        history_max = tl.zeros([Br], dtype=tl.float32) + sink
+        history_max = sink_history_max
         l = tl.zeros([Br], dtype=tl.float32)
-        acc = tl.zeros([Br, D], dtype=tl.float32)
+        acc = tl.zeros([Br, D_V], dtype=tl.float32)
 
-        offset_q = i_qh * D + offset_d
-        offset_seq = (tl.arange(0, Br) + i_s) * D * q_head_num
+        offset_q = i_qh * D_QK + offset_d_qk
+        offset_seq_q = (tl.arange(0, Br) + i_s) * D_QK * q_head_num
         mask_seq = (tl.arange(0, Br) + i_s) < q_end_offset
         q = tl.load(
-            query + offset_seq[:, None] + offset_q[None, :], mask=mask_seq[:, None]
+            query + offset_seq_q[:, None] + offset_q[None, :], mask=mask_seq[:, None]
         ).to(tl.float32)
 
         for page_idx in range(start_page_num, page_num):
@@ -204,14 +226,25 @@ def attention_sinks_prefill_kernel(
                 cur_offset_page[None, :] >= start_kv_len_block[:, None]
             )
 
-            offset_k = (
-                block_idx * PAGE_SIZE * k_head_num * D
-                + offset_page[:, None] * k_head_num * D
-                + i_kvh * D
-                + offset_d[None, :]
+            kv_end_boundary = kv_seq_len + Br
+            mask_kv = (cur_offset_page < kv_end_boundary) & (
+                cur_offset_page >= start_kv_len
             )
-            k = tl.load(k_cache + offset_k).to(tl.float32)
-            v = tl.load(v_cache + offset_k).to(tl.float32)
+
+            offset_k = (
+                block_idx * PAGE_SIZE * k_head_num * D_QK
+                + offset_page[:, None] * k_head_num * D_QK
+                + i_kvh * D_QK
+                + offset_d_qk[None, :]
+            )
+            offset_v = (
+                block_idx * PAGE_SIZE * k_head_num * D_V
+                + offset_page[:, None] * k_head_num * D_V
+                + i_kvh * D_V
+                + offset_d_v[None, :]
+            )
+            k = tl.load(k_cache + offset_k, mask=mask_kv[:, None]).to(tl.float32)
+            v = tl.load(v_cache + offset_v, mask=mask_kv[:, None]).to(tl.float32)
 
             k = tl.trans(k, (1, 0))
             qk = tl.dot(q, k)
@@ -222,17 +255,18 @@ def attention_sinks_prefill_kernel(
             re_scale = tl.exp(history_max - new_e_max)
             p_exp = tl.exp(qk - new_e_max[:, None])
 
-            # Online softmax update
             l = l * re_scale + tl.sum(p_exp, 1)
-            acc = acc * re_scale[:, None] + tl.dot(p_exp.to(v.dtype), v)
+            acc = acc * re_scale[:, None] + tl.dot(p_exp, v)
 
             history_max = new_e_max
 
-        sink = tl.math.exp(sink - history_max)
-        l = l + sink
+        sink_exp = tl.exp(sink - history_max)
+        l = l + sink_exp
         acc = acc / l[:, None]
+        offset_seq_out = (tl.arange(0, Br) + i_s) * D_V * q_head_num
+        offset_out = i_qh * D_V + offset_d_v
         tl.store(
-            attn_out + offset_seq[:, None] + offset_q[None, :],
+            attn_out + offset_seq_out[:, None] + offset_out[None, :],
             acc.to(attn_out.type.element_ty),
             mask=mask_seq[:, None],
         )
@@ -252,11 +286,15 @@ def attention_sinks_prefill_triton(
     k_head_num,
 ):
     S = query.shape[0]
-    D = query.shape[-1] // q_head_num
+    D_QK = query.shape[-1] // q_head_num
     PAGE_SIZE = k_cache.shape[1]
-    v_head_dim = v_cache.shape[-1]
+    D_V = v_cache.shape[-1]
+    assert D_QK == k_cache.shape[-1], (
+        f"query head dim ({D_QK}) must match k_cache head dim "
+        f"({k_cache.shape[-1]})"
+    )
     attn_output = torch.zeros(
-        (S, q_head_num, v_head_dim),
+        (S, q_head_num, D_V),
         dtype=query.dtype,
         device=query.device,
     )
@@ -278,9 +316,10 @@ def attention_sinks_prefill_triton(
         sliding_window_size,
         q_head_num,
         k_head_num,
-        D,
+        D_QK,
+        D_V,
         PAGE_SIZE,
         block_tables.stride(0),
     )
 
-    return attn_output.reshape(-1, q_head_num * v_head_dim)
+    return attn_output.reshape(-1, q_head_num * D_V)
