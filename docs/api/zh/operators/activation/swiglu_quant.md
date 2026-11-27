@@ -23,6 +23,7 @@ def swiglu_quant(
     do_limit=False,
     limit=7.0,
     *,
+    clamp_before_silu=False,
     impl="auto"
 ): ...
 ```
@@ -43,11 +44,14 @@ def swiglu_quant(
 | `need_quant` | bool | `True` | 为 true 时返回 INT8 数值及 FP32 逐行 scale。 |
 | `do_limit` | bool | `False` | 在乘法前截断 SiLU(gate) 和 up。 |
 | `limit` | float | `7.0` | 截断幅度。 |
+| `clamp_before_silu` | bool | `False` | 在 SiLU 前对 gate 做上界截断，对 up 做双边截断。优先于 `do_limit`。 |
 | `impl` | str | `'auto'` | auto 选择 triton；可显式选择后端。 |
 
 | 返回值 | 类型 | 说明 |
 | --- | --- | --- |
 | result | Tuple[Tensor,Tensor] | [rows,D] 数值及 [rows] FP32 scale；关闭量化时 scale 未定义。 |
+
+设置 `clamp_before_silu=True` 时，type 0 使用包含当前专家的累计计数，直接读取 `group_list` 逻辑视图的末项。type 1 在设备侧求和。逐行 scale 的下界是 `1e-30`，全零行量化为 INT8 零。输出保留固定容量，只写有效前缀。后续 grouped matmul 应传入相同分组信息以跳过无效行。
 
 ## triton 后端
 
