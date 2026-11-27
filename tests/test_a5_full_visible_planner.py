@@ -198,7 +198,11 @@ def test_a5_fused_lim_matches_native_topk_and_resident_plan(width, long_length, 
     q_index_cpu = li_query.to(torch.float8_e4m3fn)
     q_index = q_index_cpu.to(device)
     state = torch.tensor([-3, -2], dtype=dtype, device=device)
-    op = torch.ops.npu.fused_quant_lightning_indexer_manage_full_visible
+    from sgl_kernel_npu.operators.indexer import (
+        fused_quant_lightning_indexer_manage_full_visible,
+    )
+
+    op = fused_quant_lightning_indexer_manage_full_visible
     args = (
         q_index,
         weights,
