@@ -269,8 +269,8 @@ void RunAclnn(const at::Tensor &query, at::Tensor hbmKvBytes, const at::Tensor &
         descriptors[5].get(), descriptors[6].get(), descriptors[7].get(), descriptors[8].get(), descriptors[9].get(),
         descriptors[10].get(), descriptors[11].get(), descriptors[12].get(), descriptors[13].get(),
         descriptors[14].get(), descriptors[15].get(), descriptors[16].get(), descriptors[17].get(),
-        descriptors[18].get(), descriptors[19].get(), descriptors[20].get(), static_cast<float>(scaleValue),
-        nativeLimPlan, descriptors[1].get(), descriptors[21].get(), &workspaceSize, &executor);
+        descriptors[18].get(), descriptors[19].get(), descriptors[20].get(), scaleValue, nativeLimPlan,
+        descriptors[21].get(), &workspaceSize, &executor);
     TORCH_CHECK(status == ACL_SUCCESS, "C8 CopySFA workspace query failed: ", aclGetRecentErrMsg());
     TORCH_CHECK(workspaceSize <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max()),
                 "C8 CopySFA workspace exceeds Tensor allocation limits.");

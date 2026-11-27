@@ -493,3 +493,14 @@ package. The HOST allocator registers CPU memory with the device and supplies
 addresses for Copy-SFA. The Copy-SFA selection includes the combined and
 split Torch entry points. See the [LIM contract](../../csrc/indexer/fused_lightning_indexer_manage/README.md)
 and the [Copy-SFA contract](../../csrc/attention/fused_scatter_copy_sparse_flash_attention/README.md).
+
+For Ascend950 packed C8, build the quantized LIM, Copy-SFA, and indexed row
+copy together from the repository root.
+
+```bash
+python3 setup.py --arch-version 3510 --ops fused_quant_lightning_indexer_manage_full_visible,fused_quant_scatter_copy_sparse_flash_attention,unidex_copy --artifact wheel --without-third-party
+```
+
+The [quantized LIM](../../csrc/attention/fused_quant_lightning_indexer_manage/README.md)
+produces the plan consumed by the v2 entry in the
+[C8 Copy-SFA operator](../../csrc/attention/fused_quant_scatter_copy_sparse_flash_attention/README.md).
