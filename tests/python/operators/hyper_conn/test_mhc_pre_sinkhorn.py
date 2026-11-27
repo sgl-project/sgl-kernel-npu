@@ -58,3 +58,40 @@ def test_mhc_pre_sinkhorn(tokens, hidden, dtype, hc_eps, norm_eps):
         and dtype == torch.bfloat16
         and hc_eps == 1e-6,
     )
+
+
+def test_a3_return_pre_graph_replay():
+    pytest.importorskip("torch_npu")
+    from sgl_kernel_npu.operators.hyper_conn import mhc_pre_sinkhorn
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if (
+        get_hardware().generation != Generation.ARCH22
+        or not detect_cann_version().startswith("9.2.")
+    ):
+        pytest.skip("DSV4.1 shape requires the tested A3/CANN 9.2 configuration")
+
+    x, phi, alpha, bias = (a.npu() for a in generate_data(6, 5120, torch.bfloat16))
+    args = (x, phi, alpha, bias)
+    kwargs = {"norm_eps": 1e-20}
+    old = mhc_pre_sinkhorn(*args, **kwargs)
+    new = mhc_pre_sinkhorn(*args, **kwargs, return_pre=True)
+    assert len(old) == 3
+    assert len(new) == 4
+    for result, expected in zip(new[:3], old, strict=True):
+        torch.testing.assert_close(result, expected, atol=0, rtol=0)
+    torch.npu.synchronize()
+
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        captured = mhc_pre_sinkhorn(*args, **kwargs, return_pre=True)
+    for factor in (1.5, -0.8):
+        x.mul_(factor)
+        graph.replay()
+        torch.npu.synchronize()
+        expected = mhc_pre_sinkhorn(
+            *args, **kwargs, return_pre=True, impl="torch_native"
+        )
+        for result, reference in zip(captured[1:], expected[1:], strict=True):
+            torch.testing.assert_close(result, reference, atol=2e-4, rtol=2e-4)

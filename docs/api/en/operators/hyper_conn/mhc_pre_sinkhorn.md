@@ -14,7 +14,7 @@ CANN 9.1.0 supports small hidden sizes such as 128 and 256 on A3 and Ascend950. 
 ```python
 from sgl_kernel_npu.operators.hyper_conn import mhc_pre_sinkhorn
 
-def mhc_pre_sinkhorn(x, phi, alpha, bias, hc_mult=4, num_iters=20, hc_eps=1e-6, norm_eps=1e-6, *, impl="auto"):
+def mhc_pre_sinkhorn(x, phi, alpha, bias, hc_mult=4, num_iters=20, hc_eps=1e-6, norm_eps=1e-6, *, return_pre=False, impl="auto"):
     ...
 ```
 
@@ -38,6 +38,7 @@ For u = flatten(x), z = (u / sqrt(mean(u**2) + norm_eps)) @ phi.T. Split z into 
 | num_iters | int | Sinkhorn iterations; backend-defined support | 20 |
 | hc_eps | float | Forwarded to backend | 1e-6 |
 | norm_eps | float | Forwarded to backend | 1e-6 |
+| `return_pre` | bool | Append FP32 hpre [T,N] (sigmoid + hc_eps) when true | False |
 | impl | str | auto / cann_ops_transformer / torch_native | auto |
 
 The facade forwards inputs without imposing additional dtype, stride, device, shape or scalar restrictions. The selected backend determines supported inputs and reports errors. The examples use GLM stream count N=4 and FP16/BF16 activations with FP32 parameters. Empty/IDLE short-circuits remain the SGLang caller's responsibility, as in glmx PR #21; the facade adds none.
@@ -45,6 +46,8 @@ The facade forwards inputs without imposing additional dtype, stride, device, sh
 | Return | Type | Shape and dtype |
 | --- | --- | --- |
 | output | tuple[Tensor,Tensor,Tensor] | (hin [T,D] in vendor dtype for cann_ops_transformer, hpost [T,N] FP32, hres [T,N*N] FP32) |
+
+The three-output ABI is the default. With `return_pre=True`, the CANN backend requests the raw binding's optional outputs and returns `(hin, hpost, hres, hpre)`. The inference call also materializes the vendor's auxiliary tensors. DSV4.1 uses hpre for the next sublayer's mixing.
 
 ## cann_ops_transformer
 
