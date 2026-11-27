@@ -22,6 +22,9 @@ def dynamic_quant(input, *, impl="auto", **kwargs): ...
 
 对称 INT8 模式逐 token 计算 $s=\max|x|/127$，按 SDK 的舍入和范围量化 $x/s$。可在计算最大值前应用平滑系数。
 
+输入形状为 `[..., H]` 时，逐 token 量化返回相同形状的量化值，以及形状为 `[...]` 的 FP32 scale。
+用 `values.float() * scales.unsqueeze(-1)` 将每行量化值乘以对应的 scale，即可反量化。
+
 ## 参数与返回值
 
 除表中注明的主机侧元数据外，Tensor 参数应位于同一 NPU。示例使用一种 SDK 支持的配置。

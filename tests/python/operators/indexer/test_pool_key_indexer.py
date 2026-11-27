@@ -1,6 +1,5 @@
 import pytest
-
-torch = pytest.importorskip("torch")
+import torch
 
 from tests.python.utils.accuracy import assert_accuracy
 from tests.python.utils.common import (
@@ -11,6 +10,7 @@ from tests.python.utils.common import (
     require_test_impl,
 )
 from tests.python.utils.performance import check_performance
+from tests.python.utils.standards import AccuracyStandard
 
 # W: synthetic one-token-per-request PA workload, using GLM-5.3-Flash's
 # 32 index heads, 128 channels and pool=4; not a captured production tensor.
@@ -181,4 +181,115 @@ def test_pool_key_indexer(layout, dtype, rows, n_pools, heads, topk, return_valu
         enable_perf=(rows, n_pools, heads) in perf_shape
         and layout == "TND"
         and dtype == torch.bfloat16,
+    )
+
+
+def test_pool_key_indexer_int8_paged():
+    from sgl_kernel_npu.operators.indexer import pool_key_indexer
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if get_hardware().generation != Generation.ARCH22:
+        pytest.skip("INT8 pooled-key indexer coverage targets Ascend A3")
+
+    impl, _ = get_test_impls()
+    require_test_impl(pool_key_indexer, impl)
+    inputs = generate_test_data("TND", 4, 16, 32, torch.float16)
+    inputs["query"] = inputs["query"].to(torch.int8)
+    inputs["pool_key"] = inputs["pool_key"].to(torch.int8)
+    inputs["quant_mode"] = 2
+    q_descale = torch.ones_like(inputs["weights"])
+    k_descale = torch.ones_like(inputs["pool_key"][..., 0], dtype=torch.float16)
+    k_descale[:, :4, :] = 32
+
+    indices, values = pool_key_indexer(
+        **inputs,
+        q_descale=q_descale,
+        k_descale=k_descale,
+        impl=impl,
+    )
+
+    # The scaled first four pools outrank the remaining twelve for every request.
+    expected = torch.cat((torch.arange(16), torch.arange(64, 67))).to(torch.int32)
+    ranked_indices = canonicalize_selected_pools((indices, values), 16, 4)[0]
+    assert_accuracy(ranked_indices, expected.expand_as(ranked_indices))
+    assert values.numel() == 0
+
+
+@pytest.fixture
+def require_cann_9_2_0_arch35():
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+    if get_hardware().generation != Generation.ARCH35:
+        pytest.skip("FP8 pool_key_indexer requires Ascend A5 (arch35)")
+    if detect_cann_version() != "9.2.0":
+        pytest.skip("FP8 pool_key_indexer requires CANN 9.2.0")
+
+
+@pytest.mark.usefixtures("require_cann_9_2_0_arch35")
+@pytest.mark.parametrize("layout", ["BSND", "TND", "PA_BBND"])
+def test_pool_key_indexer_fp8(layout):
+    from sgl_kernel_npu.operators.indexer import pool_key_indexer
+
+    torch.manual_seed(19)
+    impl, _ = get_test_impls()
+    q = torch.randn(2, 2, 2, 128).to(torch.float8_e4m3fn)
+    k = torch.randn(2, 4, 1, 128).to(torch.float8_e4m3fn)
+    weights = torch.rand(2, 2, 2).bfloat16()
+    qs = torch.rand(2, 2, 2) + 0.1
+    ks = torch.tensor([0.1, 0.25, 2.0, 4.0, 4.0, 2.0, 0.25, 0.1]).reshape(2, 4, 1)
+    dequant_q = q.float() * qs.unsqueeze(-1)
+    dequant_k = k.float() * ks.unsqueeze(-1)
+    scores = torch.einsum("bqhd,bkd->bqhk", dequant_q, dequant_k[:, :, 0])
+    scores = (scores * (128**-0.5)).relu()
+    scores = (scores * weights.float().unsqueeze(-1)).sum(dim=2)
+    values, pools = scores.topk(2, dim=-1)
+    expected = torch.full((2, 2, 11), -1, dtype=torch.int32, device=q.device)
+    expected[:, :, :8] = (
+        pools.unsqueeze(-1) * 4 + torch.arange(4, device=q.device)
+    ).reshape(2, 2, 8)
+    kwargs = dict(layout_q="BSND", layout_k="BSND")
+    if layout != "BSND":
+        q = q.reshape(4, 2, 128)
+        qs = qs.reshape(4, 2)
+        weights = weights.reshape(4, 2)
+        kwargs = dict(
+            layout_q="TND", layout_k=layout, actual_seq_q=torch.tensor([2, 4])
+        )
+        if layout == "TND":
+            k = k.reshape(8, 1, 128)
+            ks = ks.reshape(8, 1)
+            kwargs["actual_seq_k"] = torch.tensor([4, 8])
+        else:
+            pages = torch.zeros(
+                2, 16, 1, 128, dtype=torch.float8_e4m3fn, device=k.device
+            )
+            scales = torch.ones(2, 16, 1, device=k.device)
+            pages[:, :4] = k
+            scales[:, :4] = ks
+            k, ks = pages, scales
+            kwargs["block_table"] = torch.tensor(
+                [[0], [1]], dtype=torch.int32, device=k.device
+            )
+            kwargs["actual_seq_k"] = torch.tensor([4, 4])
+        expected = expected.reshape(4, 11)
+        values = values.reshape(4, 2)
+    indices, actual_values = pool_key_indexer(
+        q,
+        k,
+        weights,
+        torch.tensor([0, 0]),
+        topk=8,
+        pool_size=4,
+        mask_mode=0,
+        quant_mode=0,
+        return_value=True,
+        q_descale=qs,
+        k_descale=ks,
+        impl=impl,
+        **kwargs,
+    )
+    assert_accuracy(indices, expected)
+    assert_accuracy(
+        actual_values, values, {"torch.float32": AccuracyStandard(atol=5e-2, rtol=5e-2)}
     )

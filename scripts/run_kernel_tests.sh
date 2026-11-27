@@ -82,8 +82,7 @@ filter_tests() {
                 tests/python/operators/attention/gdn/test_chunk_gated_delta_rule.py|\
                 tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv.py|\
                 tests/python/operators/attention/test_kv_quant_sparse_attn_sharedkv_metadata.py|\
-                tests/python/operators/moe/test_mega_moe.py|\
-                tests/python/operators/indexer/test_pool_key_indexer.py)
+                tests/python/operators/moe/test_mega_moe.py)
                     echo "[NPU_HARDWARE=950] Skipping: $test_file"
                     continue
                     ;;
@@ -102,7 +101,6 @@ filter_tests() {
                 tests/python/operators/indexer/test_lightning_indexer_v2.py|\
                 tests/python/operators/moe/test_mega_moe.py|\
                 tests/python/operators/mem_cache/test_kv_transfer.py|\
-                tests/python/operators/indexer/test_pool_key_indexer.py|\
                 tests/python/operators/indexer/test_qsa_mqa.py)
                     echo "[NPU_HARDWARE=a3] Skipping: $test_file"
                     continue
