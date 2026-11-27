@@ -408,6 +408,7 @@ __aicore__ inline void SparseFlashAttentionKernelMla<CubeBlockType, VecBlockType
     constInfo.dSize = sharedParams.dSize;
     constInfo.dSizeVInput = sharedParams.dSizeVInput;
     constInfo.dSizeRope = 64;
+    constInfo.packedKvBytes = sharedParams.packedKvBytes;
     constInfo.dSizeNope = 512;
     constInfo.tileSize = sharedParams.tileSize;
     constInfo.sparseBlockCount = sharedParams.sparseBlockCount;
@@ -559,7 +560,8 @@ __aicore__ inline void SparseFlashAttentionKernelMla<CubeBlockType, VecBlockType
                     ComputeParamS1<TEMPLATE_INTF_ARGS>(runParam, this->constInfo, gS1Index, this->actualSeqQlenAddr);
                 // s1和s2有任意一个不需要算, 则continue, 如果是当前核最后一次循环，则补充计算taskIdx+2的部分
                 bool s2NoNeedCalc = ComputeS2LoopInfo<TEMPLATE_INTF_ARGS>(runParam, this->constInfo);
-                if (!s1NoNeedCalc && !s2NoNeedCalc && sharedParams.returnSoftmaxLse && constInfo.sparseMode == 0) {
+                if (!s1NoNeedCalc && !s2NoNeedCalc && constInfo.sparseMode == 0 &&
+                    (sharedParams.returnSoftmaxLse || constInfo.packedKvBytes != 0)) {
                     // Valid indices form a prefix. DCP can leave fewer selected
                     // tokens than min(local KV length, sparse index capacity).
                     int64_t queryOffset = runParam.boIdx * constInfo.s1Size;
