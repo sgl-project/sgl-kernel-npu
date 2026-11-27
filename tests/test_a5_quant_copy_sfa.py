@@ -8,7 +8,9 @@ def test_a5_short_staging_matches_preloaded_attention(graph, width, prefix):
     """Compare a single token and a Q4 request accepting one row across a page."""
     pytest.importorskip("torch_npu")
     import acl
-    import sgl_kernel_npu  # noqa: F401
+    from sgl_kernel_npu.operators.attention import (
+        fused_quant_scatter_copy_sparse_flash_attention_v2,
+    )
 
     if not torch.npu.is_available() or acl.rt.get_device_info(0, 601) != (3510, 0):
         pytest.skip("Ascend950 required")
@@ -53,7 +55,7 @@ def test_a5_short_staging_matches_preloaded_attention(graph, width, prefix):
     )
 
     def attention(cache, output, **kwargs):
-        torch.ops.npu.fused_quant_scatter_copy_sparse_flash_attention_v2(
+        fused_quant_scatter_copy_sparse_flash_attention_v2(
             nope,
             rope,
             cache,

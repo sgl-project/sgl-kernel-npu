@@ -20,6 +20,9 @@ from .fused_infer_attention_score import (
     fused_infer_attention_score_v2_get_max_workspace,
     fused_infer_attention_score_v2_out,
 )
+from .fused_quant_scatter_copy_sparse_flash_attention_v2 import (
+    fused_quant_scatter_copy_sparse_flash_attention_v2,
+)
 from .gqa_share_sparse_decode import gqa_share_sparse_decode
 from .kda import chunk_kda_fwd
 from .kv_quant_sparse_attn_sharedkv import kv_quant_sparse_attn_sharedkv
@@ -62,6 +65,7 @@ __all__ = [
     "ada_block_sparse_attention",
     "attention_sinks",
     "attention_sinks_prefill",
+    "fused_quant_scatter_copy_sparse_flash_attention_v2",
     "attention_update",
     "chunk_kda_fwd",
     "compressor",
