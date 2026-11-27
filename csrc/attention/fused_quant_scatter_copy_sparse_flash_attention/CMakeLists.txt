@@ -13,7 +13,7 @@ sgl_register_operator(
         op_kernel/arch35
         ../../sparse_flash_attention/op_kernel
         ../../sparse_flash_attention/op_kernel/common
-        ../../../utils/kernel
+        ../../utils/kernel
     KERNEL_COMPILE_DEFINITIONS HAVE_WORKSPACE HAVE_TILING
     KERNEL_COMPILE_OPTIONS
         --cce-auto-sync=off

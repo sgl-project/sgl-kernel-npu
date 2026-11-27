@@ -97,35 +97,40 @@ __global__ __aicore__ void sgl_fused_quant_scatter_copy_sparse_flash_attention(
     GM_ADDR query, GM_ADDR hbmKvBytes, GM_ADDR dramKvBytes, GM_ADDR hbmBlockTable, GM_ADDR dramBlockTable,
     GM_ADDR topkDstSlots, GM_ADDR topkSrcIds, GM_ADDR topkMissCounts, GM_ADDR actualSeqLengthsQuery,
     GM_ADDR actualSeqLengthsKv, GM_ADDR numCacheTokens, GM_ADDR missSrcIds, GM_ADDR missDstSlots, GM_ADDR missCounts,
-    GM_ADDR hbmKvAlias, GM_ADDR attentionOut, GM_ADDR workspace, GM_ADDR tiling)
+    GM_ADDR queryRope, GM_ADDR current, GM_ADDR positions, GM_ADDR currentValid, GM_ADDR requestSlots,
+    GM_ADDR reqToToken, GM_ADDR residentEnd, GM_ADDR hbmKvAlias, GM_ADDR attentionOut, GM_ADDR workspace, GM_ADDR tiling)
 {
 #if (__CCE_AICORE__ == 310)
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
-    const auto *gm = reinterpret_cast<const __gm__ FusedQuantScatterCopySparseFlashAttentionTilingData *>(tiling);
-    const bool bf16 = (gm->reserved[0] & 1U) != 0;
-    const bool splitHeads = (gm->reserved[0] & 2U) != 0;
+    const auto *gm = reinterpret_cast<const __gm__ FusedQuantCopySfaResidentTilingData *>(tiling);
+    const bool bf16 = (gm->attention.reserved[0] & 1U) != 0;
+    const bool splitHeads = (gm->attention.reserved[0] & 2U) != 0;
     if (bf16) {
         if (splitHeads) {
-            RunQuantCopySfa<bfloat16_t, true>(query, hbmKvBytes, dramKvBytes, hbmBlockTable, dramBlockTable,
-                                              topkDstSlots, topkSrcIds, topkMissCounts, actualSeqLengthsQuery,
-                                              actualSeqLengthsKv, numCacheTokens, missSrcIds, missDstSlots, missCounts,
-                                              hbmKvAlias, attentionOut, workspace, tiling);
+            RunQuantCopySfaV2<bfloat16_t, true>(
+                query, queryRope, hbmKvBytes, dramKvBytes, hbmBlockTable, dramBlockTable, topkDstSlots, topkSrcIds,
+                topkMissCounts, actualSeqLengthsQuery, actualSeqLengthsKv, numCacheTokens, missSrcIds, missDstSlots,
+                missCounts, hbmKvAlias, attentionOut, current, positions, currentValid, requestSlots, reqToToken,
+                residentEnd, workspace, tiling);
         } else {
-            RunQuantCopySfa<bfloat16_t, false>(query, hbmKvBytes, dramKvBytes, hbmBlockTable, dramBlockTable,
-                                               topkDstSlots, topkSrcIds, topkMissCounts, actualSeqLengthsQuery,
-                                               actualSeqLengthsKv, numCacheTokens, missSrcIds, missDstSlots, missCounts,
-                                               hbmKvAlias, attentionOut, workspace, tiling);
+            RunQuantCopySfaV2<bfloat16_t, false>(
+                query, queryRope, hbmKvBytes, dramKvBytes, hbmBlockTable, dramBlockTable, topkDstSlots, topkSrcIds,
+                topkMissCounts, actualSeqLengthsQuery, actualSeqLengthsKv, numCacheTokens, missSrcIds, missDstSlots,
+                missCounts, hbmKvAlias, attentionOut, current, positions, currentValid, requestSlots, reqToToken,
+                residentEnd, workspace, tiling);
         }
     } else if (splitHeads) {
-        RunQuantCopySfa<half, true>(query, hbmKvBytes, dramKvBytes, hbmBlockTable, dramBlockTable, topkDstSlots,
-                                    topkSrcIds, topkMissCounts, actualSeqLengthsQuery, actualSeqLengthsKv,
-                                    numCacheTokens, missSrcIds, missDstSlots, missCounts, hbmKvAlias, attentionOut,
-                                    workspace, tiling);
+        RunQuantCopySfaV2<half, true>(query, queryRope, hbmKvBytes, dramKvBytes, hbmBlockTable, dramBlockTable,
+                                      topkDstSlots, topkSrcIds, topkMissCounts, actualSeqLengthsQuery,
+                                      actualSeqLengthsKv, numCacheTokens, missSrcIds, missDstSlots, missCounts,
+                                      hbmKvAlias, attentionOut, current, positions, currentValid, requestSlots,
+                                      reqToToken, residentEnd, workspace, tiling);
     } else {
-        RunQuantCopySfa<half, false>(query, hbmKvBytes, dramKvBytes, hbmBlockTable, dramBlockTable, topkDstSlots,
-                                     topkSrcIds, topkMissCounts, actualSeqLengthsQuery, actualSeqLengthsKv,
-                                     numCacheTokens, missSrcIds, missDstSlots, missCounts, hbmKvAlias, attentionOut,
-                                     workspace, tiling);
+        RunQuantCopySfaV2<half, false>(query, queryRope, hbmKvBytes, dramKvBytes, hbmBlockTable, dramBlockTable,
+                                       topkDstSlots, topkSrcIds, topkMissCounts, actualSeqLengthsQuery,
+                                       actualSeqLengthsKv, numCacheTokens, missSrcIds, missDstSlots, missCounts,
+                                       hbmKvAlias, attentionOut, current, positions, currentValid, requestSlots,
+                                       reqToToken, residentEnd, workspace, tiling);
     }
 #endif
 }
