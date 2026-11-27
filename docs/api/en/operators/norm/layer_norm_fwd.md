@@ -33,18 +33,18 @@ def layer_norm_fwd(
 
 ## Description
 
-Applies LayerNorm or RMSNorm to each group of each input row, with affine transformation and optional SiLU gating. For input `[M, N]`, the group width is `H = group_size` and the number of groups is `G = N // H`. An omitted group width uses `H = N`.
+Applies LayerNorm or RMSNorm to each group of each input row, with affine transformation and optional gating (`SiLU`/`swish` or `sigmoid`). For input `[M, N]`, the group width is `H = group_size` and the number of groups is `G = N // H`. An omitted group width uses `H = N`.
 
-If `z` is provided and `norm_before_gate=False`, first set `u = x * SiLU(z)`; otherwise set `u = x`. Each group then uses the following calculation:
+If `z` is provided and `norm_before_gate=False`, first set `u = x * gate(z)`; otherwise set `u = x`. Each group then uses the following calculation:
 
 | Mode | Statistics and normalization |
 | --- | --- |
 | LayerNorm | `mean = mean(u)`, `rstd = 1 / sqrt(mean((u - mean) ** 2) + eps)`, `normalized = (u - mean) * rstd` |
 | RMSNorm | `rstd = 1 / sqrt(mean(u ** 2) + eps)`, `normalized = u * rstd`; no mean tensor is returned |
 
-The normalized values are multiplied by `weight` and added to the optional `bias`. If `z` is provided and `norm_before_gate=True`, multiply the affine output by `SiLU(z)`. SiLU is `z * sigmoid(z)`.
+The normalized values are multiplied by `weight` and added to the optional `bias`. If `z` is provided and `norm_before_gate=True`, multiply the affine output by `gate(z)`.
 
-`activation` is a compatibility argument that currently does not select an implementation branch. Passing a different string does not change the gate function.
+`activation` selects `gate(z)`: `"swish"` or `"silu"` uses `z * sigmoid(z)` (also used when `activation=None`); `"sigmoid"` uses `sigmoid(z)`. Other values raise `ValueError`.
 
 ## Parameters and return values
 
@@ -59,7 +59,7 @@ The normalized values are multiplied by `weight` and added to the optional `bias
 | `group_size` | `int` or `None` | — | — | `None` | Positive divisor of N. None selects N. Must not exceed `65536 // x.element_size()`. |
 | `norm_before_gate` | `bool` | — | — | `True` | True gates after normalization and affine transformation; False normalizes the gated input. |
 | `is_rms_norm` | `bool` | — | — | `False` | False selects LayerNorm; True selects RMSNorm. |
-| `activation` | `str` or `None` | — | — | `None` | Compatibility argument, currently ignored. Gating always uses SiLU. |
+| `activation` | `str` or `None` | — | — | `None` | Gate activation when `z` is provided: `"swish"`, `"silu"`, or `"sigmoid"` (`None` defaults to `"swish"`). |
 | `impl` | `str` | — | — | `"auto"` | Keyword-only; accepts `"auto"`, `"triton"` or `"torch_native"`. |
 
 Returns `(out, mean, rstd)`:

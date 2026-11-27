@@ -6,7 +6,7 @@ from .grouped_gemma_rmsnorm import grouped_gemma_rmsnorm
 from .l1_norm import l1_norm
 from .l2norm_fwd import l2norm_fwd
 from .layer_norm import layer_norm, layernorm
-from .layer_norm_fwd import layer_norm_fwd
+from .layer_norm_fwd import SUPPORTED_GATE_ACTIVATIONS, layer_norm_fwd
 from .rms_norm import rms_norm
 from .rmsnorm_bias import rmsnorm_bias
 from .rmsnorm_split import fused_rsqrt_mul, fused_variance
@@ -22,6 +22,7 @@ from .split_qkv_rmsnorm_rope_pos_cache_half_npu import (
 from .split_qkv_tp_rmsnorm_rope import split_qkv_tp_rmsnorm_rope
 
 __all__ = [
+    "SUPPORTED_GATE_ACTIVATIONS",
     "rms_norm",
     "add_rms_norm",
     "add_rmsnorm_bias",

@@ -10,6 +10,8 @@ from sgl_kernel_npu.implementation.triton.utils.triton_utils import (
     get_device_properties,
 )
 
+from ....utils.norm_utils import validate_gate_activation
+
 
 @triton.heuristics({"HAS_BIAS": lambda args: args["B"] is not None})
 @triton.heuristics({"HAS_Z": lambda args: args["Z"] is not None})
@@ -34,6 +36,7 @@ def _layer_norm_fwd_1pass_kernel_npu(
     HAS_Z: tl.constexpr,
     NORM_BEFORE_GATE: tl.constexpr,
     IS_RMS_NORM: tl.constexpr,
+    ACTIVATION: tl.constexpr = "swish",
 ):
     # Map the program id to the row of X and Y it should compute.
     pid_m = tl.program_id(0)
@@ -68,7 +71,10 @@ def _layer_norm_fwd_1pass_kernel_npu(
                 tl.float32
             )
             if not NORM_BEFORE_GATE:
-                x *= z * tl.sigmoid(z)
+                if ACTIVATION == "sigmoid":
+                    x *= tl.sigmoid(z)
+                else:
+                    x *= z * tl.sigmoid(z)
 
         # Compute statistics per row
         if not IS_RMS_NORM:
@@ -95,7 +101,10 @@ def _layer_norm_fwd_1pass_kernel_npu(
 
         # Post-gate
         if HAS_Z and NORM_BEFORE_GATE:
-            y *= z * tl.sigmoid(z)
+            if ACTIVATION == "sigmoid":
+                y *= tl.sigmoid(z)
+            else:
+                y *= z * tl.sigmoid(z)
 
         # Store output
         y_ptrs = Y + rows[:, None] * stride_y_row + cols[None, :] + group * N
@@ -114,6 +123,7 @@ def layer_norm_fwd(
     is_rms_norm=False,
     activation=None,
 ):
+    activation = validate_gate_activation(activation)
     M, N = x.shape
     if group_size is None:
         group_size = N
@@ -157,6 +167,7 @@ def layer_norm_fwd(
         BLOCK_N=BLOCK_N,
         NORM_BEFORE_GATE=norm_before_gate,
         IS_RMS_NORM=is_rms_norm,
+        ACTIVATION=activation,
         # Remove multibuffer if not needed
     )
     return out, mean, rstd
