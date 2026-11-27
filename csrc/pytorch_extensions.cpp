@@ -132,7 +132,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
     m.def(
         "chunk_kda_fwd(Tensor q, Tensor k, Tensor v, Tensor g, Tensor beta, "
         "Tensor? a_log=None, Tensor? dt_bias=None, Tensor? initial_state=None, "
-        "Tensor? cu_seqlens=None, Tensor? chunk_indices=None, "
+        "Tensor? cu_seqlens=None, Tensor? cu_seqlens_host=None, Tensor? chunk_indices=None, "
         "str layout='BSND', float scale=1.0, int chunk_size=64, "
         "bool safe_gate=False, float lower_bound=-5.0, bool use_gate_in_kernel=False, "
         "bool state_v_first=False, bool output_final_state=True, bool output_gk=False, "

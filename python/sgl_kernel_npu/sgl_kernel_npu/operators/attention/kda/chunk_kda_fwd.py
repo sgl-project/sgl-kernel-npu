@@ -20,6 +20,7 @@ def _ascendc_impl(
     dt_bias: Optional[torch.Tensor] = None,
     initial_state: Optional[torch.Tensor] = None,
     cu_seqlens: Optional[torch.Tensor] = None,
+    cu_seqlens_host: Optional[torch.Tensor] = None,
     chunk_indices: Optional[torch.Tensor] = None,
     layout: str = "BSND",
     scale: float = 1.0,
@@ -47,6 +48,7 @@ def _ascendc_impl(
         dt_bias=dt_bias,
         initial_state=initial_state,
         cu_seqlens=cu_seqlens,
+        cu_seqlens_host=cu_seqlens_host,
         chunk_indices=chunk_indices,
         layout=layout,
         scale=scale,
@@ -78,6 +80,7 @@ def _torch_native_impl(
     dt_bias: Optional[torch.Tensor] = None,
     initial_state: Optional[torch.Tensor] = None,
     cu_seqlens: Optional[torch.Tensor] = None,
+    cu_seqlens_host: Optional[torch.Tensor] = None,
     chunk_indices: Optional[torch.Tensor] = None,
     layout: str = "BSND",
     scale: float = 1.0,
@@ -102,6 +105,9 @@ def _torch_native_impl(
         )
 
         _torch_native_fn = chunk_kda_fwd
+    # cu_seqlens_host is a pure host-side optimization for the AscendC path;
+    # the pure-torch reference computes everything from shapes and ignores it.
+    del cu_seqlens_host
     return _torch_native_fn(
         q=q,
         k=k,
@@ -143,6 +149,7 @@ def chunk_kda_fwd(
     dt_bias: Optional[torch.Tensor] = None,
     initial_state: Optional[torch.Tensor] = None,
     cu_seqlens: Optional[torch.Tensor] = None,
+    cu_seqlens_host: Optional[torch.Tensor] = None,
     chunk_indices: Optional[torch.Tensor] = None,
     layout: str = "BSND",
     scale: float = 1.0,
@@ -173,6 +180,10 @@ def chunk_kda_fwd(
         dt_bias: (HV*K,) float32 gate bias.
         initial_state: (N, HV, K, V) [or (N, HV, V, K) when state_v_first] float32.
         cu_seqlens: (N+1,) int64 varlen sequence boundaries.
+        cu_seqlens_host: (N+1,) int64 CPU mirror of ``cu_seqlens``. When
+            provided the AscendC impl sizes its outputs and validates inputs
+            from this tensor instead of blocking on ``cu_seqlens.cpu()``.
+            Must exactly match the device tensor.
         chunk_indices: (2*NC,) int64 canonical (seq_id, chunk_id) pairs.
         layout: one of "BSND", "BNSD", "TND", "NTD".
         scale: query scaling factor, usually K^(-0.5).
@@ -223,6 +234,7 @@ def chunk_kda_fwd(
         dt_bias=dt_bias,
         initial_state=initial_state,
         cu_seqlens=cu_seqlens,
+        cu_seqlens_host=cu_seqlens_host,
         chunk_indices=chunk_indices,
         layout=layout,
         scale=scale,
