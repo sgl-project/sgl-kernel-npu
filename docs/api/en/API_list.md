@@ -14,6 +14,7 @@
 | [fused_infer_attention_score_v2_out](operators/attention/fused_infer_attention_score_v2.md) | `ops-transformer`, `torch_native` |
 | [fused_infer_attention_score_v2_get_max_workspace](operators/attention/fused_infer_attention_score_v2.md) | `ops-transformer` |
 | [kv_quant_sparse_flash_attention_torch_npu](operators/attention/kv_quant_sparse_flash_attention_torch_npu.md) | `ops-transformer`, `torch_native` |
+| fused_scatter_copy_sparse_flash_attention_split | [fused_scatter_copy_sparse_flash_attention_split](operators/attention/fused_scatter_copy_sparse_flash_attention_split.md) |
 | [mla_prolog_v3](operators/attention/mla_prolog_v3.md) | `ops-transformer`, `torch_native` |
 | [paged_attention](operators/attention/paged_attention.md) | `ascend-transformer-boost`, `torch_native` |
 | [paged_attention_mla](operators/attention/paged_attention_mla.md) | `ascend-transformer-boost`, `torch_native` |
