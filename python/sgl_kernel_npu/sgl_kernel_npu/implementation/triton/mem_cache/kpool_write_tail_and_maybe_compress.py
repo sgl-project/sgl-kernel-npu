@@ -169,7 +169,8 @@ def _kpool_write_tail_and_maybe_compress_kernel(
                         tl.store(cache_ptr + cache_offsets, payload, mask=dim_mask)
                         tl.store(scale_ptr + write_loc, scale.to(tl.float16))
                     elif QUANTIZE_FP8:
-                        values = hadamard128(pooled)
+                        values = pooled.to(tl.bfloat16).to(tl.float32)
+                        values = hadamard128(values).to(tl.bfloat16).to(tl.float32)
                         amax = tl.max(tl.abs(values), axis=0)
                         scale = tl.maximum(amax, 1e-4) / 448.0
                         scaled = values / scale

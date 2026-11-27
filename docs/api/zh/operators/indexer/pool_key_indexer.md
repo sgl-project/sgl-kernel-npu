@@ -78,7 +78,7 @@ TND 空历史或全 padding 场景先调用 `prepare_pool_key_indexer_inputs`，
 
 ## cann_ops_transformer 后端
 
-要求 CANN 9.2.0。sgl-kernel-npu wheel 随包提供 ops-transformer 绑定和 vendor。绑定原样转发参数并返回完整的 CANN 结果元组。
+要求 CANN 9.2.0。A3 由 sgl-kernel-npu wheel 随包提供 ops-transformer 绑定和 vendor；A5 加载系统 `cann_ops_transformer` 包。绑定原样转发参数并返回完整的 CANN 结果元组。
 
 `auto`/`cann_ops_transformer` 为同一实现。
 

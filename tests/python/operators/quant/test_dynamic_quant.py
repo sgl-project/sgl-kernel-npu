@@ -55,11 +55,12 @@ CASES = [
 
 def generate_test_data(shape, dtype, mode, seed=7):
     """Indexer-style input on the NPU for each value mode."""
-    generator = torch.Generator(device="cpu").manual_seed(seed)
+    torch.manual_seed(seed)
+    torch.npu.manual_seed(seed)
     if mode == "zero":
         x = torch.zeros(shape, dtype=torch.float32)
     else:
-        x = torch.randn(shape, generator=generator, dtype=torch.float32) * 2
+        x = torch.randn(shape, dtype=torch.float32) * 2
     return x.to(dtype).to("npu")
 
 

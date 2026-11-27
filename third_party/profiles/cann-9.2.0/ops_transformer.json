@@ -1,8 +1,9 @@
 {
   "name": "sgl_ops_transformer",
+  "_comment": "Mainline operators and the A3 pool_key_indexer snapshot share this pinned commit and internal package. DSV4 bindings not supplied by this profile are built by ops_transformer_dsv4.json.",
   "ops": {
     "arch22": ["lightning_indexer_v2", "lightning_indexer_v2_metadata", "sparse_lightning_indexer", "sparse_flash_mla", "sparse_flash_mla_metadata", "mhc_pre_sinkhorn", "mhc_post", "pool_key_indexer"],
-    "arch35": ["flash_mla", "flash_mla_metadata", "mhc_pre_sinkhorn", "mhc_post", "pool_key_indexer"]
+    "arch35": ["flash_mla", "flash_mla_metadata", "mhc_pre_sinkhorn", "mhc_post"]
   },
   "repository": "https://gitcode.com/cann/ops-transformer.git",
   "commit": "d2f3da154d26a02e220dbd224f74dd1e5368b925",

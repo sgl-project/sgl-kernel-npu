@@ -28,6 +28,21 @@ EXACT_STANDARD = {
     "torch.float16": AccuracyStandard(atol=0, rtol=0),
     "torch.float32": AccuracyStandard(atol=0, rtol=0),
 }
+INT8_CACHE_STANDARD = {
+    "torch.bfloat16": AccuracyStandard(atol=5e-2, rtol=5e-2),
+}
+FP8_CACHE_STANDARD = {
+    "torch.bfloat16": AccuracyStandard(atol=1e-1, rtol=1e-1),
+}
+SCALE_STANDARD = {
+    "torch.float16": AccuracyStandard(atol=1e-3, rtol=1e-2),
+    "torch.float32": AccuracyStandard(atol=1e-6, rtol=1e-2),
+}
+
+
+def dequantize_cache(cache, scale):
+    rows = cache.float().reshape(-1, HEAD_DIM)
+    return (rows * scale.float().reshape(-1, 1)).reshape(cache.shape).to(torch.bfloat16)
 
 
 def generate_test_data(
@@ -42,6 +57,8 @@ def generate_test_data(
     invalid_batches=(),
     use_noncontiguous_inputs=False,
     num_programs=None,
+    cache_dtype=torch.bfloat16,
+    zero_keys=False,
 ):
     """Return operator kwargs and protected row IDs in the [-1, 128] view."""
     if write_start_values is None:
@@ -62,9 +79,19 @@ def generate_test_data(
     def randn(shape, dtype):
         return torch.randn(shape, dtype=torch.float32).to(dtype)
 
-    initial_cache = randn(
-        (cache_pages, PAGE_SIZE, 1, HEAD_DIM), torch.bfloat16
-    ).contiguous()
+    if cache_dtype == torch.bfloat16:
+        initial_cache = randn(
+            (cache_pages, PAGE_SIZE, 1, HEAD_DIM), torch.bfloat16
+        ).contiguous()
+        scale_cache = None
+    else:
+        initial_cache = torch.zeros(
+            (cache_pages, PAGE_SIZE, 1, HEAD_DIM), dtype=cache_dtype
+        ).contiguous()
+        scale_cache = torch.zeros(
+            cache_rows,
+            dtype=torch.float16 if cache_dtype == torch.int8 else torch.float32,
+        )
     initial_tail_k = randn(
         (batch_size, tail_size, HEAD_DIM), torch.bfloat16
     ).contiguous()
@@ -74,6 +101,8 @@ def generate_test_data(
     key = randn((total_rows, HEAD_DIM), torch.bfloat16)
     score = randn((total_rows, HEAD_DIM), score_dtype) * 4
     ape = randn((pool_size, HEAD_DIM), torch.float32) * 2
+    if zero_keys:
+        key.zero_()
     req_pool_indices = torch.arange(batch_size, dtype=torch.int64)
     write_start = torch.tensor(write_start_values, dtype=torch.int32)
     tail_logical_start = torch.tensor(
@@ -111,6 +140,8 @@ def generate_test_data(
         inputs["effective_n_per_batch"] = torch.tensor(
             effective_n_values, dtype=torch.int32
         ).contiguous()
+    if scale_cache is not None:
+        inputs["scale_cache"] = scale_cache.contiguous()
 
     if use_noncontiguous_inputs:
         dynamic_names = [
@@ -221,15 +252,50 @@ def generate_test_data(
             ),
             id="W-target-verify-b64-n4",
         ),
+        # Case 08: INT8 production target-verify shape; also profile this case.
+        pytest.param(
+            dict(
+                seed=600,
+                cache_dtype=torch.int8,
+                batch_size=64,
+                num_draft_tokens=4,
+                write_start_values=[row % 4 for row in range(64)],
+            ),
+            id="W-target-verify-b64-n4-int8",
+        ),
+        # Case 09: FP8 production target-verify shape; also profile this case on A5.
+        pytest.param(
+            dict(
+                seed=601,
+                cache_dtype=torch.float8_e4m3fn,
+                batch_size=64,
+                num_draft_tokens=4,
+                write_start_values=[row % 4 for row in range(64)],
+            ),
+            id="W-target-verify-b64-n4-fp8",
+        ),
+        # Case 10: Zero draft keys exercise the INT8 zero-scale fallback.
+        pytest.param(
+            dict(seed=602, cache_dtype=torch.int8, zero_keys=True),
+            id="int8-zero-keys",
+        ),
     ],
 )
 def test_kpool_write_tail_and_maybe_compress(case):
     """In-place: write cache/tails; preserve incomplete pools and invalid requests."""
     from sgl_kernel_npu.operators.mem_cache import kpool_write_tail_and_maybe_compress
 
+    if case.get("cache_dtype") == torch.float8_e4m3fn:
+        from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+        if get_hardware().generation != Generation.ARCH35:
+            pytest.skip("FP8 KPool cache coverage targets Ascend A5")
+
     # Inputs: named operator arguments and independent unchanged-row checks.
     inputs, unchanged = generate_test_data(**case)
-    state_names = ("index_k_cache", "tail_k", "tail_score")
+    state_names = ["index_k_cache", "tail_k", "tail_score"]
+    if "scale_cache" in inputs:
+        state_names.append("scale_cache")
     # Accuracy: isolate DUT/reference state for this in-place operator.
     impl, impl_ref = get_test_impls()
     accuracy_checked = get_skip_acc_check() is not True
@@ -243,9 +309,34 @@ def test_kpool_write_tail_and_maybe_compress(case):
         reference = dict(inputs, **{name: inputs[name].clone() for name in state_names})
         kpool_write_tail_and_maybe_compress(**reference, impl=impl_ref)
         kpool_write_tail_and_maybe_compress(**actual, impl=impl)
-        for name in state_names:
-            standard = CACHE_STANDARD if name == "index_k_cache" else EXACT_STANDARD
-            assert_accuracy(actual[name], reference[name], standard, path=name)
+        cache_dtype = inputs["index_k_cache"].dtype
+        if cache_dtype == torch.bfloat16:
+            assert_accuracy(
+                actual["index_k_cache"],
+                reference["index_k_cache"],
+                CACHE_STANDARD,
+                path="index_k_cache",
+            )
+        else:
+            standard = (
+                FP8_CACHE_STANDARD
+                if cache_dtype == torch.float8_e4m3fn
+                else INT8_CACHE_STANDARD
+            )
+            assert_accuracy(
+                dequantize_cache(actual["index_k_cache"], actual["scale_cache"]),
+                dequantize_cache(reference["index_k_cache"], reference["scale_cache"]),
+                standard,
+                path="index_k_cache.dequantized",
+            )
+            assert_accuracy(
+                actual["scale_cache"],
+                reference["scale_cache"],
+                SCALE_STANDARD,
+                path="scale_cache",
+            )
+        for name in ("tail_k", "tail_score"):
+            assert_accuracy(actual[name], reference[name], EXACT_STANDARD, path=name)
         # Independent invariant: untouched rows must match the original exactly.
         for name, rows in unchanged.items():
             assert_accuracy(
@@ -282,3 +373,20 @@ def test_kpool_write_tail_and_maybe_compress(case):
         warmup=warmup,
         active=active,
     )
+
+
+@pytest.mark.extra_checks
+@pytest.mark.parametrize("cache_dtype", [torch.int8, torch.float8_e4m3fn])
+def test_mtp_quantized_requires_scale_cache(cache_dtype):
+    from sgl_kernel_npu.operators.mem_cache import kpool_write_tail_and_maybe_compress
+
+    if cache_dtype == torch.float8_e4m3fn:
+        from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+        if get_hardware().generation != Generation.ARCH35:
+            pytest.skip("FP8 KPool cache coverage targets Ascend A5")
+
+    inputs, _ = generate_test_data(cache_dtype=cache_dtype)
+    inputs.pop("scale_cache")
+    with pytest.raises(AssertionError):
+        kpool_write_tail_and_maybe_compress(**inputs)

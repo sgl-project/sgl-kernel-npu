@@ -44,7 +44,7 @@ Write a batch of draft keys and scores into request-local tail rings. Compress n
 
 Pooling uses FP32 arithmetic and includes positional scores. Effective draft counts determine which pools are complete; all supplied draft rows are still written to the tail for valid batches. Invalid batches are skipped. The cache, tail keys and tail scores are updated in place.
 
-Ordinary FP8 stores E4M3FN keys with one FP32 scale per pooled row after Hadamard128, using `max(absmax, 1e-4) / 448`. FP8 queries apply the same Hadamard128 before quantization. BF16 and INT8 use the original basis for keys and queries, as do all tail keys.
+Ordinary FP8 stores E4M3FN keys with one FP32 scale per pooled row after Hadamard128, using `max(absmax, 1e-4) / 448`. The pooled key and Hadamard output are rounded to BF16 before FP8 quantization. FP8 queries apply the same Hadamard128 before quantization. BF16 and INT8 use the original basis for keys and queries, as do all tail keys.
 
 ## Parameters and return value
 

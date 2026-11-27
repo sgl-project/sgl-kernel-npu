@@ -1,23 +1,54 @@
 """Public pooled-key index selection backed by CANN ops-transformer."""
 
+from ..utils.cann import detect_cann_version
+from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
-_cann_fn = None
+_bundled_cann_fn = None
+_system_cann_fn = None
 _torch_native_fn = None
 
 
-@register_impl("indexer.pool_key_indexer", "auto")
-@register_impl("indexer.pool_key_indexer", "cann_ops_transformer")
-def _cann_impl(*args, **kwargs):
-    global _cann_fn
-    if _cann_fn is None:
+@register_impl(
+    "indexer.pool_key_indexer", "auto", supported_generations={Generation.ARCH22}
+)
+@register_impl(
+    "indexer.pool_key_indexer",
+    "cann_ops_transformer",
+    supported_generations={Generation.ARCH22},
+)
+def _bundled_cann_impl(*args, **kwargs):
+    global _bundled_cann_fn
+    if detect_cann_version() != "9.2.0":
+        raise RuntimeError("pool_key_indexer requires CANN 9.2.0")
+    if _bundled_cann_fn is None:
         from ..._third_party.sgl_ops_transformer.ops import (
             pool_key_indexer as cann_pool_key_indexer,
         )
 
-        _cann_fn = cann_pool_key_indexer
+        _bundled_cann_fn = cann_pool_key_indexer
 
-    return _cann_fn(*args, **kwargs)
+    return _bundled_cann_fn(*args, **kwargs)
+
+
+@register_impl(
+    "indexer.pool_key_indexer", "auto", supported_generations={Generation.ARCH35}
+)
+@register_impl(
+    "indexer.pool_key_indexer",
+    "cann_ops_transformer",
+    supported_generations={Generation.ARCH35},
+)
+def _system_cann_impl(*args, **kwargs):
+    global _system_cann_fn
+    if detect_cann_version() != "9.2.0":
+        raise RuntimeError("pool_key_indexer requires CANN 9.2.0")
+    if _system_cann_fn is None:
+        from cann_ops_transformer.ops import pool_key_indexer as cann_pool_key_indexer
+
+        _system_cann_fn = cann_pool_key_indexer
+
+    return _system_cann_fn(*args, **kwargs)
 
 
 @register_impl("indexer.pool_key_indexer", "torch_native")
@@ -56,7 +87,7 @@ def pool_key_indexer(
     """Select pooled top-k token indices and append the incomplete tail.
 
     ``auto`` and ``cann_ops_transformer`` load the bundled ops-transformer binding
-    on first execution. ``torch_native`` is an independent reference for
+    on A3 and the system CANN binding on A5. ``torch_native`` is an independent reference for
     BSND/BSND and TND/{TND, PA_BBND} layouts.
     ``pool_tail_k`` requires an int64 Tensor on CPU or NPU; ``actual_seq_*``
     accept the same Tensor inputs or None when optional for the layout.

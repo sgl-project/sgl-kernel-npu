@@ -46,7 +46,7 @@ def kpool_decode_update_and_maybe_write_cache(
 `block_tables` 保存物理 KV 页号。一个逻辑分配页包含 pool_size 个连续 KV 页，
 对应一个压缩 index 页，写入时使用后者。GLM-5.3-Flash 的逻辑页为 512 tokens，index 页为 128 行。
 
-普通 FP8 在 Hadamard128 后按 `max(absmax, 1e-4) / 448` 量化，写入 E4M3FN key 与每 pooled row 一个 FP32 scale。FP8 query 在量化前应用相同的 Hadamard128。BF16 和 INT8 的 key/query 以及所有模式的 tail key 均保持原坐标系。
+普通 FP8 在 Hadamard128 后按 `max(absmax, 1e-4) / 448` 量化，写入 E4M3FN key 与每 pooled row 一个 FP32 scale。pooled key 和 Hadamard 输出在 FP8 量化前先舍入到 BF16。FP8 query 在量化前应用相同的 Hadamard128。BF16 和 INT8 的 key/query 以及所有模式的 tail key 均保持原坐标系。FP8 要求 `head_dim=128`。
 
 ## 参数与返回值
 
@@ -65,7 +65,7 @@ def kpool_decode_update_and_maybe_write_cache(
 | `out_cache_loc` | `torch.Tensor` | `[>= B]` | 整数；wrapper 未显式检查 | 必填 | token cache 位置；某行对应项为 0 时跳过该行更新。只读。 |
 | `pool_size` | `int` | — | — | 必填 | 仅限关键字参数；一个 pool 的 token 数。 |
 | `slots_per_page` | `int` | — | — | 必填 | 仅限关键字参数；每个扁平 cache 页的 pool slot 数。 |
-| `head_dim` | `int` | — | — | `128` | 仅限关键字参数；通道宽度，必须等于 tail 的最后一维。 |
+| `head_dim` | `int` | — | — | `128` | 仅限关键字参数；通道宽度，必须等于 tail 的最后一维；FP8 要求 128。 |
 | `scale_cache` | `torch.Tensor` 或 `None` | `[num_pages * S]` | FP8 为 `torch.float32`，INT8 为 `torch.float16` | `None` | 与 FP8/INT8 key 一同写入的逐行反量化系数。 |
 | `impl` | `str` | — | — | `"auto"` | 仅限关键字；`auto`, `triton`, `torch_native` |
 
@@ -81,7 +81,7 @@ buf、tail_k和tail_score必须连续，不接受非连续的可变状态；只�
 
 ## torch_native 后端
 
-独立 PyTorch 按行处理、FP32 稳定 softmax 和页表地址写回。未复制所有 Triton 输入断言，调用方仍需满足公共布局约定。
+独立 PyTorch 按行处理、FP32 稳定 softmax 和页表地址写回。会检查 FP8 的 `head_dim=128` 约定；其余公共布局约定仍由调用方保证。
 
 ## 调用示例
 

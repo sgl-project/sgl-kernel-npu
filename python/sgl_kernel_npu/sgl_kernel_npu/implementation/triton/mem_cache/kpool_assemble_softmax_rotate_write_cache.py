@@ -130,7 +130,8 @@ def _kpool_assemble_softmax_rotate_write_cache_kernel(
                 tl.store(cache_ptr + out_offsets, payload, mask=head_mask)
                 tl.store(scale_ptr + write_loc, scale.to(tl.float16))
             elif QUANTIZE_FP8:
-                values = hadamard128(pooled)
+                values = pooled.to(tl.bfloat16).to(tl.float32)
+                values = hadamard128(values).to(tl.bfloat16).to(tl.float32)
                 amax = tl.max(tl.abs(values), axis=0)
                 scale = tl.maximum(amax, 1e-4) / 448.0
                 scaled = values / scale

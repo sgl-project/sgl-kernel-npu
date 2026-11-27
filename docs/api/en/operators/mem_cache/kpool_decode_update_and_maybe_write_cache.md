@@ -47,7 +47,7 @@ Pooling uses FP32 arithmetic and includes positional scores. Invalid request row
 pool_size consecutive KV pages and one compressed index page; cache writes use
 that compressed page. GLM-5.3-Flash uses 512-token logical pages and 128-row index pages.
 
-Ordinary FP8 stores E4M3FN keys with one FP32 scale per pooled row after Hadamard128, using `max(absmax, 1e-4) / 448`. FP8 queries apply the same Hadamard128 before quantization. BF16 and INT8 use the original basis for keys and queries, as do all tail keys.
+Ordinary FP8 stores E4M3FN keys with one FP32 scale per pooled row after Hadamard128, using `max(absmax, 1e-4) / 448`. The pooled key and Hadamard output are rounded to BF16 before FP8 quantization. FP8 queries apply the same Hadamard128 before quantization. BF16 and INT8 use the original basis for keys and queries, as do all tail keys. FP8 requires `head_dim=128`.
 
 ## Parameters and return value
 
@@ -66,7 +66,7 @@ Ordinary FP8 stores E4M3FN keys with one FP32 scale per pooled row after Hadamar
 | `out_cache_loc` | `torch.Tensor` | `[>= B]` | Integer; not explicitly checked by the wrapper | Required | Token cache locations; a zero entry suppresses that row's updates. Read only. |
 | `pool_size` | `int` | — | — | Required | Keyword-only number of tokens in one pool. |
 | `slots_per_page` | `int` | — | — | Required | Keyword-only number of pooled slots per flattened cache page. |
-| `head_dim` | `int` | — | — | `128` | Keyword-only channel width; must match the tail's last dimension. |
+| `head_dim` | `int` | — | — | `128` | Keyword-only channel width; must match the tail's last dimension. FP8 requires 128. |
 | `scale_cache` | `torch.Tensor` or `None` | `[num_pages * S]` | `torch.float32` (FP8) or `torch.float16` (INT8) | `None` | Per-row dequantization scales written with FP8/INT8 keys. |
 | `impl` | `str` | — | — | `"auto"` | Keyword-only; `auto`, `triton`, `torch_native` |
 
@@ -82,7 +82,7 @@ buf, tail_k and tail_score must be contiguous; noncontiguous mutable state is re
 
 ## torch_native backend
 
-Uses independent row-wise PyTorch processing, stable FP32 softmax, and page-table writes. It does not duplicate every Triton assertion; callers must satisfy the public layout contract.
+Uses independent row-wise PyTorch processing, stable FP32 softmax, and page-table writes. It checks the FP8 `head_dim=128` contract; callers must satisfy the remaining public layout contract.
 
 ## Example
 

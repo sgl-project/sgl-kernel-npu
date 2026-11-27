@@ -74,7 +74,8 @@ def kpool_write_tail_and_maybe_compress(
             if scale_cache is None:
                 cache_2d[write_row] = pooled.to(torch.bfloat16)
             elif index_k_cache.dtype == torch.float8_e4m3fn:
-                pooled = hadamard128(pooled)
+                pooled = pooled.to(torch.bfloat16).float()
+                pooled = hadamard128(pooled).to(torch.bfloat16).float()
                 scale = pooled.abs().amax().clamp_min(1e-4) / 448.0
                 cache_2d[write_row] = (
                     (pooled / scale).clamp(-448, 448).to(torch.float8_e4m3fn)

@@ -43,7 +43,7 @@ Assemble each pool from a prefix in the request's tail ring and a suffix in the 
 
 Pooling uses FP32 arithmetic. The write mask can leave selected cache rows unchanged; tail and chunk inputs remain read-only.
 
-Ordinary FP8 stores E4M3FN keys with one FP32 scale per pooled row after Hadamard128, using `max(absmax, 1e-4) / 448`. FP8 queries apply the same Hadamard128 before quantization. BF16 and INT8 use the original basis for keys and queries, as do all tail keys.
+Ordinary FP8 stores E4M3FN keys with one FP32 scale per pooled row after Hadamard128, using `max(absmax, 1e-4) / 448`. The pooled key and Hadamard output are rounded to BF16 before FP8 quantization. FP8 queries apply the same Hadamard128 before quantization. BF16 and INT8 use the original basis for keys and queries, as do all tail keys.
 
 ## Parameters and return value
 

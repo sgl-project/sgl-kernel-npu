@@ -32,6 +32,8 @@ def kpool_decode_update_and_maybe_write_cache(
         assert scale_cache.dtype == (
             torch.float16 if buf.dtype == torch.int8 else torch.float32
         )
+    if buf.dtype == torch.float8_e4m3fn:
+        assert head_dim == 128, "FP8 decode requires head_dim=128"
     batch = key.shape[0]
     if batch == 0:
         return
@@ -84,7 +86,8 @@ def kpool_decode_update_and_maybe_write_cache(
                     torch.bfloat16
                 )
             elif buf.dtype == torch.float8_e4m3fn:
-                compressed = hadamard128(compressed)
+                compressed = compressed.to(torch.bfloat16).float()
+                compressed = hadamard128(compressed).to(torch.bfloat16).float()
                 scale = compressed.abs().amax().clamp_min(1e-4) / 448.0
                 payload = (compressed / scale).clamp(-448, 448).to(torch.float8_e4m3fn)
                 buf.view(-1)[out_offset : out_offset + head_dim] = payload
@@ -97,5 +100,6 @@ def kpool_decode_update_and_maybe_write_cache(
                 quantized = rounded.trunc().clamp(-127, 127).to(torch.int8)
                 buf.view(-1)[out_offset : out_offset + head_dim] = quantized
                 scale_cache.view(-1)[out_offset // head_dim] = scale.to(torch.float16)
+        if pos_valid:
             tail_k[req, phys_slot] = key[row]
             tail_score[req, phys_slot] = slot_score[row]

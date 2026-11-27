@@ -79,7 +79,7 @@ query boundaries.
 
 ## cann_ops_transformer backend
 
-Requires CANN 9.2.0. The sgl-kernel-npu wheel bundles the ops-transformer binding and vendor. The binding forwards the arguments and returns the complete CANN result tuple.
+Requires CANN 9.2.0. On A3, the sgl-kernel-npu wheel bundles the ops-transformer binding and vendor. On A5, the operator loads the system `cann_ops_transformer` package. The binding forwards the arguments and returns the complete CANN result tuple.
 
 `auto` and `cann_ops_transformer` are aliases.
 

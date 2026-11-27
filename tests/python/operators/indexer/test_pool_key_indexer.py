@@ -32,11 +32,30 @@ def generate_test_data(
 ):
     """Positive, separated scores make pool ranking independent of roundoff."""
     pool_size = 4
-    q = torch.zeros(rows, 1, heads, 128, dtype=dtype)
-    q[..., 0] = 1
-    weights = torch.ones(rows, 1, heads, dtype=dtype)
-    keys = torch.zeros(rows, n_pools, 1, 128, dtype=dtype)
-    keys[..., 0] = torch.arange(1, n_pools + 1, dtype=dtype).view(1, n_pools, 1)
+    quant_mode = -1
+    q_descale = None
+    k_descale = None
+    if dtype == torch.int8:
+        quant_mode = 2
+    elif dtype == torch.float8_e4m3fn:
+        quant_mode = 0
+
+    if quant_mode == -1:
+        q = torch.zeros(rows, 1, heads, 128, dtype=dtype)
+        q[..., 0] = 1
+        weights = torch.ones(rows, 1, heads, dtype=dtype)
+        keys = torch.zeros(rows, n_pools, 1, 128, dtype=dtype)
+        keys[..., 0] = torch.arange(1, n_pools + 1, dtype=dtype).view(1, n_pools, 1)
+    else:
+        # Selecting every pool keeps the quantized production case independent
+        # of tie ordering while still exercising descale forwarding.
+        q = torch.ones(rows, 1, heads, 128, dtype=torch.float32).to(dtype)
+        keys = torch.ones(rows, n_pools, 1, 128, dtype=torch.float32).to(dtype)
+        weight_dtype = torch.float16 if quant_mode == 2 else torch.bfloat16
+        scale_dtype = torch.float16 if quant_mode == 2 else torch.float32
+        weights = torch.ones(rows, 1, heads, dtype=weight_dtype)
+        q_descale = torch.ones(rows, 1, heads, dtype=scale_dtype)
+        k_descale = torch.ones(rows, n_pools, 1, dtype=scale_dtype)
     inputs = dict(
         query=q,
         pool_key=keys,
@@ -47,13 +66,16 @@ def generate_test_data(
         layout_q="BSND",
         layout_k="BSND",
         mask_mode=3,
-        quant_mode=-1,
+        quant_mode=quant_mode,
         return_value=return_value,
+        q_descale=q_descale,
+        k_descale=k_descale,
     )
     if layout == "TND":
         inputs.update(
             query=q.squeeze(1),
             weights=weights.squeeze(1),
+            q_descale=None if q_descale is None else q_descale.squeeze(1),
             layout_q="TND",
             layout_k="PA_BBND",
             actual_seq_q=torch.arange(1, rows + 1, dtype=torch.int64),
@@ -147,10 +169,41 @@ def canonicalize_selected_pools(result, topk, pool_size):
             True,
             id="edge-multi-head-ranked-subset-values",
         ),
+        # Case 07: INT8 production TND shape; also profile this case on A3.
+        pytest.param(
+            "TND",
+            torch.int8,
+            16,
+            512,
+            32,
+            2048,
+            False,
+            id="W-glm53-flash-tnd-topk2048-int8",
+        ),
+        # Case 08: FP8 production TND shape; also profile this case on A5.
+        pytest.param(
+            "TND",
+            torch.float8_e4m3fn,
+            16,
+            512,
+            32,
+            2048,
+            False,
+            id="W-glm53-flash-tnd-topk2048-fp8",
+        ),
     ],
 )
 def test_pool_key_indexer(layout, dtype, rows, n_pools, heads, topk, return_value):
     from sgl_kernel_npu.operators.indexer import pool_key_indexer
+
+    if dtype in (torch.int8, torch.float8_e4m3fn):
+        from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+        generation = get_hardware().generation
+        if dtype == torch.int8 and generation != Generation.ARCH22:
+            pytest.skip("INT8 pooled-key indexer coverage targets Ascend A3")
+        if dtype == torch.float8_e4m3fn and generation != Generation.ARCH35:
+            pytest.skip("FP8 pooled-key indexer coverage targets Ascend A5")
 
     impl, impl_ref = get_test_impls()
     inputs = generate_test_data(layout, rows, n_pools, heads, dtype, topk, return_value)
@@ -180,7 +233,7 @@ def test_pool_key_indexer(layout, dtype, rows, n_pools, heads, topk, return_valu
         executor,
         enable_perf=(rows, n_pools, heads) in perf_shape
         and layout == "TND"
-        and dtype == torch.bfloat16,
+        and dtype in (torch.bfloat16, torch.int8, torch.float8_e4m3fn),
     )
 
 

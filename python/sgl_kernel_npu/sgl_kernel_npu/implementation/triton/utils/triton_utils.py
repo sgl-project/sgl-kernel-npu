@@ -46,4 +46,5 @@ def hadamard128(x):
     x = _hadamard128_stage(x, 4, 16)
     x = _hadamard128_stage(x, 2, 32)
     x = _hadamard128_stage(x, 1, 64)
-    return x * 0.08838834764831845
+    # 1 / sqrt(128), matching the normalized Sylvester Hadamard matrix.
+    return x * (128**-0.5)

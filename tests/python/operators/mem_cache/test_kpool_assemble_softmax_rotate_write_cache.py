@@ -27,6 +27,21 @@ CACHE_STANDARD = {
 EXACT_STANDARD = {
     "torch.bfloat16": AccuracyStandard(atol=0, rtol=0),
 }
+INT8_CACHE_STANDARD = {
+    "torch.bfloat16": AccuracyStandard(atol=5e-2, rtol=5e-2),
+}
+FP8_CACHE_STANDARD = {
+    "torch.bfloat16": AccuracyStandard(atol=1e-1, rtol=1e-1),
+}
+SCALE_STANDARD = {
+    "torch.float16": AccuracyStandard(atol=1e-3, rtol=1e-2),
+    "torch.float32": AccuracyStandard(atol=1e-6, rtol=1e-2),
+}
+
+
+def dequantize_cache(cache, scale):
+    rows = cache.float().reshape(-1, HEAD_DIM)
+    return (rows * scale.float().reshape(-1, 1)).reshape(cache.shape).to(torch.bfloat16)
 
 
 def generate_test_data(
@@ -41,6 +56,8 @@ def generate_test_data(
     total_tokens=None,
     use_noncontiguous_dynamic_inputs=False,
     num_programs=None,
+    cache_dtype=torch.bfloat16,
+    zero_keys=False,
 ):
     """Return operator kwargs and protected row IDs in the [-1, 128] view."""
     if n_from_tail_values is None:
@@ -72,12 +89,25 @@ def generate_test_data(
     def randn(shape, dtype):
         return torch.randn(shape, dtype=torch.float32).to(dtype)
 
-    initial_cache = randn((cache_pages, PAGE_SIZE, 1, HEAD_DIM), torch.bfloat16)
+    if cache_dtype == torch.bfloat16:
+        initial_cache = randn((cache_pages, PAGE_SIZE, 1, HEAD_DIM), torch.bfloat16)
+        scale_cache = None
+    else:
+        initial_cache = torch.zeros(
+            (cache_pages, PAGE_SIZE, 1, HEAD_DIM), dtype=cache_dtype
+        )
+        scale_cache = torch.zeros(
+            cache_rows,
+            dtype=torch.float16 if cache_dtype == torch.int8 else torch.float32,
+        )
     chunk_k = randn((chunk_rows, HEAD_DIM), torch.bfloat16)
     tail_k = randn((n_requests, tail_size, HEAD_DIM), torch.bfloat16)
     chunk_score = randn((chunk_rows, HEAD_DIM), score_dtype) * 4
     tail_score = randn((n_requests, tail_size, HEAD_DIM), score_dtype) * 4
     ape = randn((pool_size, HEAD_DIM), torch.float32) * 2
+    if zero_keys:
+        chunk_k.zero_()
+        tail_k.zero_()
 
     req_pool_idx = torch.tensor(
         [(row * 3 + 1) % n_requests for row in range(n_pools)],
@@ -115,6 +145,8 @@ def generate_test_data(
     }
     if write_mask is not None:
         inputs["write_mask"] = write_mask.contiguous()
+    if scale_cache is not None:
+        inputs["scale_cache"] = scale_cache.contiguous()
     if use_noncontiguous_dynamic_inputs:
         dynamic_names = ["chunk_k", "chunk_score", "ape", "loc"]
         if "write_mask" in inputs:
@@ -193,6 +225,42 @@ def generate_test_data(
             ),
             id="W-extend-q4096-np1024",
         ),
+        # Case 08: INT8 production extend shape; also profile this case.
+        pytest.param(
+            dict(
+                seed=500,
+                cache_dtype=torch.int8,
+                n_pools=1024,
+                pool_size=4,
+                tail_size=5,
+                n_from_tail_values=[2] * 1024,
+                total_tokens=4096,
+            ),
+            id="W-extend-q4096-np1024-int8",
+        ),
+        # Case 09: FP8 production extend shape; also profile this case on A5.
+        pytest.param(
+            dict(
+                seed=501,
+                cache_dtype=torch.float8_e4m3fn,
+                n_pools=1024,
+                pool_size=4,
+                tail_size=5,
+                n_from_tail_values=[2] * 1024,
+                total_tokens=4096,
+            ),
+            id="W-extend-q4096-np1024-fp8",
+        ),
+        # Case 10: Zero keys exercise the INT8 zero-scale fallback.
+        pytest.param(
+            dict(seed=502, cache_dtype=torch.int8, zero_keys=True),
+            id="int8-zero-keys",
+        ),
+        # Case 11: Zero keys exercise the FP8 minimum-scale clamp.
+        pytest.param(
+            dict(seed=503, cache_dtype=torch.float8_e4m3fn, zero_keys=True),
+            id="fp8-zero-keys",
+        ),
     ],
 )
 def test_kpool_assemble_softmax_rotate_write_cache(case):
@@ -201,9 +269,17 @@ def test_kpool_assemble_softmax_rotate_write_cache(case):
         kpool_assemble_softmax_rotate_write_cache,
     )
 
+    if case.get("cache_dtype") == torch.float8_e4m3fn:
+        from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+        if get_hardware().generation != Generation.ARCH35:
+            pytest.skip("FP8 KPool cache coverage targets Ascend A5")
+
     # Inputs: named operator arguments and independent unchanged-row checks.
     inputs, unchanged = generate_test_data(**case)
-    state_names = ("index_k_cache",)
+    state_names = ["index_k_cache"]
+    if "scale_cache" in inputs:
+        state_names.append("scale_cache")
     # Accuracy: isolate DUT/reference state for this in-place operator.
     impl, impl_ref = get_test_impls()
     accuracy_checked = get_skip_acc_check() is not True
@@ -219,12 +295,32 @@ def test_kpool_assemble_softmax_rotate_write_cache(case):
         reference = dict(inputs, **{name: inputs[name].clone() for name in state_names})
         kpool_assemble_softmax_rotate_write_cache(**reference, impl=impl_ref)
         kpool_assemble_softmax_rotate_write_cache(**actual, impl=impl)
-        assert_accuracy(
-            actual["index_k_cache"],
-            reference["index_k_cache"],
-            CACHE_STANDARD,
-            path="cache",
-        )
+        cache_dtype = inputs["index_k_cache"].dtype
+        if cache_dtype == torch.bfloat16:
+            assert_accuracy(
+                actual["index_k_cache"],
+                reference["index_k_cache"],
+                CACHE_STANDARD,
+                path="cache",
+            )
+        else:
+            standard = (
+                FP8_CACHE_STANDARD
+                if cache_dtype == torch.float8_e4m3fn
+                else INT8_CACHE_STANDARD
+            )
+            assert_accuracy(
+                dequantize_cache(actual["index_k_cache"], actual["scale_cache"]),
+                dequantize_cache(reference["index_k_cache"], reference["scale_cache"]),
+                standard,
+                path="cache.dequantized",
+            )
+            assert_accuracy(
+                actual["scale_cache"],
+                reference["scale_cache"],
+                SCALE_STANDARD,
+                path="scale_cache",
+            )
         # Independent invariant: untouched rows must match the original exactly.
         for name, rows in unchanged.items():
             assert_accuracy(
@@ -246,3 +342,41 @@ def test_kpool_assemble_softmax_rotate_write_cache(case):
     executor.accuracy_checked = accuracy_checked
     shape = (inputs["chunk_k"].shape[0], inputs["n_from_tail"].numel())
     check_performance(executor, enable_perf=shape in perf_shape)
+
+
+@pytest.mark.parametrize("cache_dtype", [torch.int8, torch.float8_e4m3fn])
+def test_assemble_quantized_all_masked_preserves_cache(cache_dtype):
+    from sgl_kernel_npu.operators.mem_cache import (
+        kpool_assemble_softmax_rotate_write_cache,
+    )
+
+    if cache_dtype == torch.float8_e4m3fn:
+        from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
+
+        if get_hardware().generation != Generation.ARCH35:
+            pytest.skip("FP8 KPool cache coverage targets Ascend A5")
+
+    impl, _ = get_test_impls()
+    require_test_impl(kpool_assemble_softmax_rotate_write_cache, impl)
+    cache = torch.full((4, HEAD_DIM), 7, dtype=torch.float32).to(cache_dtype)
+    scale = torch.full(
+        (4,), 0.25, dtype=torch.float16 if cache_dtype == torch.int8 else torch.float32
+    )
+    kpool_assemble_softmax_rotate_write_cache(
+        cache,
+        torch.randn(4, HEAD_DIM).bfloat16(),
+        torch.randn(4, HEAD_DIM),
+        torch.zeros(1, 4, HEAD_DIM, dtype=torch.bfloat16),
+        torch.zeros(1, 4, HEAD_DIM),
+        torch.tensor([0], dtype=torch.int64),
+        torch.tensor([0], dtype=torch.int32),
+        torch.tensor([0], dtype=torch.int64),
+        torch.tensor([0], dtype=torch.int32),
+        torch.zeros(4, HEAD_DIM),
+        torch.tensor([2], dtype=torch.int64),
+        write_mask=torch.tensor([False]),
+        scale_cache=scale,
+        impl=impl,
+    )
+    assert torch.all(cache.float() == 7)
+    assert torch.all(scale == 0.25)

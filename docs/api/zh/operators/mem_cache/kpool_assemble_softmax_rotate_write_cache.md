@@ -43,7 +43,7 @@ def kpool_assemble_softmax_rotate_write_cache(
 
 汇聚使用 FP32 计算。写入掩码可跳过指定 cache 行，tail 和 chunk 输入只读。
 
-普通 FP8 在 Hadamard128 后按 `max(absmax, 1e-4) / 448` 量化，写入 E4M3FN key 与每 pooled row 一个 FP32 scale。FP8 query 在量化前应用相同的 Hadamard128。BF16 和 INT8 的 key/query 以及所有模式的 tail key 均保持原坐标系。
+普通 FP8 在 Hadamard128 后按 `max(absmax, 1e-4) / 448` 量化，写入 E4M3FN key 与每 pooled row 一个 FP32 scale。pooled key 和 Hadamard 输出在 FP8 量化前先舍入到 BF16。FP8 query 在量化前应用相同的 Hadamard128。BF16 和 INT8 的 key/query 以及所有模式的 tail key 均保持原坐标系。
 
 ## 参数与返回值
 

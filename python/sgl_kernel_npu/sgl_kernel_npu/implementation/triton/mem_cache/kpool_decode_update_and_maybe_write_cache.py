@@ -159,7 +159,8 @@ def _kpool_decode_update_and_maybe_write_cache_kernel(
                 scale.to(tl.float16),
             )
         elif QUANTIZE_FP8:
-            values = hadamard128(pooled)
+            values = pooled.to(tl.bfloat16).to(tl.float32)
+            values = hadamard128(values).to(tl.bfloat16).to(tl.float32)
             amax = tl.max(tl.abs(values), axis=0)
             scale = tl.maximum(amax, 1e-4) / 448.0
             scaled = values / scale
@@ -207,6 +208,8 @@ def kpool_decode_update_and_maybe_write_cache(
 
     assert buf.dtype in (torch.bfloat16, torch.int8, torch.float8_e4m3fn)
     assert (scale_cache is not None) == (buf.dtype in (torch.int8, torch.float8_e4m3fn))
+    if buf.dtype == torch.float8_e4m3fn:
+        assert head_dim == 128, "FP8 decode requires head_dim=128"
     assert tail_k.dtype == torch.bfloat16
     assert key.dtype == torch.bfloat16
     assert tail_k.ndim == 3
