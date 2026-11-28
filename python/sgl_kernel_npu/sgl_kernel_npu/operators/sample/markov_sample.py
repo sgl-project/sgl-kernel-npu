@@ -47,10 +47,12 @@ def markov_sample_step_triton(
     logits_out=None,
     has_sampled_rows=None,
     exp_noise=None,
+    softcap=None,
+    vocab_limit=None,
     impl="auto",
     **kwargs,
 ):
-    """Dispatch to the selected backend, ignoring extra keyword arguments."""
+    """Dispatch to the selected backend, ignoring unknown extra keyword arguments."""
     return get_impl_by_name("sample.markov_sample_step_triton", impl)(
         base_logits=base_logits,
         bias=bias,
@@ -65,4 +67,6 @@ def markov_sample_step_triton(
         logits_out=logits_out,
         has_sampled_rows=has_sampled_rows,
         exp_noise=exp_noise,
+        softcap=softcap,
+        vocab_limit=vocab_limit,
     )

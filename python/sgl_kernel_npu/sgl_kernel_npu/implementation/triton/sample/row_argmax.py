@@ -26,13 +26,13 @@ def _maximum_with_nan(a, b):
     return tl.maximum(a, b, propagate_nan=tl.PropagateNan.ALL)
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["ROWS"])
 def _row_argmax_kernel(
     X,
     OUT,
     N: tl.constexpr,
     SX: tl.constexpr,
-    ROWS: tl.constexpr,
+    ROWS,
     TILES: tl.constexpr,
     TILE: tl.constexpr,
 ):

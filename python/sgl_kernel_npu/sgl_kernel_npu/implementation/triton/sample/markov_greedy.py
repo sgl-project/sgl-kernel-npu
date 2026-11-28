@@ -42,13 +42,13 @@ def _load_step_logits(
     return (base + bias).to(STEP_DTYPE).to(tl.float32)
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["ROWS"])
 def _markov_greedy_row_kernel(
     base_ptr,
     bias_ptr,
     out_ptr,
     V: tl.constexpr,
-    ROWS: tl.constexpr,
+    ROWS,
     BASE_STRIDE: tl.constexpr,
     BIAS_STRIDE: tl.constexpr,
     TILE: tl.constexpr,
@@ -82,14 +82,14 @@ def _markov_greedy_row_kernel(
         tl.store(out_ptr + row, result.to(tl.int64))
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["ROWS"])
 def _markov_greedy_add_argmax_kernel(
     base_ptr,
     bias_ptr,
     vals_ptr,
     idxs_ptr,
     V: tl.constexpr,
-    ROWS: tl.constexpr,
+    ROWS,
     BASE_STRIDE: tl.constexpr,
     BIAS_STRIDE: tl.constexpr,
     PARTS: tl.constexpr,
@@ -113,13 +113,13 @@ def _markov_greedy_add_argmax_kernel(
         tl.store(idxs_ptr + task, idx)
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["ROWS"])
 def _markov_greedy_combine_kernel(
     vals_ptr,
     idxs_ptr,
     out_ptr,
     PARTS: tl.constexpr,
-    ROWS: tl.constexpr,
+    ROWS,
     BLOCK: tl.constexpr,
 ):
     for row in range(tl.program_id(0), ROWS, tl.num_programs(0)):

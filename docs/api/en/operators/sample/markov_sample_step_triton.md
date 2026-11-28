@@ -21,18 +21,21 @@ from sgl_kernel_npu.operators.sample import markov_sample_step_triton
 def markov_sample_step_triton(
     *, base_logits, bias, temperatures, key, offset, step, step_dtype,
     vocab_start=0, gather=None, gather_logits=None, logits_out=None,
-    has_sampled_rows=None, exp_noise=None, impl="auto", **kwargs
+    has_sampled_rows=None, exp_noise=None, softcap=None, vocab_limit=None,
+    impl="auto", **kwargs
 ):
     ...
 ```
 
-Extra keyword arguments are accepted for upstream compatibility and ignored
-regardless of value. They are not forwarded to the backend.
+Unknown extra keyword arguments are accepted for upstream compatibility and
+ignored regardless of value. They are not forwarded to the backend.
 
 ## Description
 
 Adds `bias` to the valid columns of `base_logits`, rounds the resulting logits
-to `step_dtype`, and returns one global vocabulary index per row. A zero
+to `step_dtype`, optionally applies logit softcapping (`tanh(x / softcap) * softcap`,
+re-rounded to `step_dtype`) and masks global columns `>= vocab_limit` to `-inf`,
+and returns one global vocabulary index per row. A zero
 temperature selects the maximum logit; a nonzero temperature selects the maximum
 of `logit / temperature - log(noise)`, where noise is an exponential sample.
 Padding columns beyond the width of `bias` are excluded from selection. With
@@ -59,6 +62,8 @@ the selected backend; the table describes the implementation requirements.
 | `logits_out` | `torch.Tensor` or `None` | `[B, P]` locally, `[B, V_global]` when gathered; `step_dtype` | `None` | Optional output buffer mutated in place with rounded logits; unit column stride. |
 | `has_sampled_rows` | `bool` or `None` | - | `None` | Set to `False` only when every row is greedy; skips noise generation. |
 | `exp_noise` | `torch.Tensor` or `None` | Same shape as local logits, or gathered `logits_out`; `torch.float32` | `None` | Positive precomputed exponential samples on the input device, with unit column stride. The caller owns the RNG sequence. |
+| `softcap` | `float` or `None` | - | `None` | Optional logit softcap applied after rounding: `tanh(value / softcap) * softcap`, re-rounded to `step_dtype`. |
+| `vocab_limit` | `int` or `None` | - | `None` | Optional exclusive global vocabulary upper bound; columns with `vocab_start + col >= vocab_limit` are masked to `-inf`. |
 | `impl` | `str` | - | `"auto"` | `"auto"`, `"triton"`, or `"torch_native"`. |
 
 | Return value | Type | Shape / dtype | Description |

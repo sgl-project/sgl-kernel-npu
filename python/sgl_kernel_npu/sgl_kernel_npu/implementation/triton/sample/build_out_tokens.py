@@ -6,13 +6,13 @@ from sgl_kernel_npu.implementation.triton.utils.triton_utils import (
 )
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["N"])
 def _build_out_tokens_kernel(
     draft,
     correct_len,
     bonus,
     out,
-    N: tl.constexpr,
+    N,
     GAMMA: tl.constexpr,
     DRAFT_ROW: tl.constexpr,
     DRAFT_COL: tl.constexpr,

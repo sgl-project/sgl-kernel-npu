@@ -87,3 +87,37 @@ def test_build_out_tokens_zeroes_rejected_suffix(
     assert actual.dtype == torch.int64
     assert actual.device == inputs["draft_tokens"].device
     assert torch.equal(actual.cpu(), expected)
+
+
+@pytest.mark.extra_checks
+def test_build_out_tokens_reuses_compilation_across_batch_sizes():
+    from sgl_kernel_npu.implementation.triton.sample.build_out_tokens import (
+        _build_out_tokens_kernel,
+    )
+    from sgl_kernel_npu.operators.sample import build_out_tokens_triton
+
+    device = torch.get_default_device()
+    gamma = 7
+
+    def _run(rows):
+        kwargs = {
+            k: v.to(device) if isinstance(v, torch.Tensor) else v
+            for k, v in generate_test_data(rows, gamma).items()
+        }
+        actual = build_out_tokens_triton(**kwargs, impl="triton")
+        expected = build_out_tokens_triton(**kwargs, impl="torch_native")
+        assert torch.equal(actual, expected)
+
+    def _compiled_count(kernel):
+        if hasattr(kernel, "device_caches"):
+            return sum(len(entry[0]) for entry in kernel.device_caches.values())
+        return sum(len(entry) for entry in kernel.cache.values())
+
+    _run(1)
+    compiled_after_first = _compiled_count(_build_out_tokens_kernel)
+
+    for rows in (2, 3, 7, 16, 32):
+        _run(rows)
+
+    compiled_after_all = _compiled_count(_build_out_tokens_kernel)
+    assert compiled_after_all == compiled_after_first

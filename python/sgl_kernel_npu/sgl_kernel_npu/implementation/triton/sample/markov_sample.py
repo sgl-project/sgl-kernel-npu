@@ -13,6 +13,7 @@ import triton.language as tl
 from sgl_kernel_npu.implementation.triton.utils.triton_utils import (
     get_device_properties,
 )
+from triton.language.extra import libdevice
 
 # A 1024-word tile keeps the live Philox and reduction vectors within UB.
 _BLOCK = 1024
@@ -44,7 +45,7 @@ def _negative_log1p_negative(uniform):
     return tl.where(uniform == 0.0, 0.0, noise)
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["ROWS", "KEY", "STEP", "vocab_limit"])
 def _markov_sample_partial_kernel(
     B,
     X,
@@ -64,6 +65,8 @@ def _markov_sample_partial_kernel(
     ROWS,
     KEY,
     STEP,
+    softcap,
+    vocab_limit,
     BLOCK: tl.constexpr,
     ROUND: tl.constexpr,
     HAS_BIAS: tl.constexpr,
@@ -72,6 +75,8 @@ def _markov_sample_partial_kernel(
     SAMPLE: tl.constexpr,
     USE_EXP_NOISE: tl.constexpr,
     PHILOX_ROUNDS: tl.constexpr,
+    SOFTCAP: tl.constexpr = False,
+    LIMIT: tl.constexpr = False,
 ):
     for task in range(tl.program_id(0), ROWS * PARTS, tl.num_programs(0)):
         row, part = task // PARTS, task % PARTS
@@ -82,6 +87,12 @@ def _markov_sample_partial_kernel(
         if HAS_BIAS:
             value += tl.load(B + row * BS + i, valid, 0).to(tl.float32)
         value = _round_to_step_dtype(value, ROUND)
+        if SOFTCAP:
+            value = _round_to_step_dtype(
+                libdevice.tanh(value / softcap) * softcap, ROUND
+            )
+        if LIMIT:
+            value = tl.where(i + VOCAB_START < vocab_limit, value, -float("inf"))
         if STORE:
             tl.store(L + row * LS + i, value.to(L.dtype.element_ty), in_shard)
         if SELECT:
@@ -164,7 +175,7 @@ def _select_block(
     tl.store(P + (row * PARTS + part) * 2 + 1, idx.to(tl.float32, bitcast=True))
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["BS"])
 def _markov_sample_finish_kernel(
     P,
     OUT,
@@ -206,6 +217,8 @@ def _launch_partial(
     exp_noise=None,
     vocab_start=0,
     select=True,
+    softcap=None,
+    vocab_limit=None,
 ):
     # Returns the [rows, parts * 2] (value, index bits) candidates of each block.
     rows, padded = base_logits.shape
@@ -239,6 +252,8 @@ def _launch_partial(
         rows,
         key,
         step,
+        float(softcap or 0.0),
+        int(vocab_limit or 0),
         block,
         _ROUND_CODE[step_dtype],
         bias is not None,
@@ -247,6 +262,8 @@ def _launch_partial(
         has_sampled_rows is not False,
         exp_noise is not None,
         _PHILOX_ROUNDS,
+        softcap is not None,
+        vocab_limit is not None,
         num_warps=1,
     )
     return partial.view(rows, parts * 2)
@@ -297,6 +314,8 @@ def markov_sample_step_triton(
     logits_out: Optional[torch.Tensor] = None,
     has_sampled_rows: Optional[bool] = None,
     exp_noise: Optional[torch.Tensor] = None,
+    softcap: Optional[float] = None,
+    vocab_limit: Optional[int] = None,
 ) -> torch.Tensor:
     """Add bias, round to step_dtype and select global token ids on NPU.
 
@@ -348,7 +367,16 @@ def markov_sample_step_triton(
         local = torch.empty(
             base_logits.shape, device=base_logits.device, dtype=step_dtype
         )
-        launch(base_logits, bias, width=width, store=local, select=False)
+        launch(
+            base_logits,
+            bias,
+            width=width,
+            store=local,
+            select=False,
+            vocab_start=vocab_start,
+            softcap=softcap,
+            vocab_limit=vocab_limit,
+        )
         full = gather_logits(local)[:, : logits_out.shape[1]]
         gathered = launch(full, None, width=full.shape[1], store=logits_out)
     else:
@@ -358,6 +386,8 @@ def markov_sample_step_triton(
             width=width,
             store=logits_out,
             vocab_start=vocab_start,
+            softcap=softcap,
+            vocab_limit=vocab_limit,
         )
         gathered = partial if gather is None else gather(partial)
     parts = gathered.shape[1] // 2

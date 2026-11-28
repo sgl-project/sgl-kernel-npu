@@ -69,6 +69,8 @@ def markov_sample_step_torch(
     logits_out=None,
     has_sampled_rows=None,
     exp_noise=None,
+    softcap=None,
+    vocab_limit=None,
 ):
     # None draws the noise for every row: reading the temperatures on the
     # host would break a graph capture.
@@ -96,6 +98,11 @@ def markov_sample_step_torch(
     value = base_logits.to(torch.float32, copy=True)
     value[:, :width] += bias.float()
     value = value.to(step_dtype).float()
+    if softcap is not None:
+        value = (torch.tanh(value / softcap) * softcap).to(step_dtype).float()
+    if vocab_limit is not None:
+        columns = vocab_start + torch.arange(value.shape[1], device=value.device)
+        value[:, columns >= vocab_limit] = float("-inf")
     if gather is not None and logits_out is not None:
         full = gather_logits(value.to(step_dtype))[:, : logits_out.shape[1]]
         return markov_sample_step_torch(
