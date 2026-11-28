@@ -161,6 +161,9 @@
 | [chunk_delta_h](operators/attention/gdn/chunk_delta_h.md) | `triton`, `torch_native` |
 | [fia_prep](operators/attention/fia_prep.md) | `triton`, `torch_native` |
 | [fused_gdn_decode](operators/attention/gdn/fused_gdn_decode.md) | `triton`, `torch_native` |
+| [fused_gdn_prefill](operators/attention/gdn/fused_gdn_prefill.md) | `triton` (ARCH35), `torch_native` |
+| [fused_conv1d_decode_gating](operators/attention/gdn/fused_conv1d_decode_gating.md) | `triton`, `torch_native` |
+| [fused_rmsnorm_gated_strided_z](operators/attention/gdn/fused_rmsnorm_gated_strided_z.md) | `triton`, `torch_native` |
 | [gqa_share_sparse_decode](operators/attention/gqa_share_sparse_decode.md) | `triton`, `torch_native` |
 | [mhc_pre_sinkhorn](operators/hyper_conn/mhc_pre_sinkhorn.md) | `cann_ops_transformer`, `torch_native` |
 | [mhc_post](operators/hyper_conn/mhc_post.md) | `cann_ops_transformer`, `torch_native` |
