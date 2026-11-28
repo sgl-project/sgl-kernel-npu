@@ -1,6 +1,6 @@
-# ARCH22 W8A8 和 W4A8 分组矩阵乘、SwiGLU 与量化融合算子
+# A2/A3 W8A8 和 W4A8 分组矩阵乘、SwiGLU 与量化融合算子
 
-该 CANN 9.2 算子按 ARCH22（A2/A3）注册，复用现有 `ops_transformer` profile、
+该 CANN 9.2 算子为 A2/A3 注册，复用现有 `ops_transformer` profile、
 固定版本的 CANN 源码、vendor 打包和 `OpBuilder`，不依赖 vLLM 源码或安装包。
 
 ```bash

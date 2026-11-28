@@ -1,6 +1,6 @@
-# ARCH22 fused W8A8 and W4A8 grouped matmul, SwiGLU and quantization
+# A2/A3 fused W8A8 and W4A8 grouped matmul, SwiGLU and quantization
 
-This CANN 9.2 operator is registered for ARCH22 (A2/A3). It reuses the existing
+This CANN 9.2 operator is registered for A2/A3. It reuses the existing
 `ops_transformer` profile, pinned CANN source, vendor packaging and `OpBuilder`.
 No vLLM source or installation is required.
 
@@ -22,7 +22,7 @@ from sgl_kernel_npu.operators.moe import grouped_matmul_swiglu_quant
 ```
 
 `grouped_matmul_swiglu_quant(x, weight, weight_scale, x_scale, group_list, swiglu_limit=0.0, *, weight_assist_matrix=None, impl="auto")`
-accepts `auto`/`cann_ops_transformers_cann920` (ARCH22 CANN) or `torch_native` (independent eager reference).
+accepts `auto`/`cann_ops_transformers_cann920` (A2/A3 CANN) or `torch_native` (independent eager reference).
 
 The operator fuses grouped matrix multiplication, dequantization, SwiGLU and
 per-token dynamic quantization:
