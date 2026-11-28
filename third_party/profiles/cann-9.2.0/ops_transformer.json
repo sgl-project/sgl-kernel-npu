@@ -16,9 +16,10 @@
   "additional_builds": [
     {
       "name": "sgl_ops_transformer_experimental",
+      "commit": "53f5c56996be158b52579d9cdd484b54a38dfb64",
       "ops": {
-        "arch22": ["compressor_v2"],
-        "arch35": ["compressor_v2"]
+        "arch22": ["compressor_v2", "mhc_pre_sinkhorn_v2"],
+        "arch35": ["compressor_v2", "mhc_pre_sinkhorn_v2"]
       },
       "commands": [
         ["bash", "build.sh", "--pkg", "--experimental", "--soc={soc}", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"],
