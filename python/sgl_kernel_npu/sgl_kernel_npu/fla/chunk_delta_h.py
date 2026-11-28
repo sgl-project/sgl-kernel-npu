@@ -125,16 +125,17 @@ def chunk_gated_delta_rule_fwd_kernel_h_blockdim64_npu_kernel(
 
         v_new_base = v_new + bos * H * V + i_h * V
 
-        last_idx = min((i_t + 1) * BT, T) - 1
-        b_g_last = tl.load(g + bos + i_h * T_max + last_idx)
+        if USE_G:
+            last_idx = min((i_t + 1) * BT, T) - 1
+            b_g_last = tl.load(g + bos + i_h * T_max + last_idx)
 
-        offs_t = i_t * BT + tl.arange(0, BT)
-        mask_t = offs_t < T
-        g_ptr = g + bos + i_h * T_max
-        b_g = tl.load(g_ptr + offs_t, mask=mask_t, other=0.0)
+            offs_t = i_t * BT + tl.arange(0, BT)
+            mask_t = offs_t < T
+            g_ptr = g + bos + i_h * T_max
+            b_g = tl.load(g_ptr + offs_t, mask=mask_t, other=0.0)
 
-        b_g = safe_exp(b_g_last - b_g)
-        b_g_last = exp(b_g_last)
+            b_g = safe_exp(b_g_last - b_g)
+            b_g_last = exp(b_g_last)
 
         offs_t_v = (i_t * BT + tl.arange(0, BT))[:, None]
         mask_v1 = (offs_t_v < T) & (offs_v1 < V)
@@ -245,8 +246,11 @@ def chunk_gated_delta_rule_fwd_h_npu(
 
     v_new = torch.empty_like(u) if save_new_value else None
     # Pre-transpose tensors outside the kernel to ensure contiguous memory access within the kernel
-    # avoiding scattered (non-contiguous) access that may lead to axis expansion
-    g = g.transpose(1, 2).contiguous()
+    # avoiding scattered (non-contiguous) access that may lead to axis expansion.
+    # `g` is optional: without it the kernel is compiled with USE_G=False and never reads
+    # the pointer, so the layout fix-up has to be skipped instead of dereferencing None.
+    if g is not None:
+        g = g.transpose(1, 2).contiguous()
 
     def grid(meta):
         return (1, N * H)
