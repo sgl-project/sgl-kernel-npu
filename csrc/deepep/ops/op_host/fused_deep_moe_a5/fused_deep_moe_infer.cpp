@@ -1,4 +1,4 @@
-#if defined(__DAV_C310__)
+#if defined(DEEPEP_USE_MX_FUSED_MOE)
 #include <cstdint>
 #include "../ops_log.h"
 #include "../ops_error.h"
@@ -78,4 +78,4 @@ static ge::graphStatus InferDataType(gert::InferDataTypeContext *context)
 
 IMPL_OP(FusedDeepMoe).InferShape(InferShape).InferDataType(InferDataType);
 }  // namespace ge
-#endif  // defined(__DAV_C310__)
+#endif

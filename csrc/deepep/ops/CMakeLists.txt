@@ -3,6 +3,19 @@ project(opp)
 find_package(ASC REQUIRED)
 set(package_name ${vendor_name})
 
+if("$ENV{ASCEND_COMPUTE_UNIT}" MATCHES "^ascend960" AND NOT "${ASCEND_COMPUTE_UNIT}" MATCHES "^ascend960")
+    message(FATAL_ERROR "The Ascend960 preset selected an incompatible compute unit: ${ASCEND_COMPUTE_UNIT}")
+endif()
+
+set(DEEPEP_FUSED_MOE_1C1V OFF)
+set(DEEPEP_USE_MX_FUSED_MOE OFF)
+if("${ASCEND_COMPUTE_UNIT}" MATCHES "^ascend950")
+    set(DEEPEP_USE_MX_FUSED_MOE ON)
+elseif("${ASCEND_COMPUTE_UNIT}" MATCHES "^ascend960")
+    set(DEEPEP_USE_MX_FUSED_MOE ON)
+    set(DEEPEP_FUSED_MOE_1C1V ON)
+endif()
+
 npu_op_package(${package_name}
     TYPE RUN
     CONFIG

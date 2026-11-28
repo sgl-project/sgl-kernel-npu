@@ -5,8 +5,7 @@ aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} ops_srcs)
 
 set(a5_fused_deep_moe_host_dir ${CMAKE_CURRENT_SOURCE_DIR}/fused_deep_moe_a5)
 set(op_codegen_options -g)
-if("${ASCEND_COMPUTE_UNIT}" MATCHES "^ascend950")
-    # Keep one FusedDeepMoe definition visible to code generation on A5.
+if(DEEPEP_USE_MX_FUSED_MOE)
     list(REMOVE_ITEM ops_srcs
         ${CMAKE_CURRENT_SOURCE_DIR}/dispatch_ffn_combine_def.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/dispatch_ffn_combine_infer.cpp
@@ -18,7 +17,13 @@ if("${ASCEND_COMPUTE_UNIT}" MATCHES "^ascend950")
         ${a5_fused_deep_moe_host_dir}/fused_deep_moe.cpp
         ${a5_fused_deep_moe_host_dir}/fused_deep_moe_infer.cpp
         ${a5_fused_deep_moe_host_dir}/fused_deep_moe_tiling.cpp)
+    list(APPEND op_codegen_options -DDEEPEP_USE_MX_FUSED_MOE)
+endif()
+if("${ASCEND_COMPUTE_UNIT}" MATCHES "^ascend950")
     list(APPEND op_codegen_options -D__DAV_C310__)
+endif()
+if(DEEPEP_FUSED_MOE_1C1V)
+    list(APPEND op_codegen_options -DDEEPEP_FUSED_MOE_1C1V)
 endif()
 
 #1、使用npu_op_code_gen生成aclnn单算子调用代码、入图所需的原型定义代码等。
@@ -33,9 +38,7 @@ npu_op_code_gen(
 file(GLOB_RECURSE pregen_file
     "${CMAKE_CURRENT_SOURCE_DIR}/op_api/*"
 )
-if("${ASCEND_COMPUTE_UNIT}" MATCHES "^ascend950")
-    # Keep all existing ACLNN wrappers (including low-latency dispatch/combine)
-    # and overlay only the A5-specific FusedDeepMoe wrapper.
+if(DEEPEP_USE_MX_FUSED_MOE)
     list(REMOVE_ITEM pregen_file
         "${CMAKE_CURRENT_SOURCE_DIR}/op_api/aclnn_dispatch_ffn_combine.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/op_api/aclnn_dispatch_ffn_combine.h"
@@ -87,6 +90,15 @@ target_compile_options(cust_optiling PRIVATE                                   #
 )
 if("${ASCEND_COMPUTE_UNIT}" MATCHES "^ascend950")
     target_compile_definitions(cust_optiling PRIVATE __DAV_C310__)
+endif()
+if(DEEPEP_USE_MX_FUSED_MOE)
+    target_compile_definitions(cust_opapi PRIVATE DEEPEP_USE_MX_FUSED_MOE)
+    target_compile_definitions(cust_op_proto PRIVATE DEEPEP_USE_MX_FUSED_MOE)
+    target_compile_definitions(cust_optiling PRIVATE DEEPEP_USE_MX_FUSED_MOE)
+endif()
+if(DEEPEP_FUSED_MOE_1C1V)
+    target_compile_definitions(cust_op_proto PRIVATE DEEPEP_FUSED_MOE_1C1V)
+    target_compile_definitions(cust_optiling PRIVATE DEEPEP_FUSED_MOE_1C1V)
 endif()
 
 #5、使用npu_op_package_add添加上述Host侧库到对应package中。

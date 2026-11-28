@@ -55,7 +55,7 @@ BuildOps() {
   fi
 
   echo "msopgen gen -i ./AddCustom.json -c ai_core-${soc_version} -f pytorch -lan cpp -out ${proj_name}"
-  msopgen gen -i ./AddCustom.json -c ai_core-${soc_version} -f pytorch -lan cpp -out ${proj_name}
+  msopgen gen -i ./AddCustom.json -c ai_core-${soc_version} -f pytorch -lan cpp -out ${proj_name} || return $?
   rm -rf ./${proj_name}/op_host/add_custom*
   rm -rf ./${proj_name}/op_kernel/add_custom*
 }
@@ -80,14 +80,14 @@ BuildAscendProj() {
   cd $1
 
   if [[ "$3" == "deepep" ]]; then
-    BuildOps "ops_${soc_version}" ${soc_version}
+    BuildOps "ops_${soc_version}" ${soc_version} || return $?
     CopyOps "./ops" "./ops_${soc_version}"
     cp -r ./ops_${soc_version}/cmake ./ops
     cp -r ./ops_${soc_version}/CMakePresets.json ./ops
     DelOps "ops_${soc_version}"
     sed -i 's/customize/hwcomputing/g' ./ops/CMakePresets.json
   else
-    BuildOps "ops2_${soc_version}" ${soc_version}
+    BuildOps "ops2_${soc_version}" ${soc_version} || return $?
     CopyOps "./ops2" "./ops2_${soc_version}"
     cp -r ./ops2_${soc_version}/cmake ./ops2
     cp -r ./ops2_${soc_version}/CMakePresets.json ./ops2

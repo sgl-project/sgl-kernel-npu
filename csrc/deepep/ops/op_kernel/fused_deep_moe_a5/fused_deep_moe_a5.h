@@ -190,7 +190,11 @@ CATLASS_DEVICE void DispatchMxGmm1SwigluQuantFunc(
                                          epilogueParams,
                                          profile};
 
+#if defined(DEEPEP_FUSED_MOE_1C1V)
+    MatmulKernel kernel(fusedDeepMoeInfo.aivNum);
+#else
     MatmulKernel kernel;
+#endif
     kernel(params);
 }
 

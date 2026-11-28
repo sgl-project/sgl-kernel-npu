@@ -1,4 +1,4 @@
-#if defined(__DAV_C310__)
+#if defined(__DAV_C310__) || (defined(__NPU_ARCH__) && (__NPU_ARCH__ == 9201 || __NPU_ARCH__ == 9202))
 // The CANN kernel generator resolves FusedDeepMoe to this canonical filename.
 // Keep the A5 implementation in its private module while preserving that mapping.
 #include "fused_deep_moe_a5/entry.h"
@@ -28,4 +28,4 @@ extern "C" __global__ __aicore__ void fused_deep_moe(
         op.Process();
     }
 }
-#endif  // defined(__DAV_C310__)
+#endif
