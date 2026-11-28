@@ -34,7 +34,11 @@ fused_deep_moe(GM_ADDR x, GM_ADDR expert_ids, GM_ADDR gmm1_weight, GM_ADDR gmm1_
 {
     icache_preload(8);
     REGISTER_TILING_DEFAULT(FusedDeepMoeTilingData);
+#if defined(DEEPEP_FUSED_MOE_1C1V)
+    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_1);
+#else
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
+#endif
     GET_TILING_DATA(tiling_data, tiling);
 
     CALL_FUSED_DEEP_MOE_IF_TILINGKEY(0)

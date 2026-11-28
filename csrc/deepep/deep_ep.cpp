@@ -22,7 +22,7 @@ constexpr int64_t MXFP4_SCALES = 4;
 constexpr int64_t PER_TOKEN_FP8_SCALES = 5;
 constexpr int64_t FUSED_DEEP_MOE_ACTIVATION_SWIGLU = 0;
 constexpr int64_t FUSED_DEEP_MOE_ACTIVATION_SITU = 1;
-#if !defined(__DAV_C310__)
+#if !defined(DEEPEP_USE_MX_FUSED_MOE)
 constexpr int FUSED_DEEP_MOE_NO_QUANT = 0;
 constexpr int FUSED_DEEP_MOE_INT8_QUANT = 1;
 #endif
@@ -1110,7 +1110,7 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(
     EP_HOST_ASSERT(expert_scales_optional.dim() == 2);
     EP_HOST_ASSERT(x.size(0) == expert_ids.size(0));
     EP_HOST_ASSERT(expert_ids.sizes() == expert_scales_optional.sizes());
-#if !defined(__DAV_C310__)
+#if !defined(DEEPEP_USE_MX_FUSED_MOE)
     EP_HOST_ASSERT_S(quant_mode == FUSED_DEEP_MOE_NO_QUANT || quant_mode == FUSED_DEEP_MOE_INT8_QUANT,
                      "fused_deep_moe only supports quant_mode 0 (BF16) or 1 (INT8), got ", quant_mode);
 #endif
@@ -1127,7 +1127,7 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(
                     linear_beta.has_value() ? *linear_beta : 0.0);
     }
     const double linear_beta_value = linear_beta.value_or(0.0);
-#if !defined(__DAV_C310__)
+#if !defined(DEEPEP_USE_MX_FUSED_MOE)
     TORCH_CHECK(activation_type_i64 != FUSED_DEEP_MOE_ACTIVATION_SITU,
                 "SiTU requires the Ascend 950 fused_deep_moe kernel; the current fused_deep_moe kernel only supports "
                 "SwiGLU");
@@ -1144,7 +1144,7 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(
     int64_t h = x_shape[1];
     int64_t bs = expert_ids.size(0);
 
-#if defined(__DAV_C310__)
+#if defined(DEEPEP_USE_MX_FUSED_MOE)
     const int64_t capacity = num_max_dispatch_tokens_per_rank;
     TORCH_CHECK(capacity >= bs,
                 "num_max_dispatch_tokens_per_rank must be greater than or equal to the local token count, got ",

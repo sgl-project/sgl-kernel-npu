@@ -1,4 +1,4 @@
-#if defined(__DAV_C310__)
+#if defined(DEEPEP_USE_MX_FUSED_MOE)
 #include <cstdint>
 #include <string>
 
@@ -960,11 +960,19 @@ static ge::graphStatus FusedDeepMoeTilingFuncImpl(gert::TilingContext &context)
     auto ascendcPlatform = platform_ascendc::PlatformAscendC(context.GetPlatformInfo());
     uint32_t aicNum = ascendcPlatform.GetCoreNumAic();
     uint32_t aivNum = ascendcPlatform.GetCoreNumAiv();
+#if defined(DEEPEP_FUSED_MOE_1C1V)
+    OPS_ERR_IF(aicNum == 0 || aivNum < aicNum,
+               OPS_LOG_E(nodeName, "FusedDeepMoe 1C1V requires %u AIVs for %u blocks, but %u are available.",
+                         aicNum, aicNum, aivNum),
+               return ge::GRAPH_FAILED);
+    tilingData->fusedDeepMoeInfo.aivNum = aicNum;
+#else
     OPS_ERR_IF(aicNum == 0 || aivNum != aicNum * 2,
                OPS_LOG_E(nodeName, "A5 fused requires 1C2V, but got aicNum=%u and aivNum=%u.", aicNum, aivNum),
                return ge::GRAPH_FAILED);
-    tilingData->fusedDeepMoeInfo.aicNum = aicNum;
     tilingData->fusedDeepMoeInfo.aivNum = aivNum;
+#endif
+    tilingData->fusedDeepMoeInfo.aicNum = aicNum;
     OPS_ERR_IF(CheckData(nodeName, *tilingData) != ge::GRAPH_SUCCESS, OPS_LOG_E(nodeName, "CheckData failed."),
                return ge::GRAPH_FAILED);
     const gert::StorageShape *xActiveMaskStorageShape = context.GetOptionalInputShape(INPUT_SHARE_X_ACTIVE_MASK_INDEX);
@@ -1033,4 +1041,4 @@ IMPL_OP_OPTILING(FusedDeepMoe)
     .Tiling(FusedDeepMoeTilingFunc)
     .TilingParse<FusedDeepMoeCompileInfo>(TilingParseForFusedDeepMoe);
 }  // namespace optiling
-#endif  // defined(__DAV_C310__)
+#endif

@@ -40,6 +40,9 @@ set_target_properties(deep_ep_cpp PROPERTIES CXX_STANDARD 17)
 if("${DEEPEP_IS_A5_BUILD}" STREQUAL "ON")
     target_compile_definitions(deep_ep_cpp PRIVATE __DAV_C310__)
 endif()
+if(DEEPEP_IS_A5_BUILD OR "$ENV{ASCEND_COMPUTE_UNIT}" MATCHES "^ascend960(dt|pr)$")
+    target_compile_definitions(deep_ep_cpp PRIVATE DEEPEP_USE_MX_FUSED_MOE)
+endif()
 target_include_directories( deep_ep_cpp PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 
