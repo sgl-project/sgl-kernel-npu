@@ -1,18 +1,5 @@
 default_stages: [pre-commit, pre-push, manual]
 
-# Preserve upstream device headers tracked by upstream.json.
-exclude: |
-  (?x)^csrc/indexer/fused_lightning_indexer_manage/op_kernel/upstream/(
-    fused_lightning_indexer_manage_constants |
-    fused_lightning_indexer_manage_union |
-    fused_lightning_indexer_manage_workspace |
-    lightning_indexer_common |
-    lightning_indexer_kernel |
-    lightning_indexer_service_cube |
-    lightning_indexer_service_vector |
-    lightning_indexer_vector
-  )\.h$
-
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -65,6 +52,18 @@ repos:
     - id: clang-format
       types_or: [c++, cuda]
       args: [--style=file, --verbose]
+      # Preserve the upstream headers and the hashes pinned in upstream.json.
+      exclude: |
+        (?x)^csrc/indexer/fused_lightning_indexer_manage/op_kernel/upstream/(
+        fused_lightning_indexer_manage_constants |
+        fused_lightning_indexer_manage_union |
+        fused_lightning_indexer_manage_workspace |
+        lightning_indexer_common |
+        lightning_indexer_kernel |
+        lightning_indexer_service_cube |
+        lightning_indexer_service_vector |
+        lightning_indexer_vector
+        )\.h$
   - repo: https://github.com/kynan/nbstripout
     rev: 0.8.1
     hooks:
