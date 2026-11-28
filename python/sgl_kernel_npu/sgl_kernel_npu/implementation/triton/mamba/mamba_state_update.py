@@ -303,68 +303,138 @@ def _conv_state_rollback_kernel(
     draft_token_num,
     num_dims: tl.constexpr,
     conv_window_size: tl.constexpr,
-    layer_stride: tl.constexpr,
-    req_stride: tl.constexpr,
-    window_stride: tl.constexpr,
-    dim_stride: tl.constexpr,
+    layer_stride,
+    req_stride,
+    window_stride,
+    dim_stride,
+    active_tail: tl.constexpr,
+    BLOCK_D: tl.constexpr,
 ):
-    """
-    Triton kernel for rolling back conv states after MTP verification.
-
-    Args:
-        conv_states_ptr: Pointer to conv states tensor [num_layers, pool_size, conv_window_size, num_dims]
-        state_indices_ptr: Pointer to state indices [num_requests]
-        step_indices_ptr: Pointer to step indices (accepted steps) [num_requests]
-        draft_token_num: Number of draft tokens
-        num_dims: Number of dimensions
-        conv_window_size: Convolution window size
-        layer_stride: Stride for layer dimension
-        req_stride: Stride for request dimension
-        window_stride: Stride for window dimension
-        dim_stride: Stride for dimension dimension
-    """
+    """Strided Triton kernel for rolling back conv states after speculative verification."""
     pid_req = tl.program_id(0)
     pid_layer = tl.program_id(1)
 
-    # Load state and step indices
     state_idx = tl.load(state_indices_ptr + pid_req).to(tl.int64)
     step_idx = tl.load(step_indices_ptr + pid_req).to(tl.int64)
 
-    if step_idx < 0:
+    if state_idx < 0 or step_idx < 0:
         return
 
-    # Calculate rollback shift
     shift = (draft_token_num - 1) - step_idx
-
-    # Early exit if no rollback needed
-    if shift <= 0:
+    if shift <= 0 or shift >= conv_window_size:
         return
 
-    # Generate dimension offsets once
-    dim_offsets = tl.arange(0, num_dims)
+    base_offset = state_idx * tl.cast(req_stride, tl.int64) + tl.cast(
+        pid_layer, tl.int64
+    ) * tl.cast(layer_stride, tl.int64)
+    win_stride_i64 = tl.cast(window_stride, tl.int64)
+    dim_stride_i64 = tl.cast(dim_stride, tl.int64)
+    offs_d = tl.arange(0, BLOCK_D)
 
-    # Calculate base offset for this request and layer
-    base_offset = state_idx * req_stride + pid_layer * layer_stride
+    max_src = conv_window_size - shift
+    if active_tail > 0:
+        start_src = tl.maximum(max_src - active_tail, tl.cast(0, tl.int64))
+    else:
+        start_src = tl.cast(0, tl.int64)
+    n_rows = (max_src - start_src).to(tl.int32)
 
-    # Process each window position that needs to be moved
-    # Move data from [0, conv_window_size-shift) to [shift, conv_window_size)
-    for window_idx1 in range(0, conv_window_size - shift):
-        window_idx = conv_window_size - shift - 1 - window_idx1
+    for d0 in range(0, num_dims, BLOCK_D):
+        d_idx = d0 + offs_d
+        d_mask = d_idx < num_dims
+        d_off = d_idx.to(tl.int64) * dim_stride_i64
+        for step_back in range(0, n_rows):
+            window_idx = max_src - 1 - step_back
+            src_ptr = (
+                conv_states_ptr + base_offset + window_idx * win_stride_i64 + d_off
+            )
+            dst_ptr = (
+                conv_states_ptr
+                + base_offset
+                + (window_idx + shift) * win_stride_i64
+                + d_off
+            )
+            data = tl.load(src_ptr, mask=d_mask)
+            tl.store(dst_ptr, data, mask=d_mask)
 
-        # Calculate source and destination pointers
-        src_offset = base_offset + window_idx * window_stride + dim_offsets * dim_stride
-        src_ptr = conv_states_ptr + src_offset
 
-        dst_offset = (
-            base_offset
-            + (window_idx + shift) * window_stride
-            + dim_offsets * dim_stride
-        )
-        dst_ptr = conv_states_ptr + dst_offset
+@triton.jit(do_not_specialize=["B", "NUM_LAYERS", "DRAFT_NUM"])
+def _conv_state_rollback_persistent_kernel(
+    CONV_ptr,
+    STATE_IDX_ptr,
+    STEP_IDX_ptr,
+    B,
+    NUM_LAYERS,
+    DRAFT_NUM,
+    layer_stride,
+    slot_stride,
+    win_stride,
+    WIN_LEN: tl.constexpr,
+    NUM_DIMS: tl.constexpr,
+    ACTIVE_TAIL: tl.constexpr,
+    BLOCK_D: tl.constexpr,
+):
+    """Persistent 56-AIV tiled rollback for contiguous 4D conv_states.
 
-        # Load and store all dimensions at once
-        data = tl.load(src_ptr)
-        tl.store(dst_ptr, data)
+    Supports both full-window rollback (ACTIVE_TAIL == 0) and active-tail-only
+    rollback (e.g. ACTIVE_TAIL == 3 for kernel_size=4 depthwise causal conv1d).
+    """
+    pid = tl.program_id(0)
+    n_progs = tl.num_programs(0)
+    n_d = (NUM_DIMS + BLOCK_D - 1) // BLOCK_D
+    total_tasks = NUM_LAYERS * B * n_d
+    offs_d = tl.arange(0, BLOCK_D)
+
+    for task in range(pid, total_tasks, n_progs):
+        i_l = task // (B * n_d)
+        rem = task - i_l * (B * n_d)
+        i_b = rem // n_d
+        i_d = rem - i_b * n_d
+
+        step_idx = tl.load(STEP_IDX_ptr + i_b).to(tl.int64)
+        shift = (DRAFT_NUM - 1) - step_idx
+        if step_idx >= 0 and shift > 0 and shift < WIN_LEN:
+            slot = tl.load(STATE_IDX_ptr + i_b).to(tl.int64)
+            if slot >= 0:
+                d_idx = i_d * BLOCK_D + offs_d
+                d_mask = d_idx < NUM_DIMS
+                base = (
+                    tl.cast(i_l, tl.int64) * layer_stride
+                    + slot * slot_stride
+                    + d_idx.to(tl.int64)
+                )
+                max_src = WIN_LEN - shift
+                if ACTIVE_TAIL == 3 and max_src >= 3:
+                    src0 = max_src - 3
+                    r0 = tl.load(CONV_ptr + base + src0 * win_stride, mask=d_mask)
+                    r1 = tl.load(CONV_ptr + base + (src0 + 1) * win_stride, mask=d_mask)
+                    r2 = tl.load(CONV_ptr + base + (src0 + 2) * win_stride, mask=d_mask)
+                    tl.store(
+                        CONV_ptr + base + (WIN_LEN - 3) * win_stride, r0, mask=d_mask
+                    )
+                    tl.store(
+                        CONV_ptr + base + (WIN_LEN - 2) * win_stride, r1, mask=d_mask
+                    )
+                    tl.store(
+                        CONV_ptr + base + (WIN_LEN - 1) * win_stride, r2, mask=d_mask
+                    )
+                else:
+                    if ACTIVE_TAIL > 0:
+                        start_src = tl.maximum(
+                            max_src - ACTIVE_TAIL, tl.cast(0, tl.int64)
+                        )
+                    else:
+                        start_src = tl.cast(0, tl.int64)
+                    n_rows = (max_src - start_src).to(tl.int32)
+                    for step_back in range(0, n_rows):
+                        src_row = max_src - 1 - step_back
+                        val = tl.load(
+                            CONV_ptr + base + src_row * win_stride, mask=d_mask
+                        )
+                        tl.store(
+                            CONV_ptr + base + (src_row + shift) * win_stride,
+                            val,
+                            mask=d_mask,
+                        )
 
 
 def conv_state_rollback(
@@ -372,19 +442,21 @@ def conv_state_rollback(
     state_indices: torch.Tensor,  # [num_requests]
     step_indices: torch.Tensor,  # [num_requests]
     draft_token_num: int,
+    active_tail: int | None = None,
 ):
-    """
-    Roll back conv states after MTP verification using Triton kernel.
+    """Roll back conv states after speculative verification using Triton kernel.
 
     Args:
         conv_states: Conv states tensor [num_layers, pool_size, conv_window_size, num_dims]
         state_indices: State indices for each request [num_requests]
         step_indices: Accepted steps for each request [num_requests]
         draft_token_num: Number of draft tokens
+        active_tail: Optional number of trailing active window rows to restore
+            (e.g. ``conv_kernel_size - 1 == 3``). ``None`` rolls back the full window.
     """
     num_requests = state_indices.shape[0]
     if num_requests == 0:
-        return
+        return None
 
     if conv_states.ndim != 4:
         raise ValueError(f"conv_states must be 4D, got {conv_states.ndim}D")
@@ -392,24 +464,46 @@ def conv_state_rollback(
         raise ValueError("state_indices and step_indices must be 1D")
     if state_indices.shape[0] != step_indices.shape[0]:
         raise ValueError("state_indices and step_indices must have the same length")
+    if active_tail is not None and (
+        isinstance(active_tail, bool)
+        or not isinstance(active_tail, int)
+        or active_tail < 1
+    ):
+        raise ValueError(
+            f"active_tail must be a positive int or None, got {active_tail!r}"
+        )
 
     num_layers = conv_states.shape[0]
     conv_window_size = conv_states.shape[2]
     num_dims = conv_states.shape[3]
+    tail_val = 0 if active_tail is None else min(active_tail, conv_window_size)
 
-    # Get strides (in elements, not bytes)
-    layer_stride = conv_states.stride(0)
-    req_stride = conv_states.stride(1)
-    window_stride = conv_states.stride(2)
-    dim_stride = conv_states.stride(3)
-
-    # Ensure indices are int32 and contiguous
     state_indices = state_indices.to(torch.int32).contiguous()
     step_indices = step_indices.to(torch.int32).contiguous()
 
-    # Each program rolls back one request's state for one layer.
-    grid = (num_requests, num_layers)
+    if conv_states.is_contiguous():
+        block_d = min(8192, triton.next_power_of_2(max(1, num_dims)))
+        n_d = (num_dims + block_d - 1) // block_d
+        grid = (min(56, num_layers * num_requests * n_d),)
+        _conv_state_rollback_persistent_kernel[grid](
+            conv_states,
+            state_indices,
+            step_indices,
+            num_requests,
+            num_layers,
+            draft_token_num,
+            conv_states.stride(0),
+            conv_states.stride(1),
+            conv_states.stride(2),
+            WIN_LEN=conv_window_size,
+            NUM_DIMS=num_dims,
+            ACTIVE_TAIL=tail_val,
+            BLOCK_D=block_d,
+        )
+        return conv_states
 
+    block_d = min(4096, triton.next_power_of_2(max(1, num_dims)))
+    grid = (num_requests, num_layers)
     _conv_state_rollback_kernel[grid](
         conv_states,
         state_indices,
@@ -417,10 +511,103 @@ def conv_state_rollback(
         draft_token_num,
         num_dims,
         conv_window_size,
-        layer_stride,
-        req_stride,
-        window_stride,
-        dim_stride,
+        conv_states.stride(0),
+        conv_states.stride(1),
+        conv_states.stride(2),
+        conv_states.stride(3),
+        active_tail=tail_val,
+        BLOCK_D=block_d,
     )
 
+    return conv_states
+
+
+@triton.jit(do_not_specialize=["NUM_LAYERS", "B", "ROW_ELEMS"])
+def _copy_tracked_conv_states_kernel(
+    CONV_ptr,
+    SRC_SLOTS_ptr,
+    DST_SLOTS_ptr,
+    TRACK_STEPS_ptr,
+    NUM_LAYERS,
+    B,
+    ROW_ELEMS,
+    layer_stride,
+    slot_stride,
+    BLOCK_E: tl.constexpr,
+):
+    """Persistent 56-AIV cross-layer conv_state snapshot copy for tracked rows only."""
+    pid = tl.program_id(0)
+    n_progs = tl.num_programs(0)
+    total_tasks = NUM_LAYERS * B
+    offs = tl.arange(0, BLOCK_E)
+
+    for task in range(pid, total_tasks, n_progs):
+        i_l = task // B
+        i_b = task - i_l * B
+        step = tl.load(TRACK_STEPS_ptr + i_b).to(tl.int64)
+        if step >= 0:
+            src = tl.load(SRC_SLOTS_ptr + i_b).to(tl.int64)
+            dst = tl.load(DST_SLOTS_ptr + i_b).to(tl.int64)
+            if src >= 0 and dst >= 0 and src != dst:
+                base = tl.cast(i_l, tl.int64) * layer_stride
+                src_base = base + src * slot_stride
+                dst_base = base + dst * slot_stride
+                for off0 in range(0, ROW_ELEMS, BLOCK_E):
+                    idx = off0 + offs
+                    mask = idx < ROW_ELEMS
+                    val = tl.load(CONV_ptr + src_base + idx, mask=mask)
+                    tl.store(CONV_ptr + dst_base + idx, val, mask=mask)
+
+
+def copy_tracked_conv_states(
+    conv_states: torch.Tensor,
+    src_slots: torch.Tensor,
+    dst_slots: torch.Tensor,
+    track_steps: torch.Tensor,
+) -> torch.Tensor:
+    """Copy ``conv_states[:, src_slots[b]]`` to ``conv_states[:, dst_slots[b]]`` where ``track_steps[b] >= 0``.
+
+    Skips rows with ``track_steps[b] < 0``, negative slot indices, or ``src == dst``,
+    avoiding full-batch self-copy overhead across all layers during speculative Radix tracking.
+    """
+    if conv_states.ndim < 2:
+        raise ValueError(f"conv_states must be at least 2D, got {conv_states.ndim}D")
+    if src_slots.ndim != 1 or dst_slots.ndim != 1 or track_steps.ndim != 1:
+        raise ValueError("src_slots, dst_slots, and track_steps must be 1D")
+    B = dst_slots.shape[0]
+    if src_slots.shape[0] != B or track_steps.shape[0] != B:
+        raise ValueError("src_slots, dst_slots, and track_steps must have equal length")
+    if B == 0:
+        return conv_states
+    if not conv_states.is_contiguous():
+        valid = (
+            (track_steps >= 0)
+            & (src_slots >= 0)
+            & (dst_slots >= 0)
+            & (src_slots != dst_slots)
+        )
+        if valid.any():
+            src_v = src_slots[valid].to(torch.int64)
+            dst_v = dst_slots[valid].to(torch.int64)
+            conv_states[:, dst_v] = conv_states[:, src_v].clone()
+        return conv_states
+
+    num_layers = conv_states.shape[0]
+    row_elems = conv_states.stride(1)
+    src_c = src_slots.contiguous()
+    dst_c = dst_slots.contiguous()
+    steps_c = track_steps.contiguous()
+    grid = (min(56, num_layers * B),)
+    _copy_tracked_conv_states_kernel[grid](
+        conv_states,
+        src_c,
+        dst_c,
+        steps_c,
+        num_layers,
+        B,
+        row_elems,
+        conv_states.stride(0),
+        conv_states.stride(1),
+        BLOCK_E=4096,
+    )
     return conv_states

@@ -225,6 +225,7 @@ installation steps; see
 | [move_intermediate_cache](operators/mamba/move_intermediate_cache.md) | `triton`, `torch_native` |
 | [move_intermediate_cache_kda](operators/mamba/move_intermediate_cache_kda.md) | `triton`, `torch_native` |
 | [conv_state_rollback](operators/mamba/conv_state_rollback.md) | `triton`, `torch_native` |
+| [copy_tracked_conv_states](operators/mamba/copy_tracked_conv_states.md) | `triton`, `torch_native` |
 | [speculative_state_scatter](operators/mamba/speculative_state_scatter.md) | `triton`, `torch_native` |
 | [alloc_extend_indices](operators/mem_cache/alloc_extend_indices.md) | `triton`, `torch_native` |
 | [store_kv_cache_prefix_valid](operators/mem_cache/store_kv_cache_prefix_valid.md) | `triton`, `torch_native` |

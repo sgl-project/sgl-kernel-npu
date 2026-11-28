@@ -16,13 +16,19 @@ from sgl_kernel_npu.operators.mamba import conv_state_rollback
 
 
 def conv_state_rollback(
-    conv_states, state_indices, step_indices, draft_token_num, *, impl="auto"
+    conv_states,
+    state_indices,
+    step_indices,
+    draft_token_num,
+    *,
+    active_tail=None,
+    impl="auto",
 ): ...
 ```
 
 ## Description
 
-Rolls convolution history to the right by draft_token_num-1-step for each selected request across all layers. Only the shifted suffix is overwritten; the leading part stays unchanged. Non-contiguous state views retain their original storage and strides.
+Rolls convolution history to the right by draft_token_num-1-step for each selected request across all layers. Only the shifted suffix is overwritten; the leading part stays unchanged. When `active_tail` is provided (for example `active_tail=3` for `kernel_size=4` causal depthwise conv1d), only the trailing `active_tail` active window rows are restored to reduce HBM traffic. Non-contiguous state views retain their original storage and strides.
 
 ## Parameters and return value
 
@@ -34,6 +40,7 @@ All tensors must be on the same NPU device.
 | `state_indices` | Tensor | `Required` | Integer [requests] rollback slots, converted to INT32. |
 | `step_indices` | Tensor | `Required` | Integer [requests] accepted-step indices, converted to INT32. |
 | `draft_token_num` | int | `Required` | Number of draft tokens. |
+| `active_tail` | int or None | `None` | Optional number of trailing active window rows to restore; `None` rolls back the full window. |
 | `impl` | str | `'auto'` | auto selects triton; explicit backend selection. |
 
 | Return | Type | Description |
@@ -43,7 +50,8 @@ All tensors must be on the same NPU device.
 ## triton backend
 
 - Computes each request’s rollback shift as draft_token_num-1-step_indices and moves the history window in the original state view.
-- Uses state strides for noncontiguous layouts. Requests requiring no shift remain unchanged; nonempty calls return the original state tensor.
+- Uses a persistent 56-AIV channel-tiled kernel (`BLOCK_D <= 8192`) for contiguous 4D states, supporting arbitrary non-power-of-two channel widths (such as `10240`), and preloads all 3 source rows into registers for `active_tail=3`.
+- Uses a channel-tiled strided kernel for non-contiguous layouts, preserving original storage and strides.
 
 ## torch_native backend
 

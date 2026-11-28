@@ -47,13 +47,14 @@ def _assert_state_accuracy(actual, expected):
     assert_accuracy(ratio < 1e-3, True, path=f"relative RMS error {ratio:.6g} < 1e-3")
 
 
-def _check_inplace(operator, args, monitor, *, exact_output=False):
+def _check_inplace(operator, args, monitor, *, kwargs=None, exact_output=False):
     impl, impl_ref = get_test_impls()
-    executor = make_executor(operator, args=args)
+    kw = dict(kwargs or {})
+    executor = make_executor(operator, args=args, kwargs=kw)
     if not get_skip_acc_check():
         require_distinct_impls(operator, impl, impl_ref)
         reference = tuple(t.clone() if isinstance(t, torch.Tensor) else t for t in args)
-        operator(*reference, impl=impl_ref)
+        operator(*reference, **kw, impl=impl_ref)
         actual = executor()
         if exact_output:
             assert_accuracy(args[0], reference[0], standard=exact)
@@ -236,3 +237,72 @@ def test_kimi_k31_move_cache_skipped_steps(batch, pattern):
         torch.testing.assert_close(
             state.index_select(1, skipped_slots), skipped_before, atol=0, rtol=0
         )
+
+
+@pytest.mark.parametrize(
+    "shape,active_tail",
+    [
+        pytest.param((48, 40, 10240, 4, 32), 3, id="qwen38-27b-mtp-bs32-tail3"),
+        pytest.param((48, 40, 10240, 8, 32), 3, id="qwen38-27b-dspark-bs32-tail3"),
+        pytest.param((48, 40, 10240, 8, 8), None, id="qwen38-27b-dspark-bs8-full"),
+        pytest.param((24, 40, 8192, 4, 32), 3, id="qwen35-9b-mtp-bs32-tail3"),
+        pytest.param((4, 12, 1025, 6, 5), 3, id="edge-unaligned-dims-tail3"),
+    ],
+)
+def test_conv_state_rollback_tiled_and_active_tail(shape, active_tail):
+    from sgl_kernel_npu.operators.mamba import conv_state_rollback
+
+    args = generate_rollback_data(shape, transposed=False)
+    monitor = shape == (48, 40, 10240, 8, 32) and active_tail == 3
+    _check_inplace(
+        conv_state_rollback,
+        args,
+        monitor,
+        kwargs={"active_tail": active_tail},
+        exact_output=True,
+    )
+
+
+def generate_copy_tracked_data(
+    layers, pool, win, dims, batch, pattern, noncontig=False
+):
+    torch.manual_seed(101)
+    storage = torch.randn(layers, pool, win, dims, dtype=torch.bfloat16)
+    states = storage.transpose(-1, -2) if noncontig else storage
+    perm = torch.randperm(pool)
+    src = perm[:batch].to(torch.int64)
+    dst = perm[batch : 2 * batch].to(torch.int64)
+    if pattern == "all_skip":
+        steps = torch.full((batch,), -1, dtype=torch.int64)
+    elif pattern == "self_and_mixed":
+        steps = torch.arange(batch, dtype=torch.int64) % 4
+        steps[1::2] = -1
+        if batch >= 3:
+            dst[0] = src[0]  # self-copy must be a no-op
+            dst[2] = -1  # negative dst must be skipped
+    else:
+        steps = torch.arange(batch, dtype=torch.int64) % 4
+        steps[::3] = -1
+    return states, src, dst, steps
+
+
+@pytest.mark.parametrize(
+    "layers,pool,win,dims,batch,pattern,noncontig",
+    [
+        pytest.param(48, 72, 10, 10240, 32, "mixed", False, id="qwen38-27b-bs32-mixed"),
+        pytest.param(
+            48, 72, 10, 10240, 32, "all_skip", False, id="qwen38-27b-bs32-skip"
+        ),
+        pytest.param(24, 48, 6, 8192, 16, "self_and_mixed", False, id="qwen35-9b-bs16"),
+        pytest.param(4, 16, 6, 1025, 5, "mixed", False, id="edge-unaligned-dims"),
+        pytest.param(2, 12, 6, 128, 4, "mixed", True, id="edge-noncontiguous"),
+    ],
+)
+def test_copy_tracked_conv_states(layers, pool, win, dims, batch, pattern, noncontig):
+    from sgl_kernel_npu.operators.mamba import copy_tracked_conv_states
+
+    args = generate_copy_tracked_data(
+        layers, pool, win, dims, batch, pattern, noncontig=noncontig
+    )
+    monitor = layers == 48 and batch == 32 and pattern == "mixed"
+    _check_inplace(copy_tracked_conv_states, args, monitor, exact_output=True)

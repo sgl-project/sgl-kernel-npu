@@ -16,13 +16,19 @@ from sgl_kernel_npu.operators.mamba import conv_state_rollback
 
 
 def conv_state_rollback(
-    conv_states, state_indices, step_indices, draft_token_num, *, impl="auto"
+    conv_states,
+    state_indices,
+    step_indices,
+    draft_token_num,
+    *,
+    active_tail=None,
+    impl="auto",
 ): ...
 ```
 
 ## 功能描述
 
-对各选定请求跨层将卷积历史右移 draft_token_num-1-step 个位置。只覆盖右移后的后缀，前部保持不变；非连续视图保持原存储和步幅。
+对各选定请求跨层将卷积历史右移 draft_token_num-1-step 个位置。只覆盖右移后的后缀，前部保持不变；当传入 `active_tail`（例如 `kernel_size=4` 深度卷积传 `active_tail=3`）时，仅恢复窗口末尾 `active_tail` 个活跃行以减少 HBM 读写流量；非连续视图保持原存储和步幅。
 
 ## 参数与返回值
 
@@ -34,6 +40,7 @@ def conv_state_rollback(
 | `state_indices` | Tensor | `Required` | 整数回滚槽 [requests]，转换为 INT32。 |
 | `step_indices` | Tensor | `Required` | 整数接受步索引 [requests]，转换为 INT32。 |
 | `draft_token_num` | int | `Required` | 草稿 token 数。 |
+| `active_tail` | int 或 None | `None` | 可选，仅恢复窗口末尾的活跃行数（正整数）；`None` 表示恢复完整窗口。 |
 | `impl` | str | `'auto'` | auto 选择 triton；可显式选择后端。 |
 
 | 返回值 | 类型 | 说明 |
@@ -43,7 +50,8 @@ def conv_state_rollback(
 ## triton 后端
 
 - 根据 draft_token_num-1-step_indices 计算各请求的回滚位移，在原卷积状态视图上移动历史窗口。
-- 使用状态 stride 处理非连续布局；不需要位移的请求保持不变，非空调用返回原状态张量。
+- 对连续 4D 张量启用 56-AIV 持久化分块（`BLOCK_D <= 8192`）支持非 2 的幂通道维度（如 `10240`），并在 `active_tail=3` 时将 3 行源状态预载入寄存器后写回，保证无重叠冲突且带宽最优。
+- 对非连续布局使用分块 stride kernel，保留原有存储和步幅；不需要位移的请求保持不变。
 
 ## torch_native 后端
 
