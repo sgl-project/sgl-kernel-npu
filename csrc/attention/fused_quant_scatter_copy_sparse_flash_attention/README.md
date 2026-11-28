@@ -1,15 +1,17 @@
 # A5 C8 scatter copy + sparse flash attention
 
-`torch.ops.npu.fused_quant_scatter_copy_sparse_flash_attention` is an A5-only
+`fused_quant_scatter_copy_sparse_flash_attention_v2` is an A5-only
 selective CANN operator ported from [vllm-ascend #18490](https://github.com/vllm-project/vllm-ascend/pull/18490),
 commit `1b180deb840484c2fe33cbdd7abb68a615085172`. Donor source hashes and retained
-licenses are recorded alongside the imported payloads. Build the Ascend950 operator independently.
+licenses are recorded in [`UPSTREAM_PROVENANCE.json`](UPSTREAM_PROVENANCE.json).
+See the [public API and example](../../../docs/api/en/operators/attention/fused_quant_scatter_copy_sparse_flash_attention_v2.md).
+Build the Ascend950 operator independently.
 
 ```bash
 python3 setup.py --arch-version 3510 --ops fused_quant_scatter_copy_sparse_flash_attention --without-third-party
 ```
 
-The API takes:
+The packed-query ABI also accepts the following arguments.
 
 ```text
 query, hbm_kv_bytes, dram_kv_bytes, dram_kv_dev_ptr,
@@ -24,11 +26,11 @@ Supported head counts are 8, 16, 32, 64, and 128. Both KV tensors are opaque INT
 byte views `[pages,128,1,656]`: 512 FP8 NoPE bytes, 128 BF16 RoPE bytes, then
 16 FP32 scale bytes. Copy preserves all 656 bytes.
 
-The direct launch accepts a CPU tensor and its registered device-visible
+The AscendC implementation accepts a CPU tensor and its registered device-visible
 address. HBM, query, metadata and output remain on one NPU. The caller must
 retain registered storage throughout capture/replay and synchronize before
-releasing it. The host also retains tensor and workspace owners while a
-launch is queued.
+releasing it. The host retains tensor owners through launch submission.
+The ACLNN workspace is allocated and reused in stream order.
 
 `num_cache_tokens=0` means dense, using the real sequence length. Otherwise it is
 the exposed HBM logical address-space length. `actual_seq_lengths_kv` remains
@@ -79,12 +81,13 @@ copy directly from the current layer's device buffer, including ordinary
 misses gathered during attention; Host is used only for non-current sources.
 Callers that stage short/current KV themselves can omit the resident tensors.
 
-For a sparse row, supply `C + Q - 1` as the virtual scheduling length and
-only `C / 128` HBM pages. The v2 kernel accepts LI order within each query.
+For a sparse row, set `actual_seq_lengths_kv` to the virtual scheduling
+length `C + Q - 1` and `num_cache_tokens` to `C`. Supply `C / 128`
+HBM pages. The v2 kernel accepts LI order within each query.
 
 ```bash
-python3 -m pytest -q tests/test_a5_quant_copy_sfa.py
+python3 -m pytest -q tests/python/operators/attention/test_fused_quant_scatter_copy_sparse_flash_attention_v2.py
 ```
 
-The Ascend950 test compares Q1/Q4 short-resident staging with preloaded
-C8 attention in eager mode and graph replay.
+The tests cover the eager PyTorch reference, host scheduling rules, and
+Ascend950 Q1/Q4 short-resident staging in eager mode and graph replay.

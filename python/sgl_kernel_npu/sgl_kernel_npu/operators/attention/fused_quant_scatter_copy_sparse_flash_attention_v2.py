@@ -17,6 +17,15 @@ def _ascendc_impl(*args, **kwargs) -> None:
     )
 
 
+@register_impl(_OP, "torch_native", supported_generations=_SUPPORTED_GENERATIONS)
+def _torch_native_impl(*args, **kwargs) -> None:
+    from ...implementation.torch_native.attention.fused_quant_scatter_copy_sparse_flash_attention_v2 import (
+        fused_quant_scatter_copy_sparse_flash_attention_v2 as reference,
+    )
+
+    reference(*args, **kwargs)
+
+
 @register_operator(_OP)
 def fused_quant_scatter_copy_sparse_flash_attention_v2(
     query_nope,
@@ -49,7 +58,8 @@ def fused_quant_scatter_copy_sparse_flash_attention_v2(
 ) -> None:
     """Update packed C8 resident KV and run sparse attention in place.
 
-    Both auto and ascendc select the native 3510 operator.
+    Both auto and ascendc select the native 3510 operator. The torch_native
+    implementation evaluates the copy and attention plan on CPU using dram_kv_bytes.
     See the operator README for the complete tensor contract.
     """
     get_impl_by_name(_OP, impl)(

@@ -4,9 +4,9 @@ sgl_register_operator(
     CANN_OP_TYPE SglFusedQuantScatterCopySparseFlashAttention
     TORCH_ADAPTER torch_adapter.cpp
     SUPPORTED_ARCHS 3510
-    OPDEF_SOURCES op_host/fused_quant_copy_sfa_op.cpp
-    INFER_SOURCES op_host/fused_quant_copy_sfa_op.cpp
-    TILING_SOURCES op_host/fused_quant_copy_sfa_op.cpp
+    OPDEF_SOURCES op_host/fused_quant_scatter_copy_sparse_flash_attention_def.cpp
+    INFER_SOURCES op_host/fused_quant_scatter_copy_sparse_flash_attention_def.cpp
+    TILING_SOURCES op_host/fused_quant_scatter_copy_sparse_flash_attention_def.cpp
     KERNEL_SOURCES op_kernel/fused_quant_scatter_copy_sparse_flash_attention.cpp
     KERNEL_INCLUDE_DIRECTORIES
         op_kernel

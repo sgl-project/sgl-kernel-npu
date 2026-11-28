@@ -1,6 +1,6 @@
 #include <cassert>
 
-#include "../csrc/attention/fused_quant_scatter_copy_sparse_flash_attention/op_kernel/fused_quant_scatter_copy_sparse_flash_attention_schedule.h"
+#include "fused_quant_scatter_copy_sparse_flash_attention_schedule.h"
 
 using fused_quant_scatter_copy_sfa::PackedCopyMode;
 using fused_quant_scatter_copy_sfa::UpdatePackedCopyMode;
