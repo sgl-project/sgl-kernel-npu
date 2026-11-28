@@ -386,6 +386,13 @@ def test_causal_conv1d(run_mode, case_index):
 
     original = generate_test_data(case_index, run_mode)
     impl, impl_ref = get_test_impls()
+    if "cce" in (impl, impl_ref) and (
+        original["x"].dtype != torch.bfloat16
+        or original["weight"].shape[0] != 3
+        or original["x"].shape[-1] > 2048
+        or original["x"].shape[-1] % 128
+    ):
+        pytest.skip("CCE supports BF16 K=3, D<=2048 divisible by 128")
     skip_accuracy = bool(get_skip_acc_check())
     if skip_accuracy:
         require_test_impl(causal_conv1d, impl)
@@ -398,6 +405,32 @@ def test_causal_conv1d(run_mode, case_index):
         y = causal_conv1d(**actual, impl=impl)
         assert actual["conv_states"].data_ptr() == state_ptr
         check_result(y, actual, y_ref, reference, original, f"{impl}-vs-{impl_ref}")
+        if "cce" in (impl, impl_ref) and original["x"].ndim == 3:
+            # Reuse the same tensors; repartition tokens into short/long packed sequences.
+            packed = {
+                **original,
+                "x": original["x"].reshape(-1, original["x"].shape[-1]),
+            }
+            total = packed["x"].shape[0]
+            batch = original["x"].shape[0]
+            if total >= batch:
+                packed["query_start_loc"] = torch.tensor(
+                    [*range(batch), total],
+                    dtype=original["query_start_loc"].dtype,
+                    device="cpu",
+                )
+            packed_actual = clone_test_data(packed, "npu")
+            packed_ref = clone_test_data(packed, "npu")
+            packed_y = causal_conv1d(**packed_actual, impl=impl)
+            packed_y_ref = causal_conv1d(**packed_ref, impl=impl_ref)
+            check_result(
+                packed_y,
+                packed_actual,
+                packed_y_ref,
+                packed_ref,
+                packed,
+                f"packed-{impl}-vs-{impl_ref}",
+            )
 
     inputs = clone_test_data(original, "npu")
     executor = make_executor(

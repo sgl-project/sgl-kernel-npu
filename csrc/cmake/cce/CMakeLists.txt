@@ -10,7 +10,7 @@ target_compile_definitions(sgl_cce_operators PRIVATE ${definitions})
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     target_compile_options(sgl_cce_operators PRIVATE -O3)
 endif()
-set_target_properties(sgl_cce_operators PROPERTIES POSITION_INDEPENDENT_CODE ON
+set_target_properties(sgl_cce_operators PROPERTIES LINKER_LANGUAGE CXX POSITION_INDEPENDENT_CODE ON
     CXX_EXTENSIONS OFF CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 sgl_add_cce_kernels(sgl_cce_operators ${cce_operators})

@@ -5,6 +5,7 @@
 | Implementation | arch 2201 | arch 3510 |
 | --- | --- | --- |
 | `ascendc` | Supported | Supported |
+| `cce` | Not supported | Supported |
 | `torch_native` | Supported | Supported |
 
 ## Signature
@@ -58,7 +59,7 @@ capacity per slot. Input layout is token-major.
 | `activation_mode` | `int`, default `0` | Any nonzero value enables SiLU. |
 | `pad_slot_id` | `int`, default `-1` | Skips sequences whose explicit cache index equals this value. |
 | `run_mode` | `int`, default `0` | `1` selects integrated update; other values select prefill. |
-| `impl` | `str`, default `"auto"` | Keyword-only; `auto`, `ascendc` or `torch_native`. |
+| `impl` | `str`, default `"auto"` | Keyword-only; `auto`, `ascendc`, `cce` or `torch_native`. |
 
 | Return value | Shape | Dtype | Description |
 | --- | --- | --- | --- |
@@ -128,3 +129,14 @@ y_update_ref = causal_conv1d(
 )
 print(y_update.shape, y_update_ref.shape)
 ```
+
+## CCE
+
+`impl="cce"` supports arch35, BF16, K=3 and positive D divisible by 128 with D<=2048.
+Both dense `[B,L,D]` and packed `[T,D]` input use one CCE launch for the batch.
+Packed input requires `query_start_loc[B+1]`; valid monotonic boundaries must span `[0,T]`.
+Optional cache_indices and has_initial_state are interpreted on device; metadata must be one-dimensional NPU INT32/INT64/BOOL tensors, converted to INT64 on device as needed.
+Active cache slots must be distinct and in range. Explicit pad slots and empty sequences leave state untouched; pad output is undefined.
+Prefill honors initial-history flags; ordinary update always reads history. Only the first two state rows are updated and extra rows remain unchanged.
+Bias and SiLU execute before BF16 output rounding in the same kernel. K=4 speculative update and FP16/FP32 are unsupported; auto remains ascendc.
+The existing test_causal_conv1d cases are reused, with a packed replay of each supported dense CCE case, without adding parameter combinations.

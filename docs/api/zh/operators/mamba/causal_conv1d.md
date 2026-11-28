@@ -5,6 +5,7 @@
 | 实现 | arch 2201 | arch 3510 |
 | --- | --- | --- |
 | `ascendc` | 支持 | 支持 |
+| `cce` | 不支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
 ## 函数原型
@@ -56,7 +57,7 @@ y[t,d] = u[t,d]                              activation_mode == 0
 | `activation_mode` | `int`，默认 `0` | 任意非零值应用 SiLU。 |
 | `pad_slot_id` | `int`，默认 `-1` | 显式 cache index 等于此值时跳过序列。 |
 | `run_mode` | `int`，默认 `0` | `1` 选择集成 update，其他值选择 prefill。 |
-| `impl` | `str`，默认 `"auto"` | 仅限关键字，可选 `auto`、`ascendc`、`torch_native`。 |
+| `impl` | `str`，默认 `"auto"` | 仅限关键字，可选 `auto`、`ascendc`、`cce`、`torch_native`。 |
 
 | 返回值 | Shape | Dtype | 说明 |
 | --- | --- | --- | --- |
@@ -119,3 +120,14 @@ y_update_ref = causal_conv1d(
 )
 print(y_update.shape, y_update_ref.shape)
 ```
+
+## CCE
+
+`impl="cce"` 仅支持 arch35、BF16、K=3，D 为正的 128 倍数且不超过 2048。
+支持规则 `[B,L,D]` 和 packed `[T,D]` 输入，整个 batch 仅一次 CCE launch。
+Packed 输入必须提供 `query_start_loc[B+1]`，边界须单调且覆盖 `[0,T]`。
+`cache_indices` 和 `has_initial_state` 在设备端读取；元数据为一维 NPU INT32/INT64/BOOL，必要时在设备端转为 INT64。
+活动缓存 slot 必须合法且互不重复；显式 pad slot 和空序列不更新状态，pad 输出未定义。
+Prefill 根据初始历史标记读取或清零历史，普通 update 总是读取历史；仅更新前两行状态，保留额外行。
+Bias/SiLU 在同一内核中、BF16 输出舍入前执行。不支持 K=4 speculative update 和 FP16/FP32；auto 仍选择 ascendc。
+复用原有 test_causal_conv1d 用例，并在已有受支持的 dense 用例内重排同一输入验证 packed，不新增参数组合。

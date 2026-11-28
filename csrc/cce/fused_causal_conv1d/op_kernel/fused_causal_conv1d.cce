@@ -1,0 +1,223 @@
+#include "fused_causal_conv1d.h"
+// Native BF16 path. Integer unpack/round avoids assumptions about vcvt PART layout.
+#ifndef CCE_FCC1D_BF16_ROWS
+#define CCE_FCC1D_BF16_ROWS 8
+#endif
+#ifndef CCE_FCC1D_BF16_PAD
+#define CCE_FCC1D_BF16_PAD 0
+#endif
+constexpr int kBfR=CCE_FCC1D_BF16_ROWS, kBfD=2048;
+constexpr int kBfPad=CCE_FCC1D_BF16_PAD,kBfStride=kBfD+kBfPad;
+constexpr int kBfCacheElements=32*256;
+constexpr int kBfOut=(kBfR+2)*kBfStride*2;
+constexpr int kBfWeight=kBfOut+kBfR*kBfStride*2;
+constexpr int kBfState=kBfWeight+3*kBfD*2;
+static_assert(kBfState+kBfCacheElements*2<248*1024,"BF16 UB budget");
+
+__simd_callee__ inline void bf_unpack(__ubuf__ uint16_t* src,
+    vector_f32& even,vector_f32& odd,vector_u32& highmask,vector_bool& m) {
+    vector_u32 p,a,b;
+    vlds(p,(__ubuf__ uint32_t*)src,0,__cce_simd::NORM);
+    vshls(a,p,16,m);vand(b,p,highmask,m);
+    even=(vector_f32&)a;odd=(vector_f32&)b;
+}
+template<int FixedRows>
+__simd_vf__ inline void bf_conv(__ubuf__ uint16_t* input,__ubuf__ uint16_t* output,
+    __ubuf__ uint16_t* weight,int dim,int rows,int residual,
+    __ubuf__ uint16_t* bias,int hasBias,int activation) {
+    vector_bool m=pset_b32(__cce_simd::PAT_ALL);
+    vector_u32 highmask,roundbias,one,lowmask;
+    vbr(highmask,0xffff0000u);vbr(roundbias,0x7fffu);vbr(one,1u);vbr(lowmask,0xffffu);
+    const int stride=dim+kBfPad;
+    for(int col=0;col<dim;col+=128) {
+        vector_f32 w0,w1,w2,z0,z1,z2,a,b,c,d,e,f,lo,hi,tmp,tmpHi;
+        bf_unpack(weight+col,w0,z0,highmask,m);
+        bf_unpack(weight+dim+col,w1,z1,highmask,m);
+        bf_unpack(weight+2*dim+col,w2,z2,highmask,m);
+#if !defined(CCE_FCC1D_NO_CARRY)
+        bf_unpack(input+col,a,b,highmask,m);
+        bf_unpack(input+stride+col,c,d,highmask,m);
+#endif
+        vector_f32 biasLo,biasHi;
+        if(hasBias) bf_unpack(bias+col,biasLo,biasHi,highmask,m);
+        if constexpr(FixedRows>0) {
+            #pragma unroll
+            for(int row=0;row<FixedRows;++row) {
+#if defined(CCE_FCC1D_NO_CARRY)
+            bf_unpack(input+row*stride+col,a,b,highmask,m);
+            bf_unpack(input+(row+1)*stride+col,c,d,highmask,m);
+#endif
+            bf_unpack(input+(row+2)*stride+col,e,f,highmask,m);
+#if defined(CCE_FCC1D_FMA)
+            vmul(lo,a,w0,m);vmula(lo,c,w1,m);vmula(lo,e,w2,m);
+            vmul(hi,b,z0,m);vmula(hi,d,z1,m);vmula(hi,f,z2,m);
+#else
+#if defined(CCE_FCC1D_INTERLEAVE)
+            vmul(lo,a,w0,m);vmul(hi,b,z0,m);
+            vmul(tmp,c,w1,m);vmul(tmpHi,d,z1,m);
+            vadd(lo,lo,tmp,m);vadd(hi,hi,tmpHi,m);
+            vmul(tmp,e,w2,m);vmul(tmpHi,f,z2,m);
+            vadd(lo,lo,tmp,m);vadd(hi,hi,tmpHi,m);
+#else
+            vmul(lo,a,w0,m);vmul(tmp,c,w1,m);vadd(lo,lo,tmp,m);
+            vmul(tmp,e,w2,m);vadd(lo,lo,tmp,m);
+            vmul(hi,b,z0,m);vmul(tmp,d,z1,m);vadd(hi,hi,tmp,m);
+            vmul(tmp,f,z2,m);vadd(hi,hi,tmp,m);
+#endif
+#endif
+            if(residual) {vadd(lo,lo,e,m);vadd(hi,hi,f,m);}
+            if(hasBias) {vadd(lo,lo,biasLo,m);vadd(hi,hi,biasHi,m);}
+            if(activation) {
+                vector_f32 neg,unit,den;
+                vbr(neg,-1.0f);vbr(unit,1.0f);
+                vmul(den,lo,neg,m);vexp(den,den,m);vadd(den,den,unit,m);vdiv(lo,lo,den,m);
+                vmul(den,hi,neg,m);vexp(den,den,m);vadd(den,den,unit,m);vdiv(hi,hi,den,m);
+            }
+#if defined(CCE_FCC1D_NATIVE_PACK)
+            vector_bf16 bl,bh;
+            vcvt(bl,lo,m,__cce_simd::RoundRType(),__cce_simd::RS_DISABLE,__cce_simd::PART_EVEN);
+            vcvt(bh,hi,m,__cce_simd::RoundRType(),__cce_simd::RS_DISABLE,__cce_simd::PART_EVEN);
+            vector_u32 upper,lower,packed;
+            vand(lower,(vector_u32&)bl,lowmask,m);
+            vshls(upper,(vector_u32&)bh,16,m);vor(packed,lower,upper,m); // codespell:ignore vor
+            vsts(packed,(__ubuf__ uint32_t*)(output+row*stride+col),0,__cce_simd::NORM_B32,m);
+#else
+            vector_u32 l=(vector_u32&)lo,h=(vector_u32&)hi,lsb,hsb,packed;
+            vshrs(lsb,l,16,m);vand(lsb,lsb,one,m);
+            vshrs(hsb,h,16,m);vand(hsb,hsb,one,m);
+            vadd(l,l,roundbias,m);vadd(l,l,lsb,m);vshrs(l,l,16,m);
+            vadd(h,h,roundbias,m);vadd(h,h,hsb,m);vand(h,h,highmask,m);
+            vor(packed,l,h,m); // codespell:ignore vor
+            vsts(packed,(__ubuf__ uint32_t*)(output+row*stride+col),0,__cce_simd::NORM_B32,m);
+#endif
+#if !defined(CCE_FCC1D_NO_CARRY)
+            a=c;b=d;c=e;d=f;
+#endif
+            }
+        } else {
+            for(int row=0;row<rows;++row) {
+#if defined(CCE_FCC1D_NO_CARRY)
+            bf_unpack(input+row*stride+col,a,b,highmask,m);
+            bf_unpack(input+(row+1)*stride+col,c,d,highmask,m);
+#endif
+            bf_unpack(input+(row+2)*stride+col,e,f,highmask,m);
+#if defined(CCE_FCC1D_FMA)
+            vmul(lo,a,w0,m);vmula(lo,c,w1,m);vmula(lo,e,w2,m);
+            vmul(hi,b,z0,m);vmula(hi,d,z1,m);vmula(hi,f,z2,m);
+#else
+#if defined(CCE_FCC1D_INTERLEAVE)
+            vmul(lo,a,w0,m);vmul(hi,b,z0,m);
+            vmul(tmp,c,w1,m);vmul(tmpHi,d,z1,m);
+            vadd(lo,lo,tmp,m);vadd(hi,hi,tmpHi,m);
+            vmul(tmp,e,w2,m);vmul(tmpHi,f,z2,m);
+            vadd(lo,lo,tmp,m);vadd(hi,hi,tmpHi,m);
+#else
+            vmul(lo,a,w0,m);vmul(tmp,c,w1,m);vadd(lo,lo,tmp,m);
+            vmul(tmp,e,w2,m);vadd(lo,lo,tmp,m);
+            vmul(hi,b,z0,m);vmul(tmp,d,z1,m);vadd(hi,hi,tmp,m);
+            vmul(tmp,f,z2,m);vadd(hi,hi,tmp,m);
+#endif
+#endif
+            if(residual) {vadd(lo,lo,e,m);vadd(hi,hi,f,m);}
+            if(hasBias) {vadd(lo,lo,biasLo,m);vadd(hi,hi,biasHi,m);}
+            if(activation) {
+                vector_f32 neg,unit,den;
+                vbr(neg,-1.0f);vbr(unit,1.0f);
+                vmul(den,lo,neg,m);vexp(den,den,m);vadd(den,den,unit,m);vdiv(lo,lo,den,m);
+                vmul(den,hi,neg,m);vexp(den,den,m);vadd(den,den,unit,m);vdiv(hi,hi,den,m);
+            }
+#if defined(CCE_FCC1D_NATIVE_PACK)
+            vector_bf16 bl,bh;
+            vcvt(bl,lo,m,__cce_simd::RoundRType(),__cce_simd::RS_DISABLE,__cce_simd::PART_EVEN);
+            vcvt(bh,hi,m,__cce_simd::RoundRType(),__cce_simd::RS_DISABLE,__cce_simd::PART_EVEN);
+            vector_u32 upper,lower,packed;
+            vand(lower,(vector_u32&)bl,lowmask,m);
+            vshls(upper,(vector_u32&)bh,16,m);vor(packed,lower,upper,m); // codespell:ignore vor
+            vsts(packed,(__ubuf__ uint32_t*)(output+row*stride+col),0,__cce_simd::NORM_B32,m);
+#else
+            vector_u32 l=(vector_u32&)lo,h=(vector_u32&)hi,lsb,hsb,packed;
+            vshrs(lsb,l,16,m);vand(lsb,lsb,one,m);
+            vshrs(hsb,h,16,m);vand(hsb,hsb,one,m);
+            vadd(l,l,roundbias,m);vadd(l,l,lsb,m);vshrs(l,l,16,m);
+            vadd(h,h,roundbias,m);vadd(h,h,hsb,m);vand(h,h,highmask,m);
+            vor(packed,l,h,m); // codespell:ignore vor
+            vsts(packed,(__ubuf__ uint32_t*)(output+row*stride+col),0,__cce_simd::NORM_B32,m);
+#endif
+#if !defined(CCE_FCC1D_NO_CARRY)
+            a=c;b=d;c=e;d=f;
+#endif
+            }
+        }
+    }
+}
+
+__simd_vf__ inline void zero_history(__ubuf__ uint16_t* p,int dim,int stride) {
+    vector_bool m=pset_b32(__cce_simd::PAT_ALL);vector_u32 z;vbr(z,0u);
+    for(int row=0;row<2;++row)for(int c=0;c<dim;c+=128)
+        vsts(z,(__ubuf__ uint32_t*)(p+row*stride+c),0,__cce_simd::NORM_B32,m);
+}
+extern "C" __global__ [aicore] __vector__ void causal_conv1d_bf16_kernel(
+    __gm__ uint16_t* x,__gm__ uint16_t* weight,__gm__ uint16_t* states,__gm__ uint16_t* y,
+    __gm__ uint16_t* bias,__gm__ int64_t* query,__gm__ int64_t* slots,__gm__ int64_t* initial,
+    int batch,int denseLength,int total,int dim,int stateLen,int numSlots,int activation,int padSlot,int update,int lanes) {
+    auto in=(__ubuf__ uint16_t*)get_imm(0);
+    auto out=(__ubuf__ uint16_t*)get_imm(kBfOut);
+    auto w=(__ubuf__ uint16_t*)get_imm(kBfWeight);
+    auto cs=(__ubuf__ uint16_t*)get_imm(kBfState);
+    auto biasUb=cs+kBfCacheElements;
+    const int stride=dim+kBfPad;
+    copy_gm_to_ubuf_align_v2(w,weight,0,1,3*dim*2,0,0,false,0,0,0);
+    if(bias)copy_gm_to_ubuf_align_v2(biasUb,bias,0,1,dim*2,0,0,false,0,0,0);
+    const int lane=get_block_idx()%lanes;
+    for(int b=get_block_idx()/lanes;b<batch;b+=get_block_num()/lanes) {
+        int64_t start=query?query[b]:(int64_t)b*denseLength;
+        int64_t end=query?query[b+1]:start+denseLength;
+        int64_t slot=slots?slots[b]:b;
+        if((slots&&slot==padSlot)||slot<0||slot>=numSlots||start<0||end>total||end<=start)continue;
+        int length=end-start;
+        auto sequence=x+start*dim;
+        auto cache=states+slot*stateLen*dim;
+        int history=update||(initial&&initial[b]!=0);
+        for(int t=lane*kBfR;t<length;t+=lanes*kBfR) {
+            int rows=length-t<kBfR?length-t:kBfR;
+            if(t>=2) {
+                copy_gm_to_ubuf_align_v2(in,sequence+(int64_t)(t-2)*dim,0,rows+2,dim*2,0,0,false,0,dim*2,stride*2);
+            } else {
+                if(history)copy_gm_to_ubuf_align_v2(in,cache,0,2,dim*2,0,0,false,0,dim*2,stride*2);
+                else {
+                    set_flag(PIPE_MTE2,PIPE_V,EVENT_ID0);wait_flag(PIPE_MTE2,PIPE_V,EVENT_ID0);
+                    zero_history(in,dim,stride);
+                    set_flag(PIPE_V,PIPE_MTE2,EVENT_ID0);wait_flag(PIPE_V,PIPE_MTE2,EVENT_ID0);
+                }
+                copy_gm_to_ubuf_align_v2(in+2*stride,sequence,0,rows,dim*2,0,0,false,0,dim*2,stride*2);
+            }
+            set_flag(PIPE_MTE2,PIPE_V,EVENT_ID0);wait_flag(PIPE_MTE2,PIPE_V,EVENT_ID0);
+            bf_conv<0>(in,out,w,dim,rows,0,biasUb,bias!=nullptr,activation);
+            set_flag(PIPE_V,PIPE_MTE3,EVENT_ID0);wait_flag(PIPE_V,PIPE_MTE3,EVENT_ID0);
+            copy_ubuf_to_gm_align_v2(y+(start+t)*dim,out,0,rows,dim*2,0,dim*2,stride*2);
+            set_flag(PIPE_MTE3,PIPE_MTE2,EVENT_ID0);wait_flag(PIPE_MTE3,PIPE_MTE2,EVENT_ID0);
+        }
+        // Only lane zero reads old history; it alone owns state writeback.
+        if(lane!=0)continue;
+        if(length==1) {
+            copy_ubuf_to_gm_align_v2(cache,in+stride,0,2,dim*2,0,dim*2,stride*2);
+        } else {
+            copy_gm_to_ubuf_align_v2(cs,sequence+(int64_t)(length-2)*dim,0,1,2*dim*2,0,0,false,0,0,0);
+            set_flag(PIPE_MTE2,PIPE_MTE3,EVENT_ID1);wait_flag(PIPE_MTE2,PIPE_MTE3,EVENT_ID1);
+            copy_ubuf_to_gm_align_v2(cache,cs,0,1,2*dim*2,0,0,0);
+        }
+        set_flag(PIPE_MTE3,PIPE_MTE2,EVENT_ID0);wait_flag(PIPE_MTE3,PIPE_MTE2,EVENT_ID0);
+    }
+}
+extern "C" aclError cce_launch_causal_conv1d(
+    const uint16_t* x,const uint16_t* w,uint16_t* state,uint16_t* y,const uint16_t* bias,
+    const int64_t* query,const int64_t* slots,const int64_t* initial,
+    int batch,int length,int total,int dim,int stateLen,int numSlots,int activation,int padSlot,int update,aclrtStream stream) {
+    int lanes=56/batch;if(lanes<1)lanes=1;
+    int tiles=(total/batch+kBfR-1)/kBfR;if(tiles<1)tiles=1;
+    if(lanes>tiles)lanes=tiles;
+    int blocks=batch*lanes;if(blocks>56)blocks=56;
+    causal_conv1d_bf16_kernel<<<blocks,nullptr,stream>>>((uint16_t*)x,(uint16_t*)w,state,y,(uint16_t*)bias,
+        (int64_t*)query,(int64_t*)slots,(int64_t*)initial,batch,length,total,dim,stateLen,numSlots,activation,padSlot,update,lanes);
+    return aclrtPeekAtLastError(ACL_RT_THREAD_LEVEL);
+}
