@@ -96,11 +96,11 @@ diff --git a/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant
 diff --git a/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_tiling.cpp b/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_tiling.cpp
 --- a/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_tiling.cpp
 +++ b/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_tiling.cpp
-@@ -174,2 +174,4 @@
-
+@@ -175,2 +175,4 @@
 +    const float limited = *context->GetAttrs()->GetAttrPointer<float>(2);
 +    tilingData.gmmSwigluBaseParams.set_limited(limited);
      tilingData.gmmSwigluBaseParams.set_groupNum(groupNum);
+     tilingData.gmmSwigluBaseParams.set_coreNum(compileInfoPtr->aicNum_);
 diff --git a/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_tiling.h b/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_tiling.h
 --- a/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_tiling.h
 +++ b/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_tiling.h
@@ -130,6 +130,24 @@ diff --git a/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_qua
 +        PipeBarrier<PIPE_V>();
 +    }
      SwiGLU<float, false>(workspaceLocal, src0Local, src1Local, beta, gmmSwiglu->tokenLen / SWIGLU_REDUCE_FACTOR);
+diff --git a/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_a8w4_msd_post.h b/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_a8w4_msd_post.h
+--- a/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_a8w4_msd_post.h
++++ b/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_a8w4_msd_post.h
+@@ -180,3 +180,14 @@
++    const float limited = gmmBaseParams->limited;
++    if (limited > 0.0f) {
++        const auto halfTokenLen = gmmSwiglu->tokenLen / SWIGLU_REDUCE_FACTOR;
++        // src0 is up, src1 is gate.
++        Mins(src0Local, src0Local, limited, halfTokenLen);
++        PipeBarrier<PIPE_V>();
++        Maxs(src0Local, src0Local, -limited, halfTokenLen);
++        PipeBarrier<PIPE_V>();
++        Mins(src1Local, src1Local, limited, halfTokenLen);
++        PipeBarrier<PIPE_V>();
++    }
+     SwiGLU<float, false>(workspaceLocal, src0Local, src1Local, beta, gmmSwiglu->tokenLen / SWIGLU_REDUCE_FACTOR);
+     PipeBarrier<PIPE_V>();
+     DataCopyParams repeatParams{1, static_cast<uint16_t>((gmmSwiglu->tokenLen / SWIGLU_REDUCE_FACTOR) / ALIGN_8_ELE), 0,
 diff --git a/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_split_ws.h b/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_split_ws.h
 --- a/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_split_ws.h
 +++ b/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_split_ws.h
