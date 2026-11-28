@@ -4,8 +4,8 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `ascendc` | 支持 | 不支持 |
-| `torch_native` | 支持 | 不支持 |
+| `ascendc` | 支持 | 支持 |
+| `torch_native` | 支持 | 支持 |
 
 ## 函数签名
 

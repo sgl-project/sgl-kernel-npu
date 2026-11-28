@@ -235,7 +235,7 @@ installation steps; see
 | [store_kv_cache_prefix_valid](operators/mem_cache/store_kv_cache_prefix_valid.md) | `triton`, `torch_native` |
 | [`create_shm_tensor` / `free_shm`](operators/mem_cache/shm_allocator.md) | HOST C++ (Ascend HAL, ARCH22) |
 | [slot_map_lookup](operators/mem_cache/slot_map_lookup.md) | `ascendc` (ARCH22), `torch_native` (ARCH22) |
-| [unidex_copy_inplace](operators/mem_cache/unidex_copy_inplace.md) | `ascendc` (ARCH22), `torch_native` (ARCH22) |
+| [unidex_copy_inplace](operators/mem_cache/unidex_copy_inplace.md) | `ascendc` (ARCH22, ARCH35), `torch_native` (ARCH22, ARCH35) |
 | [split_qkv_rmsnorm_mrope](operators/norm/split_qkv_rmsnorm_mrope.md) | `triton`, `torch_native` |
 | [top_k_renorm_prob](operators/sample/top_k_renorm_prob.md) | `triton`, `torch_native` |
 | [top_k_top_p_renorm_prob](operators/sample/top_k_top_p_renorm_prob.md) | `triton`, `torch_native` |
