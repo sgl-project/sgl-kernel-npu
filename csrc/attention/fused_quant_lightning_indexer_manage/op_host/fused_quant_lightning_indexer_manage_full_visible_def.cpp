@@ -35,7 +35,7 @@ static ge::graphStatus InferDtype(gert::InferDataTypeContext *ctx)
     return ge::GRAPH_SUCCESS;
 }
 
-static ge::graphStatus Tiling(gert::TilingContext *ctx)
+static ge::graphStatus TilingFusedQuantLightningIndexerManageFullVisible(gert::TilingContext *ctx)
 {
     const auto *q = ctx->GetInputShape(0);
     const auto *table = ctx->GetInputShape(5);
@@ -127,7 +127,7 @@ public:
         for (auto *s : {"weight_stride", "key_stride", "scale_stride"})
             this->Attr(s).AttrType(REQUIRED).Int();
         this->SetInferShape(optiling::InferShape).SetInferDataType(optiling::InferDtype);
-        this->AICore().SetTiling(optiling::Tiling).AddConfig("ascend950");
+        this->AICore().SetTiling(optiling::TilingFusedQuantLightningIndexerManageFullVisible).AddConfig("ascend950");
     }
 };
 OP_ADD(SglFusedQuantLightningIndexerManage);

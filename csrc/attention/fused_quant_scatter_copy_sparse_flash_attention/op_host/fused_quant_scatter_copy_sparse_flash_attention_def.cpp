@@ -35,7 +35,7 @@ ge::graphStatus InferDataType(gert::InferDataTypeContext *context)
     return ge::GRAPH_SUCCESS;
 }
 
-ge::graphStatus Tiling(gert::TilingContext *context)
+ge::graphStatus TilingFusedQuantScatterCopySparseFlashAttention(gert::TilingContext *context)
 {
     const auto *query = context->GetInputShape(0);
     const auto *hbm = context->GetInputShape(1);
@@ -238,7 +238,7 @@ public:
         this->Output("hbm_kv_bytes").ParamType(REQUIRED).DataType(byteTypes).Format({ge::FORMAT_ND, ge::FORMAT_ND});
         this->Output("attention_out").ParamType(REQUIRED).DataType(queryTypes).Format({ge::FORMAT_ND, ge::FORMAT_ND});
         this->SetInferShape(optiling::InferShape).SetInferDataType(optiling::InferDataType);
-        this->AICore().SetTiling(optiling::Tiling);
+        this->AICore().SetTiling(optiling::TilingFusedQuantScatterCopySparseFlashAttention);
         for (const auto *config : SGL_CANN_CONFIGS)
             this->AICore().AddConfig(config);
     }

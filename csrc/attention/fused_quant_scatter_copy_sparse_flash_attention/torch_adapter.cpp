@@ -271,12 +271,15 @@ void RunAclnn(const at::Tensor &query, at::Tensor hbmKvBytes, const at::Tensor &
     TORCH_CHECK(workspaceSize <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max()),
                 "C8 CopySFA workspace exceeds Tensor allocation limits.");
 
-    auto workspace = at::empty({static_cast<int64_t>(workspaceSize)}, query.options().dtype(at::kByte));
+    at::Tensor workspace;
+    if (workspaceSize) {
+        workspace = at::empty({static_cast<int64_t>(workspaceSize)}, query.options().dtype(at::kByte));
+    }
     auto stream = c10_npu::getCurrentNPUStream();
     std::vector<at::Tensor> owners{
         query,        hbmKvBytes,     dramKvBytes,           hbmBlockTable,      dramBlockTable, topkDstSlots,
         topkSrcIds,   topkMissCounts, actualSeqLengthsQuery, actualSeqLengthsKv, numCacheTokens, missSrcIds,
-        missDstSlots, missCounts,     attentionOut,          workspace};
+        missDstSlots, missCounts,     attentionOut};
     for (const auto *tensor :
          {&queryRope, &current, &positions, &currentValid, &requestSlots, &reqToToken, &residentEnd}) {
         if (tensor->has_value()) owners.push_back(**tensor);
@@ -285,8 +288,10 @@ void RunAclnn(const at::Tensor &query, at::Tensor hbmKvBytes, const at::Tensor &
         if (tensor.device().is_privateuseone()) tensor.record_stream(stream);
     }
     auto aclStream = stream.stream(false);
-    auto launch = [owners, descriptors, workspace, workspaceSize, executor, aclStream, execute]() -> int {
-        const auto result = execute(workspaceSize ? workspace.data_ptr() : nullptr, workspaceSize, executor, aclStream);
+    // Workspace reuse follows the allocation stream's submission order.
+    void *workspacePtr = workspaceSize ? workspace.data_ptr() : nullptr;
+    auto launch = [owners, descriptors, workspacePtr, workspaceSize, executor, aclStream, execute]() -> int {
+        const auto result = execute(workspacePtr, workspaceSize, executor, aclStream);
         TORCH_CHECK(result == ACL_SUCCESS, "C8 CopySFA execution failed: ", aclGetRecentErrMsg());
         return result;
     };
