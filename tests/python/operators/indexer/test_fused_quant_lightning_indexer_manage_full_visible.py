@@ -4,9 +4,12 @@ from sgl_kernel_npu.operators.indexer.fused_quant_lightning_indexer_manage_full_
     fused_quant_lightning_indexer_manage_full_visible,
 )
 
+from tests.python.utils.common import require_test_impl
+
 
 @pytest.mark.parametrize("width", [1, 4])
 def test_torch_native_full_visible_residency(width):
+    require_test_impl(fused_quant_lightning_indexer_manage_full_visible, "torch_native")
     page = 128
     top_k = 2048
     capacity = width * top_k
