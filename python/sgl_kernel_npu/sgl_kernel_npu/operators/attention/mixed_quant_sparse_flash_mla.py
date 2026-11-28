@@ -26,6 +26,7 @@ _CANN_920_KV_ROW_BYTES = _packed_kv_width(scale_itemsize=2, row_alignment=32)
 _CANN_910_KV_ROW_BYTES = _packed_kv_width(scale_itemsize=1, row_alignment=128)
 _cann_920_fn = None
 _cann_910_fn = None
+_cann_a3_int8_fn = None
 _torch_native_fn = None
 
 
@@ -90,6 +91,31 @@ def _cann_mixed_quant_sparse_flash_mla(q, **kwargs):
     if not kwargs.get("return_softmax_lse", False):
         lse = torch.empty(0, dtype=torch.float32, device=q.device)
     return out, lse
+
+
+@register_impl(
+    "attention.mixed_quant_sparse_flash_mla",
+    "cann_ops_transformer_a3_int8",
+    supported_generations={Generation.ARCH22},
+)
+def _cann_a3_int8_mixed_quant_sparse_flash_mla(q, **kwargs):
+    global _cann_a3_int8_fn
+    if kwargs["quant_mode"] != 1:
+        raise ValueError("A3 INT8 CSA requires quant_mode=1")
+    if _cann_a3_int8_fn is None:
+        from cann_ops_transformer import mixed_quant_sparse_flash_mla as op
+
+        _cann_a3_int8_fn = op
+
+    kwargs.pop("cu_seqlens_q_cpu", None)
+    kwargs.pop("seqused_ori_kv_cpu", None)
+    sinks = kwargs.get("sinks")
+    kwargs["sinks"] = (
+        torch.full((q.shape[-2],), -torch.inf, dtype=torch.float32, device=q.device)
+        if sinks is None
+        else sinks.reshape(-1).float().contiguous()
+    )
+    return _cann_a3_int8_fn(q, **kwargs)
 
 
 def _uses_native_sparse_inputs(kwargs):
@@ -234,9 +260,10 @@ def mixed_quant_sparse_flash_mla(
     impl="auto",
     **kwargs,
 ):
-    """Compute A5 mixed-quant sparse attention; return output and LSE.
+    """Compute mixed-quant sparse attention; return output and LSE.
 
     impl: auto (SDK-selected), ops_transformers_cann910, ascendc, cann_ops_transformers_cann920, or torch_native.
+    Use cann_ops_transformer_a3_int8 for A3 signed 608-byte CSA cache records.
     torch_native is an eager correctness reference, not a graph fallback.
     """
     return get_impl_by_name("attention.mixed_quant_sparse_flash_mla", impl)(

@@ -12,6 +12,7 @@ from ..utils.registry import get_impl_by_name, register_impl, register_operator
 _MIXED_QUANT_SPARSE_FLASH_MLA_METADATA_INT32_COUNT = 1024
 _cann_920_fn = None
 _cann_910_fn = None
+_cann_a3_int8_fn = None
 _torch_native_fn = None
 
 
@@ -74,6 +75,25 @@ def _cann_mixed_quant_sparse_flash_mla_metadata(**kwargs):
     if args.get("ori_mask_mode", 4) == 0:
         args.update(ori_win_left=-1, ori_win_right=-1)
     return _cann_920_fn(**args)
+
+
+@register_impl(
+    "attention.mixed_quant_sparse_flash_mla_metadata",
+    "cann_ops_transformer_a3_int8",
+    supported_generations={Generation.ARCH22},
+)
+def _cann_a3_int8_mixed_quant_sparse_flash_mla_metadata(**kwargs):
+    global _cann_a3_int8_fn
+    if kwargs.get("quant_mode") != 1:
+        raise ValueError("A3 INT8 CSA metadata requires quant_mode=1")
+    if _cann_a3_int8_fn is None:
+        from cann_ops_transformer import mixed_quant_sparse_flash_mla_metadata as op
+
+        _cann_a3_int8_fn = op
+
+    kwargs.pop("cu_seqlens_q_cpu", None)
+    kwargs.pop("seqused_ori_kv_cpu", None)
+    return _cann_a3_int8_fn(**kwargs)
 
 
 def _uses_native_sparse_inputs(kwargs):
@@ -194,10 +214,10 @@ def _torch_mixed_quant_sparse_flash_mla_metadata(**kwargs):
 
 @register_operator("attention.mixed_quant_sparse_flash_mla_metadata")
 def mixed_quant_sparse_flash_mla_metadata(*, impl="auto", **kwargs):
-    """Build A5 mixed-quant attention metadata.
+    """Build mixed-quant attention metadata.
 
     impl: auto (SDK-selected), ops_transformers_cann910,
-        cann_ops_transformers_cann920, or torch_native.
+        cann_ops_transformers_cann920, cann_ops_transformer_a3_int8, or torch_native.
     CANN 9.1 explicit sparse inputs use CPU scheduling internally through auto.
     torch_native is an eager correctness reference, not a graph fallback.
     """
