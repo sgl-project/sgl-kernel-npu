@@ -1,4 +1,4 @@
-#if defined(__DAV_C310__)
+#if defined(DEEPEP_USE_MX_FUSED_MOE)
 #include "register/op_def_registry.h"
 
 namespace ops {
@@ -140,10 +140,15 @@ public:
             .ExtendCfgInfo("multiKernelSupportDynamicGraph.value", "multi_kernel");
 
         this->MC2().HcclGroup({"group_ep"});
+#if defined(__DAV_C310__)
         this->AICore().AddConfig("ascend950", aicoreConfig);
+#else
+        this->AICore().AddConfig("ascend960dt", aicoreConfig);
+        this->AICore().AddConfig("ascend960pr", aicoreConfig);
+#endif
     }
 };
 
 OP_ADD(FusedDeepMoe);
 }  // namespace ops
-#endif  // defined(__DAV_C310__)
+#endif

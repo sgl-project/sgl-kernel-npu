@@ -9,6 +9,7 @@
 #include "../fused_deep_moe_utils.h"
 
 using namespace Cam;
+
 namespace MoeDistributeCombineImpl {
 constexpr uint8_t BUFFER_NUM = 2;  // multi-buf
 constexpr uint32_t STATE_OFFSET = 512;
@@ -59,6 +60,9 @@ public:
     __aicore__ inline void AllToAllSend();
     __aicore__ inline void ReducePermute();
     __aicore__ inline void ProcessCombine();
+    __aicore__ inline void PublishAndWaitCombineSerial();
+    __aicore__ inline void LocalWindowCopy();
+    __aicore__ inline void ProcessCombineSerial();
 
     __aicore__ inline CombineCalcInfo &GetCalcInfo()
     {
@@ -81,11 +85,11 @@ private:
     __aicore__ inline void ExpertAlltoAllDispatchInnerCopyAdd(uint32_t tokenNumLoop, uint32_t srcStartTokenIdx,
                                                               uint32_t ep, uint32_t expertIdx);
     __aicore__ inline void ExpertAlltoAllDispatchCopyAdd();
-    __aicore__ inline void LocalWindowCopy();
     __aicore__ inline void BuffInit();
     __aicore__ inline void SplitCoreCal();
     __aicore__ inline void SetStatus();
     __aicore__ inline void WaitDispatch();
+    __aicore__ inline void WaitDispatchSpin();
     __aicore__ GM_ADDR GetWinAddrByRankId(const int32_t rankId, const uint8_t domain, const uint8_t expertLocalId = 0U)
     {
         if (domain == EP_DOMAIN) {
@@ -767,6 +771,71 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::ProcessComb
     WaitDispatch();
     LocalWindowCopy();
 }
+
+template <TemplateMC2TypeClass>
+__aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::ProcessCombineSerial()
+{
+    if constexpr ((EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) == 0) {
+        BuffInit();
+        SetWaitTpStatusAndDisPatch();
+    }
+    AlltoAllBuffInit();
+    SetStatus();
+    WaitDispatchSpin();
+    PipeBarrier<PIPE_ALL>();
+    SyncAll<true>();
+    LocalWindowCopy();
+}
+
+template <TemplateMC2TypeClass>
+__aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::WaitDispatchSpin()
+{
+    if (startRankId_ < epWorldSize_) {
+        LocalTensor<float> statusTensor = statusBuf_.Get<float>();
+        LocalTensor<float> gatherMaskOutTensor = gatherMaskOutBuf_.Get<float>();
+        LocalTensor<uint32_t> gatherTmpTensor = gatherTmpBuf_.Get<uint32_t>();
+        LocalTensor<float> statusSumOutTensor = statusSumOutBuf_.Get<float>();
+        PipeBarrier<PIPE_ALL>();
+
+        gatherTmpTensor.SetValue(0, 1);
+        uint32_t mask = 1;
+        uint64_t rsvdCnt = 0;
+        DataCopyParams intriParams{static_cast<uint16_t>(sendRankNum_), 1,
+                                   static_cast<uint16_t>((moeSendNum_ > 512) ? 7 : 15), 0};
+        float sumOfFlag = static_cast<float>(-1.0);
+        float minTarget = (sumTarget_ * sendRankNum_) - (float)0.5;
+        float maxTarget = (sumTarget_ * sendRankNum_) + (float)0.5;
+        SumParams sumParams{1, sendRankNum_, sendRankNum_};
+        SyncFunc<AscendC::HardEvent::S_V>();
+        while ((sumOfFlag < minTarget) || (sumOfFlag > maxTarget)) {
+            DataCopy<float>(statusTensor, epStatusSpaceGlobalTensor_[startRankId_ * stateOffset_ / sizeof(float)],
+                            intriParams);
+            SyncFunc<AscendC::HardEvent::MTE2_V>();
+            GatherMask(gatherMaskOutTensor, statusTensor, gatherTmpTensor, true, mask,
+                       {1, (uint16_t)sendRankNum_, 1, 0}, rsvdCnt);
+            PipeBarrier<PIPE_V>();
+            Sum(statusSumOutTensor, gatherMaskOutTensor, sumParams);
+            SyncFunc<AscendC::HardEvent::V_S>();
+            sumOfFlag = statusSumOutTensor.GetValue(0);
+            if ((sumOfFlag < minTarget) || (sumOfFlag > maxTarget)) {
+                SPIN_WAIT_CYCLES();
+            }
+        }
+    }
+}
+
+template <TemplateMC2TypeClass>
+__aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::PublishAndWaitCombineSerial()
+{
+    if constexpr (IsNeedReduceScatter) {
+        tpipe_->InitBuffer(moeQueue_, BUFFER_NUM, axisHExpandXTypeSize_);
+        ReduceScatterTrans();
+    }
+    AlltoAllBuffInit();
+    SetStatus();
+    WaitDispatchSpin();
+}
+
 }  // namespace MoeDistributeCombineImpl
 
 #endif  // CAM_MOE_DISTRIBUTE_COMBINE_IMPL_H

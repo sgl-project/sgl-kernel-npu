@@ -238,18 +238,31 @@ public:
 
     // Methods
     CATLASS_DEVICE
+#if defined(DEEPEP_FUSED_MOE_1C1V)
+    explicit DispatchMxGmm1Swiglu(uint32_t activeAivNum) : aivNum(activeAivNum)
+#else
     DispatchMxGmm1Swiglu()
+#endif
     {
         aiCoreGroupNum = AscendC::GetBlockNum();
         subBlockNum = AscendC::GetSubBlockNum();
         aiCoreGroupIdx = AscendC::GetBlockIdx() / subBlockNum;
         aicNum = aiCoreGroupNum;
-        aivNum = aiCoreGroupNum * SUB_AIV_NUM;  // 1C2V
         if ASCEND_IS_AIC {
             aicIdx = AscendC::GetBlockIdx();
+#if !defined(DEEPEP_FUSED_MOE_1C1V)
+#if (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510)
+            aivNum = aiCoreGroupNum * SUB_AIV_NUM;  // 1C2V
+#else
+            aivNum = aiCoreGroupNum;
+#endif
+#endif
         }
         if ASCEND_IS_AIV {
             aivIdx = AscendC::GetBlockIdx();
+#if !defined(DEEPEP_FUSED_MOE_1C1V)
+            aivNum = aiCoreGroupNum * subBlockNum;
+#endif
         }
 
         winContext_ = (__gm__ Mc2Kernel::HcclOpParam *)AscendC::GetHcclContext<AscendC::HCCL_GROUP_ID_0>();
@@ -264,8 +277,11 @@ public:
             return;
         }
 
-        recvCoreNum = aiCoreGroupNum;
-        sendCoreNum = aiCoreGroupNum;
+        uint32_t evenBlockNum = (aiCoreGroupNum + 1) / 2;
+        uint32_t oddBlockNum = aiCoreGroupNum / 2;
+        uint32_t aivPerBlock = aivNum / aiCoreGroupNum;
+        sendCoreNum = evenBlockNum * aivPerBlock;
+        recvCoreNum = oddBlockNum * aivPerBlock;
         if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
             shareQuantCoreNum = recvCoreNum;
         }
@@ -277,10 +293,11 @@ public:
             vToCFlag = (cvDataState == 0) ? V_TO_C_FLAG_1 : V_TO_C_FLAG_2;
         }
         if ASCEND_IS_AIV {
-            isRecvCore = ((aivIdx % ODD_EVEN_BASE) == 0);
-            recvCoreIdx = aiCoreGroupIdx;
-            isSendCore = ((aivIdx % ODD_EVEN_BASE) == 1);
-            sendCoreIdx = aiCoreGroupIdx;
+            uint32_t roleCoreIdx = (aiCoreGroupIdx / 2) * subBlockNum + AscendC::GetSubBlockIdx();
+            isSendCore = ((aiCoreGroupIdx % ODD_EVEN_BASE) == 0);
+            sendCoreIdx = roleCoreIdx;
+            isRecvCore = ((aiCoreGroupIdx % ODD_EVEN_BASE) == 1);
+            recvCoreIdx = roleCoreIdx;
             if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
                 isShareQuantCore = isRecvCore;
                 shareQuantCoreIdx = recvCoreIdx;

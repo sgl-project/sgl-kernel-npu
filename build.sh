@@ -15,6 +15,7 @@ CMAKE_SOC_VERSION="Ascend910_9382"
 SGL_KERNEL_NPU_BUILD_TARGET="Ascend910"
 DEEPEP_VARIANT="deepep"
 DEEPEP_IS_A5_BUILD="OFF"
+DEEPEP_OP_SOC_VERSION=""
 
 BUILD_ATTENTIONS_MODULE="OFF"
 BUILD_DEEPEP_MODULE="OFF"
@@ -37,7 +38,7 @@ function print_help()
     cat <<'EOF'
 Usage:
     ./build.sh [SOC_VERSION]                    Build all modules; auto-detect A2 or A3.
-    ./build.sh -a deepep [SOC_VERSION]          Build deep_ep; auto-detect A2, A3, or A5.
+    ./build.sh -a deepep [SOC_VERSION]          Build deep_ep; auto-detect A2, A3, A5, or A6.
     ./build.sh -a deepep2 [SOC_VERSION]         Build deep_ep for A2 (compatible alias).
     ./build.sh -a kernels [SOC_VERSION]         Build sgl_kernel_npu; auto-detect A2, A3, or Ascend 950.
     ./build.sh -a memory-saver                  Build torch_memory_saver.
@@ -48,7 +49,7 @@ back to Ascend910_9382, the value every target used to default to.
 
 TARGET:
     all            (default) Build all modules.
-    deepep         Build deep_ep and auto-select ops (A3/A5) or ops2 (A2).
+    deepep         Build deep_ep and auto-select ops (A3/A5/A6) or ops2 (A2).
     deepep2        Build deep_ep with ops2 for A2 (compatible alias).
     kernels        Build sgl_kernel_npu only.
     memory-saver   Build torch_memory_saver only.
@@ -59,6 +60,7 @@ SOC_VERSION:
     Ascend910_9382      A3 chip. Valid for all/deepep/kernels.
     Ascend950           Ascend 950 family alias. Valid for deepep/kernels.
     Ascend950PR_9599    Concrete Ascend 950 compiler target. Valid for kernels.
+    Ascend960           Ascend 960 family alias. Valid for deepep.
     (omitted)           all/deepep/kernels: auto-detect via npu-smi,
                         fallback to Ascend910_9382.
                         deepep2: defaults to Ascend910B1.
@@ -82,6 +84,7 @@ Examples:
     ./build.sh                                  # all modules, A3
     ./build.sh -a deepep                        # auto-detect chip
     ./build.sh -a deepep Ascend950              # explicit A5 DeepEP
+    ./build.sh -a deepep Ascend960
     ./build.sh -a deepep2                       # A2 DeepEP
     ./build.sh -a kernels                       # sgl_kernel_npu, A3
     ./build.sh -a kernels Ascend950PR_9599      # sgl_kernel_npu, A5
@@ -155,6 +158,23 @@ function configure_build_target()
     esac
 }
 
+function get_ascend960_soc_version()
+{
+    local chip_name npu_name
+    chip_name="$(printf '%s\n' "$1" | sed -nE 's/^[[:space:]]*Chip Name[[:space:]]*:[[:space:]]*([[:alnum:]_]+).*/\1/Ip')"
+    [[ "${chip_name,,}" == ascend960* ]] || return 1
+
+    if [[ "$chip_name" != *_* ]]; then
+        npu_name="$(printf '%s\n' "$1" | sed -nE 's/^[[:space:]]*NPU Name[[:space:]]*:[[:space:]]*([[:alnum:]_]+).*/\1/Ip')"
+        if [[ "${npu_name,,}" == ascend960* ]]; then
+            chip_name="$npu_name"
+        elif [[ "$npu_name" =~ ^[0-9][[:alnum:]]*$ ]]; then
+            chip_name="${chip_name}_${npu_name}"
+        fi
+    fi
+    printf '%s\n' "$chip_name"
+}
+
 # $1: pass "strict" to abort when npu-smi reports a chip this script does not
 # recognize. deepep picks its ops variant from the SoC, so guessing wrong there
 # is worse than stopping; every other target falls back to the A3 target that
@@ -174,6 +194,11 @@ function detect_soc_version()
 
     # A5 supports the device-level query and reports Chip Name as Ascend950*.
     board_info="$(npu-smi info -t board -i 0 2>/dev/null || true)"
+    if [[ "$BUILD_TARGET" == "deepep" ]] && DEEPEP_OP_SOC_VERSION="$(get_ascend960_soc_version "$board_info")"; then
+        SOC_VERSION="Ascend960"
+        echo "Detected A6: SOC_VERSION=$SOC_VERSION"
+        return
+    fi
     if printf '%s\n' "$board_info" |
         grep -Eiq '^[[:space:]]*Chip Name[[:space:]]*:[[:space:]]*Ascend950'; then
         SOC_VERSION="Ascend950"
@@ -199,7 +224,7 @@ function detect_soc_version()
     fi
 
     if [[ "$strict" == "strict" ]]; then
-        die "Cannot determine the device type (A2/A3/A5) from npu-smi output."
+        die "Cannot determine the device type (A2/A3/A5/A6) from npu-smi output."
     fi
 
     SOC_VERSION="Ascend910_9382"
@@ -211,6 +236,24 @@ function detect_soc_version()
 # Ascend950 family name.
 function normalize_soc_version()
 {
+    if [[ "$BUILD_TARGET" == "deepep" ]]; then
+        case "${SOC_VERSION,,}" in
+            960 | ascend960 )
+                if [[ -n "$REQUESTED_SOC_VERSION" ]]; then
+                    local board_info
+                    board_info="$(npu-smi info -t board -i 0 2>/dev/null || true)"
+                    DEEPEP_OP_SOC_VERSION="$(get_ascend960_soc_version "$board_info")" || true
+                fi
+                SOC_VERSION="Ascend960"
+                ;;
+            ascend960* )
+                [[ "$SOC_VERSION" =~ ^[[:alnum:]_]+$ ]] || die "Invalid Ascend960 target '$SOC_VERSION'."
+                DEEPEP_OP_SOC_VERSION="$SOC_VERSION"
+                SOC_VERSION="Ascend960"
+                ;;
+        esac
+    fi
+
     case "$SOC_VERSION" in
         910 | Ascend910 | 910C )
             SOC_VERSION="Ascend910_9382"
@@ -275,9 +318,6 @@ function configure_soc_version()
         normalize_soc_version
     fi
 
-    # 'all' and 'deepep' both build deep_ep, which supports only these three
-    # SoCs. 'kernels' deliberately has no allow-list: it forwards whatever the
-    # caller passed to the AscendC compiler, as it always has.
     case "$BUILD_TARGET" in
         all | deepep )
             case "$SOC_VERSION" in
@@ -287,8 +327,12 @@ function configure_soc_version()
                 Ascend910_9382 | Ascend950 )
                     DEEPEP_VARIANT="deepep"
                     ;;
+                Ascend960 )
+                    [[ "$BUILD_TARGET" == "deepep" ]] || die "Ascend960 targets require -a deepep."
+                    DEEPEP_VARIANT="deepep"
+                    ;;
                 * )
-                    die "Target '$BUILD_TARGET' supports only Ascend910B1 (A2), Ascend910_9382 (A3), or Ascend950 (A5)."
+                    die "Unsupported DeepEP SoC '$SOC_VERSION'. Use -h to list available targets."
                     ;;
             esac
             ;;
@@ -335,11 +379,21 @@ function configure_soc_version()
     esac
     export SGL_KERNEL_NPU_BUILD_TARGET
 
-    if [[ "$BUILD_DEEPEP_MODULE" == "ON" && "$SOC_VERSION" == "Ascend950" ]]; then
-        DEEPEP_IS_A5_BUILD="ON"
-        export ASCEND_COMPUTE_UNIT="ascend950"
-    else
-        unset ASCEND_COMPUTE_UNIT
+    unset ASCEND_COMPUTE_UNIT
+    if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
+        case "$SOC_VERSION" in
+            Ascend950 )
+                DEEPEP_IS_A5_BUILD="ON"
+                export ASCEND_COMPUTE_UNIT="ascend950"
+                ;;
+            Ascend960 )
+                case "${DEEPEP_OP_SOC_VERSION,,}" in
+                    ascend960dt* ) export ASCEND_COMPUTE_UNIT="ascend960dt" ;;
+                    ascend960pr* ) export ASCEND_COMPUTE_UNIT="ascend960pr" ;;
+                    * ) export ASCEND_COMPUTE_UNIT="ascend960" ;;
+                esac
+                ;;
+        esac
     fi
 
     echo "Build target: $BUILD_TARGET"
@@ -350,6 +404,8 @@ function configure_soc_version()
     fi
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" || "$BUILD_KERNELS_MODULE" == "ON" ]]; then
         echo "CMake SOC_VERSION: $CMAKE_SOC_VERSION"
+    fi
+    if [[ "$BUILD_KERNELS_MODULE" == "ON" ]]; then
         echo "Wheel SOC_VERSION: $SGL_KERNEL_NPU_BUILD_TARGET"
     fi
 }
@@ -455,6 +511,7 @@ function ensure_wheel_package()
 
 function prepare_deepep_build()
 {
+    local ops_soc_version="${DEEPEP_OP_SOC_VERSION:-$SOC_VERSION}"
     (
         cd "$PROJECT_ROOT/csrc"
         chmod +x deepep_cmake_build.sh
@@ -464,10 +521,10 @@ function prepare_deepep_build()
         echo "./deepep_cmake_build.sh all $SOC_VERSION"
         ./deepep_cmake_build.sh all "$SOC_VERSION"
 
-        echo "./deepep/compile_ascend_proj.sh ./deepep $SOC_VERSION $DEEPEP_VARIANT"
+        echo "./deepep/compile_ascend_proj.sh ./deepep $ops_soc_version $DEEPEP_VARIANT"
         bash ./deepep/compile_ascend_proj.sh \
             ./deepep \
-            "$SOC_VERSION" \
+            "$ops_soc_version" \
             "$DEEPEP_VARIANT"
     )
 }

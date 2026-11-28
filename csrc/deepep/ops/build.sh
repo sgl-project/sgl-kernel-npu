@@ -34,6 +34,8 @@ CATLASS_PATH=${CATLASS_DIR}/include
 CATLASS_REF="${CATLASS_REF_A3}"
 if [[ "${ASCEND_COMPUTE_UNIT}" =~ ^ascend950 ]]; then
     CATLASS_REF="${CATLASS_REF_A5}"
+elif [[ "${ASCEND_COMPUTE_UNIT}" =~ ^ascend960 ]]; then
+    CATLASS_REF="${CATLASS_REF_A5}"
 fi
 
 echo "using ASCEND_COMPUTE_UNIT: ${ASCEND_COMPUTE_UNIT:-<unset>}"
@@ -110,6 +112,10 @@ cmake_version=$(cmake --version | grep "cmake version" | awk '{print $3}')
 target=package
 if [ "$1"x != ""x ]; then target=$1; fi
 
-cmake -S . -B "$BUILD_DIR" --preset=default
-cmake --build "$BUILD_DIR" --target binary -j$(nproc)
+compute_unit_args=()
+if [[ "${ASCEND_COMPUTE_UNIT}" =~ ^ascend960(dt|pr)$ ]]; then
+    compute_unit_args=(-DASCEND_COMPUTE_UNIT="$ASCEND_COMPUTE_UNIT")
+fi
+cmake -S . -B "$BUILD_DIR" --preset=default "${compute_unit_args[@]}" || exit $?
+cmake --build "$BUILD_DIR" --target binary -j$(nproc) || exit $?
 cmake --build "$BUILD_DIR" --target $target -j$(nproc)

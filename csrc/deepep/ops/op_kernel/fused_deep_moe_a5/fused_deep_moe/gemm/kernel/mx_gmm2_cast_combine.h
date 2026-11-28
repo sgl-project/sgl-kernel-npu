@@ -5,6 +5,7 @@
 #include "../../raw_distributed/cam_moe_distribute_combine.h"
 #include "../../fused_deep_moe_utils.h"
 #include "catlass/catlass.hpp"
+#include "catlass/arch/cross_core_sync.hpp"
 #include "catlass/arch/resource.hpp"
 #include "catlass/coord.hpp"
 #include "catlass/detail/callback.hpp"
@@ -181,13 +182,8 @@ public:
     }
 
     CATLASS_DEVICE
-    void CleanRoutedX2ReadyState(uint32_t problemCount)
+    void CleanRoutedX2ReadyState(uint32_t problemCount, uint32_t workerIdx, uint32_t workerCount)
     {
-        // This helper is called by the AIV specialization.  Its block index
-        // is already the logical AIV index; multiplying by subblock count
-        // would leave ready slots uncleared.
-        uint32_t workerIdx = AscendC::GetBlockIdx();
-        uint32_t workerCount = AscendC::GetBlockNum();
         AscendC::LocalTensor<int32_t> zeroLocal = resource.ubBuf.template GetBufferByByte<int32_t>(0);
         AscendC::Duplicate(zeroLocal, static_cast<int32_t>(0), GMM2::INT32_COUNT_PER_BLOCK);
         AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(0);
@@ -510,35 +506,39 @@ public:
         gmX2ReadyState = params.gmX2ReadyState;
         auto *combiner = (MoeDistributeCombineImpl::CamMoeDistributeCombine<TemplateMC2TypeFunc> *)params.combiner;
 
-        uint32_t coreIdx = AscendC::GetBlockIdx() / AscendC::GetSubBlockNum();
+        const uint32_t subBlockNum = AscendC::GetSubBlockNum();
+        uint32_t coreIdx = AscendC::GetBlockIdx() / subBlockNum;
         uint32_t coreNum = AscendC::GetBlockNum();
 
-        AscendC::GlobalTensor<ElementC> gmC;
-        gmC.SetGlobalBuffer(params.ptrC);
-        AscendC::GlobalTensor<ElementGroupList> groupList;
-        groupList.SetGlobalBuffer(params.ptrGroupList);
-        bool sparseFastPath = params.enableRoutedSparseFastPath;
-        AscendC::GlobalTensor<int32_t> routedGroupMetaTensor;
-        AscendC::GlobalTensor<uint32_t> routedActiveGroupCountTensor;
-        AscendC::GlobalTensor<uint32_t> routedActiveGroupIdsTensor;
-        uint32_t activeGroupCount = params.problemCount;
-        if (sparseFastPath) {
-            routedGroupMetaTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(params.gmRoutedGroupMeta));
-            routedActiveGroupCountTensor.SetGlobalBuffer(
-                reinterpret_cast<__gm__ uint32_t *>(params.gmRoutedActiveGroupCount));
-            routedActiveGroupIdsTensor.SetGlobalBuffer(
-                reinterpret_cast<__gm__ uint32_t *>(params.gmRoutedActiveGroupIds));
-            activeGroupCount = FlushAndGetValue<uint32_t>(routedActiveGroupCountTensor, 0);
-            activeGroupCount = activeGroupCount > params.problemCount ? params.problemCount : activeGroupCount;
-        }
-
-        AscendC::GlobalTensor<ElementD> gmD;
-        gmD.SetGlobalBuffer(params.ptrD);
-
+        const bool serialCombine = subBlockNum == 1;
+        const bool serialDeepFuse = (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) && serialCombine;
+        const uint32_t subBlockIdx = AscendC::GetSubBlockIdx();
         uint32_t target = 1;
         {
+            AscendC::GlobalTensor<ElementC> gmC;
+            gmC.SetGlobalBuffer(params.ptrC);
+            AscendC::GlobalTensor<ElementGroupList> groupList;
+            groupList.SetGlobalBuffer(params.ptrGroupList);
+            bool sparseFastPath = params.enableRoutedSparseFastPath;
+            AscendC::GlobalTensor<int32_t> routedGroupMetaTensor;
+            AscendC::GlobalTensor<uint32_t> routedActiveGroupCountTensor;
+            AscendC::GlobalTensor<uint32_t> routedActiveGroupIdsTensor;
+            uint32_t activeGroupCount = params.problemCount;
+            if (sparseFastPath) {
+                routedGroupMetaTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(params.gmRoutedGroupMeta));
+                routedActiveGroupCountTensor.SetGlobalBuffer(
+                    reinterpret_cast<__gm__ uint32_t *>(params.gmRoutedActiveGroupCount));
+                routedActiveGroupIdsTensor.SetGlobalBuffer(
+                    reinterpret_cast<__gm__ uint32_t *>(params.gmRoutedActiveGroupIds));
+                activeGroupCount = FlushAndGetValue<uint32_t>(routedActiveGroupCountTensor, 0);
+                activeGroupCount = activeGroupCount > params.problemCount ? params.problemCount : activeGroupCount;
+            }
+
+            AscendC::GlobalTensor<ElementD> gmD;
+            gmD.SetGlobalBuffer(params.ptrD);
+
             if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
-                if (AscendC::GetSubBlockIdx() == 0) {
+                if (!serialDeepFuse && subBlockIdx == 0) {
                     AscendC::CrossCoreSetFlag<0x0, PIPE_MTE3>(MoeDistributeCombineImpl::RECV_SYNC_EVENT_ID);
                 }
             }
@@ -621,9 +621,11 @@ public:
             AscendC::PipeBarrier<PIPE_ALL>();
             if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
                 if (AscendC::GetSubBlockIdx() == 0) {
-                    AscendC::CrossCoreSetFlag<0x0, PIPE_MTE3>(MoeDistributeCombineImpl::SEND_SYNC_EVENT_ID);
-                    if constexpr ((EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) == 0) {
-                        AscendC::CrossCoreSetFlag<0x0, PIPE_MTE3>(MoeDistributeCombineImpl::RECV_SYNC_EVENT_ID);
+                    if (!serialCombine) {
+                        AscendC::CrossCoreSetFlag<0x0, PIPE_MTE3>(MoeDistributeCombineImpl::SEND_SYNC_EVENT_ID);
+                        if constexpr ((EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) == 0) {
+                            AscendC::CrossCoreSetFlag<0x0, PIPE_MTE3>(MoeDistributeCombineImpl::RECV_SYNC_EVENT_ID);
+                        }
                     }
                     gmC.SetGlobalBuffer(params.ptrSharedC);  // 必须重新赋值，不然下面还是用的路由专家数据
                     gmD.SetGlobalBuffer(params.ptrSharedD);  // 必须重新赋值，不然下面还是用的路由专家数据
@@ -659,15 +661,47 @@ public:
                         target += 1;
                         blockEpilogue(tensorBlockC, tensorBlockD, actualBlockShape, UINT32_MAX, 0, 0);
                     }
-                    AscendC::CrossCoreWaitFlag(MoeDistributeCombineImpl::SEND_SYNC_EVENT_ID);
-                    AscendC::CrossCoreWaitFlag(MoeDistributeCombineImpl::RECV_SYNC_EVENT_ID);
+                    if (!serialCombine) {
+                        AscendC::CrossCoreWaitFlag(MoeDistributeCombineImpl::SEND_SYNC_EVENT_ID);
+                        AscendC::CrossCoreWaitFlag(MoeDistributeCombineImpl::RECV_SYNC_EVENT_ID);
+                    }
                 }
             }
         }
 
+        if (serialDeepFuse) {
+            Arch::CrossCoreBarrier<0x0, PIPE_MTE3>();
+        }
+
         icache_preload(4);
-        if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
-            if (AscendC::GetSubBlockIdx() == 1) {
+        if (serialDeepFuse) {
+            uint64_t profWeightSumCombineStart = 0;
+            if (params.profile != nullptr) {
+                profWeightSumCombineStart = params.profile->Now();
+            }
+            resource.pipe.Init();
+            combiner->TPipeSet(&resource.pipe);
+            combiner->PublishAndWaitCombineSerial();
+
+            Arch::CrossCoreBarrier<0x0, PIPE_MTE3>();
+
+            combiner->LocalWindowCopy();
+            combiner->TPipeSet(nullptr);
+            resource.pipe.Destroy();
+            if constexpr ((EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) == 0) {
+                if (params.profile != nullptr) {
+                    params.profile->Record(FusedDeepMoeProfileStage::WeightSumReducePermute, profWeightSumCombineStart,
+                                           params.profile->Now());
+                }
+            }
+        } else if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
+            if (serialCombine) {
+                resource.pipe.Init();
+                combiner->TPipeSet(&resource.pipe);
+                combiner->ProcessCombineSerial();
+                combiner->TPipeSet(nullptr);
+                resource.pipe.Destroy();
+            } else if (subBlockIdx == 1) {
                 resource.pipe.Init();
                 combiner->TPipeSet(&resource.pipe);
                 combiner->ProcessCombine();
@@ -675,7 +709,7 @@ public:
                 resource.pipe.Destroy();
             }
         } else if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
-            if (AscendC::GetSubBlockIdx() == 0) {
+            if (subBlockIdx == 0) {
                 uint64_t profWeightSumAllToAllSendStart = 0;
                 if (params.profile != nullptr) {
                     profWeightSumAllToAllSendStart = params.profile->Now();
@@ -712,9 +746,6 @@ public:
             resource.pipe.Destroy();
         }
         if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
-            CleanRoutedX2ReadyState(params.problemCount);
-        }
-        if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
             if (AscendC::GetSubBlockIdx() == 0) {
                 CheckSyncFlag(reinterpret_cast<__gm__ int32_t *>(syncGmAddr + GMM2::SOFT_SYNC_OFFSET),
                               static_cast<int32_t>(coreIdx), target);
@@ -722,6 +753,9 @@ public:
             AscendC::PipeBarrier<PIPE_ALL>();
             AscendC::SyncAll<true>();
             AscendC::PipeBarrier<PIPE_ALL>();
+            if (subBlockIdx == 0) {
+                CleanRoutedX2ReadyState(params.problemCount, coreIdx, coreNum);
+            }
         }
         if (AscendC::GetSubBlockIdx() == 0) {
             uint64_t profWeightSumCleanStart = 0;
