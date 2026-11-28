@@ -7,6 +7,7 @@
 #include "aclnn_sgl_fused_copy_sfa.h"
 #include <array>
 #include <torch/library.h>
+#include <torch_npu/csrc/core/npu/NPUGuard.h>
 
 namespace sglang::npu_kernel {
 void LaunchFusedCopySfa(const at::Tensor &query, const at::Tensor &query_rope, at::Tensor &hbm_ckv,
@@ -23,6 +24,7 @@ void LaunchFusedCopySfa(const at::Tensor &query, const at::Tensor &query_rope, a
                         int64_t host_token_capacity, int64_t dram_rope_dev_ptr)
 {
     // The caller owns the two registered host allocations until stream completion.
+    const c10_npu::NPUGuard deviceGuard(query.device());
     auto stream = c10_npu::getCurrentNPUStream();
     const auto floating = query.scalar_type() == at::kHalf ? ACL_FLOAT16 : ACL_BF16;
     std::array<at::Tensor, 22> tensors = {query,
@@ -77,8 +79,11 @@ void LaunchFusedCopySfa(const at::Tensor &query, const at::Tensor &query_rope, a
         workspace = at::empty({static_cast<int64_t>(bytes)}, query.options().dtype(at::kByte));
     }
     auto aclStream = stream.stream(false);
-    auto launch = [tensors, desc, workspace, bytes, executor, aclStream]() -> int {
-        auto result = execute(bytes ? workspace.data_ptr() : nullptr, bytes, executor, aclStream);
+    // The allocation and launch share a stream, so later calls can reuse the workspace in stream order.
+    // Keep the owning tensor through submission without retaining one workspace per queued call.
+    void *workspacePtr = bytes ? workspace.data_ptr() : nullptr;
+    auto launch = [tensors, desc, workspacePtr, bytes, executor, aclStream]() -> int {
+        auto result = execute(workspacePtr, bytes, executor, aclStream);
         TORCH_CHECK(result == ACL_SUCCESS, "Copy-SFA execution failed: ", aclGetRecentErrMsg());
         return result;
     };

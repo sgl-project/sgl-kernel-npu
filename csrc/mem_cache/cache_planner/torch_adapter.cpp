@@ -53,7 +53,6 @@ void plan_sparse_kv_cache(const at::Tensor &source_to_slot, const at::Tensor &sl
                                           topk_dst_slots, topk_miss_counts, miss_src_ids, miss_dst_slots, miss_counts};
     std::array<std::shared_ptr<aclTensor>, 10> descriptors;
     for (size_t i = 0; i < tensors.size(); ++i) {
-        tensors[i].record_stream(stream);
         descriptors[i] = sgl_cann::tensor_descriptor(tensors[i], ACL_INT32);
     }
     static auto query = reinterpret_cast<decltype(&aclnnSglPlanSparseKvCacheGetWorkspaceSize)>(
@@ -68,10 +67,21 @@ void plan_sparse_kv_cache(const at::Tensor &source_to_slot, const at::Tensor &sl
               descriptors[8].get(), descriptors[9].get(), max_context_len, cache_capacity, &workspaceSize, &executor);
     TORCH_CHECK(status == ACL_SUCCESS, "plan_sparse_kv_cache workspace query failed: ", aclGetRecentErrMsg());
     TORCH_CHECK(workspaceSize <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max()), "workspace too large");
-    auto workspace = at::empty({static_cast<int64_t>(workspaceSize)}, source_to_slot.options().dtype(at::kByte));
+    at::Tensor workspace;
+    if (workspaceSize) {
+        workspace = at::empty({static_cast<int64_t>(workspaceSize)}, source_to_slot.options().dtype(at::kByte));
+    }
+    // The caller's buffers can come from a different stream. The allocator
+    // ignores recordings on the allocation stream.
+    for (const auto &tensor : tensors) {
+        tensor.record_stream(stream);
+    }
     auto aclStream = stream.stream(false);
-    auto launch = [tensors, descriptors, workspace, workspaceSize, executor, aclStream]() -> int {
-        auto result = execute(workspaceSize ? workspace.data_ptr() : nullptr, workspaceSize, executor, aclStream);
+    // The workspace is allocated and used on this stream. Release its owner
+    // after submission so later calls can reuse it in stream order.
+    void *workspacePtr = workspaceSize ? workspace.data_ptr() : nullptr;
+    auto launch = [tensors, descriptors, workspacePtr, workspaceSize, executor, aclStream]() -> int {
+        auto result = execute(workspacePtr, workspaceSize, executor, aclStream);
         TORCH_CHECK(result == ACL_SUCCESS, "plan_sparse_kv_cache execution failed: ", aclGetRecentErrMsg());
         return result;
     };

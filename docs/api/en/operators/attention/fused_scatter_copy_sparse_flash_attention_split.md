@@ -5,6 +5,7 @@
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `ascendc` | Unverified | Unsupported |
+| `torch_native` | Eager CPU reference | Unsupported |
 
 ## Signature
 
@@ -23,7 +24,7 @@ def fused_scatter_copy_sparse_flash_attention_split(
     scale_value, *, full_visible=False, resident_refresh_tail=False,
     current=None, positions=None, valid=None, request_slots=None,
     req_to_token=None, resident_end=None, host_token_capacity=0,
-    dram_rope_dev_ptr=0, impl="auto",
+    dram_rope_dev_ptr=0, dram_ckv=None, dram_rope=None, impl="auto",
 ) -> None:
     ...
 ```
@@ -56,6 +57,10 @@ and [independent attention and replay tests](../../../../../tests/test_copy_sfa_
 ## ascendc backend
 
 Uses the wheel’s native split Copy-SFA binding. The correctness suite allocates registered host buffers and compares the output with independent PyTorch attention.
+
+## torch_native backend
+
+For `impl="torch_native"`, pass the host payload as `dram_ckv` and `dram_rope` tensors with trailing dimensions 512 and 64 and pass 0 for both device pointers. The eager reference updates the split resident cache, `resident_end`, and attention output. It completes the miss and refresh copies before computing attention. Use `ascendc` for NPU graph replay.
 
 ## Runnable example
 

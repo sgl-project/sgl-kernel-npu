@@ -40,6 +40,15 @@ def _ascendc_impl(*args, **kwargs) -> None:
     )
 
 
+@register_impl(_OP, "torch_native", supported_generations=_SUPPORTED_GENERATIONS)
+def _torch_native_impl(*args, **kwargs) -> None:
+    from ...implementation.torch_native.attention.fused_scatter_copy_sparse_flash_attention_split import (
+        fused_scatter_copy_sparse_flash_attention_split,
+    )
+
+    fused_scatter_copy_sparse_flash_attention_split(*args, **kwargs)
+
+
 @register_operator(_OP)
 def fused_scatter_copy_sparse_flash_attention_split(
     query,
@@ -71,6 +80,8 @@ def fused_scatter_copy_sparse_flash_attention_split(
     resident_end=None,
     host_token_capacity=0,
     dram_rope_dev_ptr=0,
+    dram_ckv=None,
+    dram_rope=None,
     impl="auto",
 ) -> None:
     """Consume a LIM plan and write resident payload and attention in place.
@@ -87,7 +98,15 @@ def fused_scatter_copy_sparse_flash_attention_split(
     resident_end in place and bounds host indices by host_token_capacity.
     resident_refresh_tail enables overlap for the refresh suffix in a
     full-visible LIM plan.
+
+    The eager `torch_native` reference takes host tensors in `dram_ckv` and
+    `dram_rope`. The integer device addresses are only used by Ascend C.
     """
+    reference_host = {}
+    if impl == "torch_native":
+        reference_host = {"dram_ckv": dram_ckv, "dram_rope": dram_rope}
+    elif dram_ckv is not None or dram_rope is not None:
+        raise ValueError("dram_ckv and dram_rope are only used by torch_native")
     get_impl_by_name(_OP, impl)(
         query,
         query_rope,
@@ -117,4 +136,5 @@ def fused_scatter_copy_sparse_flash_attention_split(
         resident_end=resident_end,
         host_token_capacity=host_token_capacity,
         dram_rope_dev_ptr=dram_rope_dev_ptr,
+        **reference_host,
     )

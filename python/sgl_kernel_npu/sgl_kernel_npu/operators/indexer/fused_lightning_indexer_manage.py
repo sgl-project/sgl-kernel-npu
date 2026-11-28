@@ -15,6 +15,15 @@ def _ascendc_impl(*args, **kwargs) -> None:
     torch.ops.npu.fused_lightning_indexer_manage.default(*args, **kwargs)
 
 
+@register_impl(_OP, "torch_native", supported_generations=_SUPPORTED_GENERATIONS)
+def _torch_native_impl(*args, **kwargs) -> None:
+    from ...implementation.torch_native.indexer.fused_lightning_indexer_manage import (
+        fused_lightning_indexer_manage,
+    )
+
+    fused_lightning_indexer_manage(*args, **kwargs)
+
+
 @register_operator(_OP)
 def fused_lightning_indexer_manage(
     index_weights,
@@ -40,7 +49,8 @@ def fused_lightning_indexer_manage(
 ) -> None:
     """Select TopK and update the resident-cache plan in place.
 
-    Auto selects the wheel's Ascend C implementation. The index weights,
+    Auto selects the wheel's Ascend C implementation. Use `torch_native`
+    for eager correctness checks. The index weights,
     query and key cache use FP16 or BF16 with shapes [T, H], [T, H, 128] and
     [P, 128, 1, 128]. The other tensors use int32. The [B, L] block table
     indexes key pages. The [B] inputs specify cumulative query ends, visible
