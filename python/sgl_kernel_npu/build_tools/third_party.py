@@ -98,10 +98,6 @@ def resolve_plan(
         if root.resolve() not in config_path.resolve().parents:
             raise ValueError("Dependency configuration escapes third_party")
         config = read_json(config_path)
-        # Experimental profiles can be selected explicitly without changing
-        # the dependency set of existing wheel builds.
-        if config.pop("opt_in", False) and third_party is None:
-            continue
         # Profile documentation is not part of the build configuration or cache key.
         config.pop("_comment", None)
         # One upstream profile can require separate regular/experimental vendors.
