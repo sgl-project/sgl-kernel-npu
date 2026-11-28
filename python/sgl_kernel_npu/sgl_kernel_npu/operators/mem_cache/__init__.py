@@ -3,6 +3,7 @@ from .alloc_extend_indices import alloc_extend_indices
 from .assign_cache_op import assign_cache_op
 from .cache_locations import cache_loc_assign, cache_loc_update
 from .checksum import adler32_strided_checksum
+from .clear_mamba_slots import clear_mamba_slots
 from .get_npu_kv_quant_path import NPU_KV_QUANT_PATH, get_npu_kv_quant_path
 from .indexer_quant_cache import indexer_quant_cache
 from .kpool_assemble_softmax_rotate_write_cache import (
@@ -38,6 +39,7 @@ __all__ = [
     "assign_cache_op",
     "cache_loc_assign",
     "cache_loc_update",
+    "clear_mamba_slots",
     "create_shm_tensor",
     "free_shm",
     "get_npu_kv_quant_path",

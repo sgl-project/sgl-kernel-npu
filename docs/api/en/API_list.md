@@ -227,6 +227,7 @@ installation steps; see
 | [conv_state_rollback](operators/mamba/conv_state_rollback.md) | `triton`, `torch_native` |
 | [speculative_state_scatter](operators/mamba/speculative_state_scatter.md) | `triton`, `torch_native` |
 | [alloc_extend_indices](operators/mem_cache/alloc_extend_indices.md) | `triton`, `torch_native` |
+| [clear_mamba_slots](operators/mem_cache/clear_mamba_slots.md) | `triton`, `torch_native` |
 | [store_kv_cache_prefix_valid](operators/mem_cache/store_kv_cache_prefix_valid.md) | `triton`, `torch_native` |
 | [`create_shm_tensor` / `free_shm`](operators/mem_cache/shm_allocator.md) | HOST C++ (Ascend HAL, ARCH22) |
 | [slot_map_lookup](operators/mem_cache/slot_map_lookup.md) | `ascendc` (ARCH22), `torch_native` (ARCH22) |
