@@ -19,16 +19,17 @@ from sgl_kernel_npu.operators.sample import markov_sample_step_triton
 def markov_sample_step_triton(
     *, base_logits, bias, temperatures, key, offset, step, step_dtype,
     vocab_start=0, gather=None, gather_logits=None, logits_out=None,
-    has_sampled_rows=None, exp_noise=None, impl="auto", **kwargs
+    has_sampled_rows=None, exp_noise=None, softcap=None, vocab_limit=None,
+    impl="auto", **kwargs
 ):
     ...
 ```
 
-为兼容上游调用，接口接受额外关键字参数，无论取值都忽略，不传给后端。
+为兼容上游调用，接口接受未知额外关键字参数，无论取值都忽略，不传给后端。
 
 ## 功能说明
 
-将 `bias` 加到 `base_logits` 的有效列，将结果舍入到 `step_dtype`，然后为每行返回一个全局词表索引。温度为 0 时选择最大 logit；非零温度时选择 `logit / temperature - log(noise)` 的最大值，其中 noise 为指数分布样本。`bias` 宽度之外的填充列不参与选择。
+将 `bias` 加到 `base_logits` 的有效列，将结果舍入到 `step_dtype`，按需应用 logit softcap（`tanh(x / softcap) * softcap` 并再次舍入到 `step_dtype`）以及将全局列号 `>= vocab_limit` 的元素掩码为 `-inf`，然后为每行返回一个全局词表索引。温度为 0 时选择最大 logit；非零温度时选择 `logit / temperature - log(noise)` 的最大值，其中 noise 为指数分布样本。`bias` 宽度之外的填充列不参与选择。
 
 使用 Philox 噪声时，`key`、`offset`、`step`、行号和全局词表索引共同确定噪声流。也可以通过 `exp_noise` 提供预生成噪声。
 
@@ -51,6 +52,8 @@ def markov_sample_step_triton(
 | `logits_out` | `torch.Tensor` 或 `None` | 本地为 `[B, P]`，汇聚时为 `[B, V_global]`；`step_dtype` | `None` | 可选输出缓冲区，原地写入舍入后的 logits；列步长为 1。 |
 | `has_sampled_rows` | `bool` 或 `None` | — | `None` | 仅当所有行均为贪心模式时可设为 `False`，跳过噪声生成。 |
 | `exp_noise` | `torch.Tensor` 或 `None` | 与本地 logits 或汇聚后的 `logits_out` 同形状；`torch.float32` | `None` | 输入设备上的正指数分布样本，列步长为 1；随机数序列由调用方管理。 |
+| `softcap` | `float` 或 `None` | — | `None` | 可选 logit softcap，在舍入后计算 `tanh(value / softcap) * softcap` 并再次舍入到 `step_dtype`。 |
+| `vocab_limit` | `int` 或 `None` | — | `None` | 可选全局词表上界（不含）；全局列号 `vocab_start + col >= vocab_limit` 的位置被设为 `-inf`。 |
 | `impl` | `str` | — | `"auto"` | 可选 `"auto"`、`"triton"` 或 `"torch_native"`。 |
 
 | 返回值 | 类型 | Shape / dtype | 描述 |
