@@ -4,7 +4,7 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `ascendc` | Unverified | Unsupported |
+| `ascendc` | Verified on Ascend A3 | Unsupported |
 
 ## Signature
 
@@ -51,11 +51,12 @@ native operator included in the wheel.
 
 The operator returns `None` and mutates the HBM caches, `attention_out` and the
 optional `resident_end`. See the [native contract](../../../../../csrc/attention/fused_scatter_copy_sparse_flash_attention/README.md)
-and [independent attention and replay tests](../../../../../tests/test_copy_sfa_split_hbm_resident.py).
+and [independent attention and replay tests](../../../../../tests/python/operators/attention/test_copy_sfa_split_hbm_resident.py).
 
 ## ascendc backend
 
 Uses the wheel’s native split Copy-SFA binding. The correctness suite allocates registered host buffers and compares the output with independent PyTorch attention.
+The reference computes expected KV updates and attention for verification. The public `auto` and `ascendc` implementations use registered host addresses and update resident buffers in place.
 
 ## Runnable example
 

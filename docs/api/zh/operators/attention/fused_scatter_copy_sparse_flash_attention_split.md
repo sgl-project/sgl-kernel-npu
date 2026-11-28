@@ -4,7 +4,7 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `ascendc` | 未验证 | 不支持 |
+| `ascendc` | 已在昇腾 A3 验证 | 不支持 |
 
 ## 接口
 
@@ -50,11 +50,12 @@ ARCH22 安装包含该算子的 wheel 后，`impl="auto"` 选择 `"ascendc"`。
 
 返回值为 `None`。算子原地更新 HBM 缓存、`attention_out` 和可选的 `resident_end`。
 详细约定与验证用例见 [native 文档](../../../../../csrc/attention/fused_scatter_copy_sparse_flash_attention/README.md)
-和 [独立的 attention 及 replay 测试](../../../../../tests/test_copy_sfa_split_hbm_resident.py)。
+和 [独立的 attention 及 replay 测试](../../../../../tests/python/operators/attention/test_copy_sfa_split_hbm_resident.py)。
 
 ## ascendc 后端
 
 直接调用 wheel 的 native split Copy-SFA 绑定。精度测试分配已注册的 host 缓存，并用独立的 PyTorch attention 核对输出。
+参考实现用于核对 KV 更新和 attention 输出。公开的 `auto` 和 `ascendc` 实现使用已注册的 Host 地址，原地更新 resident 缓存。
 
 ## 可运行示例
 

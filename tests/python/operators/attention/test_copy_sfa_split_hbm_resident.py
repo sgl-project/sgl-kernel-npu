@@ -5,7 +5,16 @@ import math
 import pytest
 import torch
 
-from tests.copy_sfa_test_helpers import _DynamicTndCase, _require_npu
+from tests.python.operators.attention.copy_sfa_test_helpers import (
+    _DynamicTndCase,
+    _require_npu,
+)
+
+
+@pytest.fixture(autouse=True)
+def cpu_reference_device():
+    with torch.device("cpu"):
+        yield
 
 
 def _split_copy_sfa(*args, **kwargs):

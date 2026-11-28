@@ -34,7 +34,7 @@ and `SGLANG_NPU_ENABLE_FUSED_LIM_COPYSFA=1`.
 ## Tests
 
 ```bash
-python -m pytest tests/test_copy_sfa_split_hbm_resident.py
+python -m pytest tests/python/operators/attention/test_copy_sfa_split_hbm_resident.py
 ```
 
 These tests require a matching native extension, a registered host-memory
