@@ -5,6 +5,7 @@
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `ascendc` | 已在 Ascend910_9362 验证 | 不支持 |
+| `torch_native` | CPU 参考实现（eager） | 不支持 |
 
 ## 接口
 
@@ -48,6 +49,10 @@ def fused_lightning_indexer_manage(
 
 直接调用 wheel 的 native LIM 绑定。精度测试用独立的 CPU 热点集合和缓存模型核对槽位计划。
 CPU 模型用于核对选择与驻留结果。公开接口通过 `auto` 和 `ascendc` 执行融合的设备原地更新。
+
+## torch_native 后端
+
+使用 `impl="torch_native"` 可以用相同的输出缓冲验证因果 TopK、冷填充、驱逐和当前槽位刷新。参考实现使用 FP32 打分，平分的候选顺序可能与 Ascend C 不同。该后端用于 eager 正确性检查，NPU 图回放使用 `ascendc`。
 
 ## 可运行示例
 

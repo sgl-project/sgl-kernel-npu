@@ -5,6 +5,7 @@
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
 | `ascendc` | Verified on Ascend910_9362 | Unsupported |
+| `torch_native` | Eager CPU reference | Unsupported |
 
 ## Signature
 
@@ -50,6 +51,10 @@ The return value is `None`. See the [native contract and test command](../../../
 
 Uses the wheel’s native LIM binding. The correctness suite compares the emitted slot plan with an independent CPU hotset and cache model.
 The CPU model checks selection and residency for testing. The public operator exposes `auto` and `ascendc` for the fused in-place device update.
+
+## torch_native backend
+
+Use `impl="torch_native"` to check causal TopK, cold fill, eviction, and current-slot refresh with the same output buffers. The reference uses FP32 scores. Tied candidates may be ordered differently from Ascend C. This backend is for eager correctness checks. Use `ascendc` for NPU graph replay.
 
 ## Runnable example
 
