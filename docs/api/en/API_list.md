@@ -217,6 +217,8 @@ installation steps; see
 | [swiglu_oai](operators/activation/swiglu_oai.md) | `triton`, `torch_native` |
 | [attention_sinks](operators/attention/attention_sinks.md) | `triton`, `torch_native` |
 | [attention_sinks_prefill](operators/attention/attention_sinks_prefill.md) | `triton`, `torch_native` |
+| [paged_attention_sink_prefill](operators/attention/paged_attention_sink_prefill.md) | `triton`, `torch_native` |
+| [paged_attention_sink_decode](operators/attention/paged_attention_sink_decode.md) | `triton`, `torch_native` |
 | [fused_gdn_gating_without_sigmoid](operators/attention/gdn/fused_gdn_gating_without_sigmoid.md) | `triton`, `torch_native` |
 | [fused_kda_gate](operators/attention/kda/fused_kda_gate.md) | `triton`, `torch_native` |
 | [kda_target_verify](operators/attention/kda/kda_target_verify.md) | `triton`, `torch_native` |

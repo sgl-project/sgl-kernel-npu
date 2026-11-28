@@ -44,6 +44,8 @@ from .mla_preprocess import mla_preprocess
 from .mla_prolog_v3 import mla_prolog_v3
 from .mlaprolog_v4 import mlaprolog_v4
 from .paged_attention import flash_attention_qlens, paged_attention, paged_attention_mla
+from .paged_attention_sink_decode import paged_attention_sink_decode
+from .paged_attention_sink_prefill import paged_attention_sink_prefill
 from .paged_mtp_attention import paged_mtp_attention_decode
 from .qsa_sparse_attention import qsa_sparse_attention
 from .quant_flash_attn import quant_flash_attn
@@ -95,6 +97,8 @@ __all__ = [
     "mlaprolog_v4",
     "paged_attention",
     "paged_attention_mla",
+    "paged_attention_sink_decode",
+    "paged_attention_sink_prefill",
     "paged_mtp_attention_decode",
     "qsa_sparse_attention",
     "quant_flash_attn",
