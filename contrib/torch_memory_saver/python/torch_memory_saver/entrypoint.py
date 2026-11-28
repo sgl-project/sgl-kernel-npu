@@ -36,6 +36,7 @@ class TorchMemorySaver:
         capture_error_mode="global",
         tag: str = _TAG_DEFAULT,
         enable_cpu_backup: bool = False,
+        auto_dispatch_capture: bool = False,
     ):
         """Similar to `torch.cuda.graph`, but ensures memory in it to be pauseable."""
         self._ensure_initialized()
@@ -46,6 +47,7 @@ class TorchMemorySaver:
             capture_error_mode=capture_error_mode,
             tag=tag,
             enable_cpu_backup=enable_cpu_backup,
+            auto_dispatch_capture=auto_dispatch_capture,
         ):
             yield
 
@@ -115,13 +117,21 @@ class _TorchMemorySaverImpl:
         capture_error_mode,
         tag: str,
         enable_cpu_backup: bool,
+        auto_dispatch_capture: bool = False,
     ):
         assert (
             self._hook_mode == "preload"
         ), "Only hook_mode=preload supports pauseable CUDA Graph currently"
-        with torch.npu.graph(
-            cuda_graph, pool=pool, stream=stream, capture_error_mode=capture_error_mode
-        ):
+        # ``auto_dispatch_capture`` makes torch_npu pick the dispatch-mode capture
+        # path; forward it only when asked so older torch_npu stays compatible.
+        graph_kwargs = {
+            "pool": pool,
+            "stream": stream,
+            "capture_error_mode": capture_error_mode,
+        }
+        if auto_dispatch_capture:
+            graph_kwargs["auto_dispatch_capture"] = True
+        with torch.npu.graph(cuda_graph, **graph_kwargs):
             with self._with_region_config(tag=tag, enable_cpu_backup=enable_cpu_backup):
                 yield
 

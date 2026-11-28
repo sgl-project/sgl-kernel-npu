@@ -44,7 +44,7 @@ aclError aclrtMallocAlign32(void **ptr, size_t size,
     return TorchMemorySaver::instance().malloc(
         ptr, CANNUtils::cann_ctx_get_device(), size,
         thread_local_config.current_tag_,
-        thread_local_config.enable_cpu_backup());
+        thread_local_config.enable_cpu_backup(), policy);
   } else {
     return APIForwarder::call_real_aclrt_malloc_align32(ptr, size, policy);
   }
