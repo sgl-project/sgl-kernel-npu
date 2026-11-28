@@ -26,6 +26,15 @@
         ["bash", "build.sh", "--torch_extension", "--experimental", "--ops={ops}", "--vendor_name={vendor_name}"]
       ],
       "has_aicpu": false
+    },
+    {
+      "name": "sgl_ops_transformer_gmm",
+      "ops": {"arch22": ["sgl_grouped_matmul_swiglu_quant"]},
+      "commands": [
+        ["bash", "build.sh", "--pkg", "--soc=ascend910b,ascend910_93", "--vendor_name={vendor_name}", "--ops={ops}", "-j{jobs}"],
+        ["bash", "build.sh", "--torch_extension", "--ops={ops}", "--vendor_name={vendor_name}"]
+      ],
+      "has_aicpu": false
     }
   ]
 }
