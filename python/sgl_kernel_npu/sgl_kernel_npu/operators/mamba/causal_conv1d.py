@@ -2,9 +2,38 @@
 
 import torch
 
+from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _torch_native_fn = None
+
+
+@register_impl("mamba.causal_conv1d", "cce", supported_generations={Generation.ARCH35})
+def _cce_impl(
+    x,
+    weight,
+    conv_states,
+    bias,
+    query_start_loc,
+    cache_indices,
+    has_initial_state,
+    num_accepted_tokens,
+    activation_mode,
+    pad_slot_id,
+    run_mode,
+):
+    return torch.ops.cce.causal_conv1d(
+        x,
+        weight,
+        conv_states,
+        bias,
+        query_start_loc,
+        cache_indices,
+        has_initial_state,
+        activation_mode,
+        pad_slot_id,
+        run_mode,
+    )
 
 
 @register_impl("mamba.causal_conv1d", "auto")
@@ -109,7 +138,7 @@ def causal_conv1d(
         pad_slot_id: Int, default -1; matching explicit cache indices skip a
             sequence, leaving its state unchanged and output undefined.
         run_mode: Int, default 0; 1 selects integrated update, others prefill.
-        impl: Keyword-only str, "auto" (default), "ascendc" or "torch_native".
+        impl: Keyword-only str, "auto" (default), "ascendc", "cce" or "torch_native".
 
     Returns:
         Newly allocated Tensor with x's shape, dtype and device.
