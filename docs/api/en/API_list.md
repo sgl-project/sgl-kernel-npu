@@ -65,6 +65,7 @@
 | [swiglu_group_quant](operators/activation/swiglu_group_quant.md) | `ascendc` (ARCH35), `torch_native` |
 | [alloc_extend](operators/mem_cache/alloc_extend.md) | `ascendc`, `torch_native` |
 | [assign_cache_op](operators/mem_cache/assign_cache_op.md) | `ascendc`, `torch_native` |
+| [prepare_sparse_kv_offload_rows](operators/mem_cache/prepare_sparse_kv_offload_rows.md) | `triton`, `torch_native` |
 | [split_qkv_tp_rmsnorm_rope](operators/norm/split_qkv_tp_rmsnorm_rope.md) | `triton`, `torch_native` |
 | [add_example](operators/examples/add_example.md) | `aicpu`, `torch_native` |
 | [elu](operators/examples/elu.md) | `ascendc` (ARCH22), `torch_native` |
