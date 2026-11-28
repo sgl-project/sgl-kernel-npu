@@ -4,9 +4,12 @@ from .chunk_gated_delta_rule_npu import chunk_gated_delta_rule_npu
 from .chunk_local_cumsum import chunk_local_cumsum
 from .chunk_o import chunk_fwd_o
 from .chunk_scaled_dot_kkt import chunk_scaled_dot_kkt
+from .fused_conv1d_gdn_verify import fused_conv1d_gdn_verify
+from .fused_gdn_commit import fused_gdn_commit
 from .fused_gdn_decode import fused_gdn_decode
 from .fused_gdn_gating import fused_gdn_gating
 from .fused_gdn_gating_without_sigmoid import fused_gdn_gating_without_sigmoid
+from .fused_gdn_verify import create_gdn_verify_workspace, fused_gdn_verify
 from .fused_qkvzba_split_reshape_cat import fused_qkvzba_split_reshape_cat
 from .fused_qkvzba_split_reshape_cat_contiguous import (
     fused_qkvzba_split_reshape_cat_contiguous,
@@ -22,9 +25,13 @@ __all__ = [
     "chunk_gated_delta_rule_npu",
     "chunk_local_cumsum",
     "chunk_scaled_dot_kkt",
+    "create_gdn_verify_workspace",
+    "fused_conv1d_gdn_verify",
+    "fused_gdn_commit",
     "fused_gdn_decode",
     "fused_gdn_gating",
     "fused_gdn_gating_without_sigmoid",
+    "fused_gdn_verify",
     "fused_qkvzba_split_reshape_cat",
     "fused_qkvzba_split_reshape_cat_contiguous",
     "recompute_w_u_fwd",
