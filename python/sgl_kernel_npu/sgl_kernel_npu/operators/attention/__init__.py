@@ -20,6 +20,9 @@ from .fused_infer_attention_score import (
     fused_infer_attention_score_v2_get_max_workspace,
     fused_infer_attention_score_v2_out,
 )
+from .fused_scatter_copy_sparse_flash_attention_split import (
+    fused_scatter_copy_sparse_flash_attention_split,
+)
 from .gqa_share_sparse_decode import gqa_share_sparse_decode
 from .kda import chunk_kda_fwd
 from .kv_quant_sparse_attn_sharedkv import kv_quant_sparse_attn_sharedkv
@@ -45,6 +48,7 @@ from .mla_prolog_v3 import mla_prolog_v3
 from .mlaprolog_v4 import mlaprolog_v4
 from .paged_attention import flash_attention_qlens, paged_attention, paged_attention_mla
 from .paged_mtp_attention import paged_mtp_attention_decode
+from .prepare_copy_sfa_metadata import prepare_copy_sfa_metadata
 from .qsa_sparse_attention import qsa_sparse_attention
 from .quant_flash_attn import quant_flash_attn
 from .quant_flash_attn_metadata import quant_flash_attn_metadata
@@ -78,6 +82,7 @@ __all__ = [
     "fused_infer_attention_score_v2",
     "fused_infer_attention_score_v2_get_max_workspace",
     "fused_infer_attention_score_v2_out",
+    "fused_scatter_copy_sparse_flash_attention_split",
     "get_mixed_quant_sparse_flash_mla_metadata_size",
     "get_sparse_flash_mla_metadata_size",
     "gqa_share_sparse_decode",
@@ -96,6 +101,7 @@ __all__ = [
     "paged_attention",
     "paged_attention_mla",
     "paged_mtp_attention_decode",
+    "prepare_copy_sfa_metadata",
     "qsa_sparse_attention",
     "quant_flash_attn",
     "quant_flash_attn_metadata",
