@@ -5,6 +5,7 @@
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
 | `ascendc` | 已在昇腾 A3 验证 | 不支持 |
+| `torch_native` | CPU 参考实现（eager） | 不支持 |
 
 ## 接口
 
@@ -23,7 +24,7 @@ def fused_scatter_copy_sparse_flash_attention_split(
     scale_value, *, full_visible=False, resident_refresh_tail=False,
     current=None, positions=None, valid=None, request_slots=None,
     req_to_token=None, resident_end=None, host_token_capacity=0,
-    dram_rope_dev_ptr=0, impl="auto",
+    dram_rope_dev_ptr=0, dram_ckv=None, dram_rope=None, impl="auto",
 ) -> None:
     ...
 ```
@@ -56,6 +57,10 @@ ARCH22 安装包含该算子的 wheel 后，`impl="auto"` 选择 `"ascendc"`。
 
 直接调用 wheel 的 native split Copy-SFA 绑定。精度测试分配已注册的 host 缓存，并用独立的 PyTorch attention 核对输出。
 参考实现用于核对 KV 更新和 attention 输出。公开的 `auto` 和 `ascendc` 实现使用已注册的 Host 地址，原地更新 resident 缓存。
+
+## torch_native 后端
+
+使用 `impl="torch_native"` 时，传入 `dram_ckv` 和 `dram_rope` 两个 Host tensor，最后一维分别为 512 与 64。将两个设备指针参数传为 0。参考后端在 eager 模式更新 split resident KV、`resident_end` 和 attention 输出，并按顺序完成完整的缺页与刷新计划。NPU 图回放使用 `ascendc`。
 
 ## 可运行示例
 
