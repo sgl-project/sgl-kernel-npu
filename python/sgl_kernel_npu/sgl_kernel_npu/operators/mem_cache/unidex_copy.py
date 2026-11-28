@@ -8,6 +8,7 @@ from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _torch_native_fn = None
+_SUPPORTED_GENERATIONS = {Generation.ARCH22, Generation.ARCH35}
 
 
 def _infer_rows_and_block_bytes(
@@ -53,12 +54,14 @@ def _copy_geometry(
 
 
 @register_impl(
-    "mem_cache.unidex_copy_inplace", "auto", supported_generations=[Generation.ARCH22]
+    "mem_cache.unidex_copy_inplace",
+    "auto",
+    supported_generations=_SUPPORTED_GENERATIONS,
 )
 @register_impl(
     "mem_cache.unidex_copy_inplace",
     "ascendc",
-    supported_generations=[Generation.ARCH22],
+    supported_generations=_SUPPORTED_GENERATIONS,
 )
 def _ascendc_impl(
     src,
@@ -95,7 +98,7 @@ def _ascendc_impl(
 @register_impl(
     "mem_cache.unidex_copy_inplace",
     "torch_native",
-    supported_generations=[Generation.ARCH22],
+    supported_generations=_SUPPORTED_GENERATIONS,
 )
 def _torch_native_impl(
     src,
