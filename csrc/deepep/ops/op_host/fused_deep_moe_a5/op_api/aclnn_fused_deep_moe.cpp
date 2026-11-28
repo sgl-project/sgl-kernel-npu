@@ -1,4 +1,4 @@
-#if defined(__DAV_C310__)
+#if defined(DEEPEP_USE_MX_FUSED_MOE)
 #include <string.h>
 #include "graph/types.h"
 #include "aclnn/opdev/platform.h"
@@ -51,4 +51,4 @@ aclnnStatus aclnnFusedDeepMoe(void *workspace, uint64_t workspaceSize, aclOpExec
 #ifdef __cplusplus
 }
 #endif
-#endif  // defined(__DAV_C310__)
+#endif

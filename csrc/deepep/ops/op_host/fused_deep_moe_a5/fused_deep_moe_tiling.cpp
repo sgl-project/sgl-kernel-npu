@@ -1,4 +1,4 @@
-#if defined(__DAV_C310__)
+#if defined(DEEPEP_USE_MX_FUSED_MOE)
 #include <cstdint>
 #include <string>
 
@@ -1041,4 +1041,4 @@ IMPL_OP_OPTILING(FusedDeepMoe)
     .Tiling(FusedDeepMoeTilingFunc)
     .TilingParse<FusedDeepMoeCompileInfo>(TilingParseForFusedDeepMoe);
 }  // namespace optiling
-#endif  // defined(__DAV_C310__)
+#endif

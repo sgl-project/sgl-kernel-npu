@@ -167,7 +167,7 @@ public:
 
     template <class TensorC, class TensorD>
     CATLASS_DEVICE void operator()(TensorC &tensorBlockC, TensorD &tensorBlockD, GemmCoord const &actualBlockShapeMNK,
-                                   uint32_t expertIdx, uint32_t tokenIdx, uint32_t tokenOffset, bool wholeTile = false)
+                                   uint32_t expertIdx, uint32_t tokenIdx, uint32_t tokenOffset)
     {
         if (actualBlockShapeMNK.k() == 0) {
             return;
@@ -182,9 +182,8 @@ public:
         auto tileShape = MakeCoord(TileShape::ROW, TileShape::COLUMN);
         EpilogueTileSwizzle epilogueTileSwizzle(actualBlockShape, tileShape);
         uint32_t tileLoops = epilogueTileSwizzle.GetLoops();
-        bool singleWorker = wholeTile || expertIdx == UINT32_MAX;
-        uint32_t subblockIdx = singleWorker ? 0 : AscendC::GetSubBlockIdx();
-        uint32_t subblockNum = singleWorker ? 1 : AscendC::GetSubBlockNum();
+        uint32_t subblockIdx = AscendC::GetSubBlockIdx();
+        uint32_t subblockNum = expertIdx == UINT32_MAX ? 1 : AscendC::GetSubBlockNum();
         for (uint32_t loopIdx = subblockIdx; loopIdx < tileLoops; loopIdx += subblockNum) {
             auto tileCoord = epilogueTileSwizzle.GetTileCoord(loopIdx);
             auto actualTileShape = epilogueTileSwizzle.GetActualTileShape(tileCoord);

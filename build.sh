@@ -15,7 +15,6 @@ CMAKE_SOC_VERSION="Ascend910_9382"
 SGL_KERNEL_NPU_BUILD_TARGET="Ascend910"
 DEEPEP_VARIANT="deepep"
 DEEPEP_IS_A5_BUILD="OFF"
-DEEPEP_TEST_1C1V="OFF"
 
 BUILD_ATTENTIONS_MODULE="OFF"
 BUILD_DEEPEP_MODULE="OFF"
@@ -38,7 +37,7 @@ function print_help()
     cat <<'EOF'
 Usage:
     ./build.sh [SOC_VERSION]                    Build all modules; auto-detect A2 or A3.
-    ./build.sh -a deepep [SOC_VERSION]          Build deep_ep; auto-detect A2, A3, or A5.
+    ./build.sh -a deepep [SOC_VERSION]          Build deep_ep; auto-detect A2, A3, A5, or A6.
     ./build.sh -a deepep2 [SOC_VERSION]         Build deep_ep for A2 (compatible alias).
     ./build.sh -a kernels [SOC_VERSION]         Build sgl_kernel_npu; auto-detect A2, A3, or Ascend 950.
     ./build.sh -a memory-saver                  Build torch_memory_saver.
@@ -60,6 +59,8 @@ SOC_VERSION:
     Ascend910_9382      A3 chip. Valid for all/deepep/kernels.
     Ascend950           Ascend 950 family alias. Valid for deepep/kernels.
     Ascend950PR_9599    Concrete Ascend 950 compiler target. Valid for kernels.
+    Ascend960DT        A6 DeepEP target (Ascend960DT_968B7).
+    Ascend960PR        A6 DeepEP target (Ascend960PR_969A1).
     (omitted)           all/deepep/kernels: auto-detect via npu-smi,
                         fallback to Ascend910_9382.
                         deepep2: defaults to Ascend910B1.
@@ -77,13 +78,13 @@ separately.
 
 Options:
     -d             Enable debug logging.
-    --test-1c1v    Build an Ascend950 DeepEP wheel that launches FusedDeepMoE in 1C1V mode.
     -h             Show this help.
 
 Examples:
     ./build.sh                                  # all modules, A3
     ./build.sh -a deepep                        # auto-detect chip
     ./build.sh -a deepep Ascend950              # explicit A5 DeepEP
+    ./build.sh -a deepep Ascend960DT
     ./build.sh -a deepep2                       # A2 DeepEP
     ./build.sh -a kernels                       # sgl_kernel_npu, A3
     ./build.sh -a kernels Ascend950PR_9599      # sgl_kernel_npu, A5
@@ -96,14 +97,8 @@ function parse_arguments()
     local opt
     OPTIND=1
 
-    while getopts ":a:hd-:" opt; do
+    while getopts ":a:hd" opt; do
         case "$opt" in
-            - )
-                case "$OPTARG" in
-                    test-1c1v ) DEEPEP_TEST_1C1V="ON" ;;
-                    * ) die "Unknown flag: --$OPTARG. Run './build.sh -h' for more information." ;;
-                esac
-                ;;
             a )
                 BUILD_TARGET="$OPTARG"
                 ;;
@@ -182,6 +177,17 @@ function detect_soc_version()
 
     # A5 supports the device-level query and reports Chip Name as Ascend950*.
     board_info="$(npu-smi info -t board -i 0 2>/dev/null || true)"
+    if [[ "$BUILD_TARGET" == "deepep" ]]; then
+        local chip_name
+        chip_name="$(printf '%s\n' "$board_info" | sed -nE 's/^[[:space:]]*Chip Name[[:space:]]*:[[:space:]]*([^[:space:]]+).*/\1/p')"
+        case "${chip_name,,}" in
+            ascend960dt | ascend960dt_968b7 | ascend960pr | ascend960pr_969a1 )
+                SOC_VERSION="$chip_name"
+                echo "Detected A6: Chip Name=$chip_name"
+                return
+                ;;
+        esac
+    fi
     if printf '%s\n' "$board_info" |
         grep -Eiq '^[[:space:]]*Chip Name[[:space:]]*:[[:space:]]*Ascend950'; then
         SOC_VERSION="Ascend950"
@@ -207,7 +213,7 @@ function detect_soc_version()
     fi
 
     if [[ "$strict" == "strict" ]]; then
-        die "Cannot determine the device type (A2/A3/A5) from npu-smi output."
+        die "Cannot determine the device type (A2/A3/A5/A6) from npu-smi output."
     fi
 
     SOC_VERSION="Ascend910_9382"
@@ -219,6 +225,14 @@ function detect_soc_version()
 # Ascend950 family name.
 function normalize_soc_version()
 {
+    if [[ "$BUILD_TARGET" == "deepep" ]]; then
+        case "${SOC_VERSION,,}" in
+            ascend960dt | ascend960dt_968b7 ) SOC_VERSION="Ascend960DT_968B7" ;;
+            ascend960pr | ascend960pr_969a1 ) SOC_VERSION="Ascend960PR_969A1" ;;
+            ascend960 ) die "Specify Ascend960DT or Ascend960PR, or omit SOC_VERSION for auto-detection." ;;
+        esac
+    fi
+
     case "$SOC_VERSION" in
         910 | Ascend910 | 910C )
             SOC_VERSION="Ascend910_9382"
@@ -283,9 +297,6 @@ function configure_soc_version()
         normalize_soc_version
     fi
 
-    # 'all' and 'deepep' both build deep_ep, which supports only these three
-    # SoCs. 'kernels' deliberately has no allow-list: it forwards whatever the
-    # caller passed to the AscendC compiler, as it always has.
     case "$BUILD_TARGET" in
         all | deepep )
             case "$SOC_VERSION" in
@@ -295,8 +306,12 @@ function configure_soc_version()
                 Ascend910_9382 | Ascend950 )
                     DEEPEP_VARIANT="deepep"
                     ;;
+                Ascend960DT_968B7 | Ascend960PR_969A1 )
+                    [[ "$BUILD_TARGET" == "deepep" ]] || die "Ascend960 targets require -a deepep."
+                    DEEPEP_VARIANT="deepep"
+                    ;;
                 * )
-                    die "Target '$BUILD_TARGET' supports only Ascend910B1 (A2), Ascend910_9382 (A3), or Ascend950 (A5)."
+                    die "Unsupported DeepEP SoC '$SOC_VERSION'. Use -h to list available targets."
                     ;;
             esac
             ;;
@@ -343,15 +358,16 @@ function configure_soc_version()
     esac
     export SGL_KERNEL_NPU_BUILD_TARGET
 
-    if [[ "$BUILD_DEEPEP_MODULE" == "ON" && "$SOC_VERSION" == "Ascend950" ]]; then
-        DEEPEP_IS_A5_BUILD="ON"
-        export ASCEND_COMPUTE_UNIT="ascend950"
-    else
-        unset ASCEND_COMPUTE_UNIT
-    fi
-
-    if [[ "$DEEPEP_TEST_1C1V" == "ON" && ( "$BUILD_TARGET" != "deepep" || "$SOC_VERSION" != "Ascend950" ) ]]; then
-        die "--test-1c1v requires -a deepep with the Ascend950 target."
+    unset ASCEND_COMPUTE_UNIT
+    if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
+        case "$SOC_VERSION" in
+            Ascend950 )
+                DEEPEP_IS_A5_BUILD="ON"
+                export ASCEND_COMPUTE_UNIT="ascend950"
+                ;;
+            Ascend960DT_968B7 ) export ASCEND_COMPUTE_UNIT="ascend960dt" ;;
+            Ascend960PR_969A1 ) export ASCEND_COMPUTE_UNIT="ascend960pr" ;;
+        esac
     fi
 
     echo "Build target: $BUILD_TARGET"
@@ -359,12 +375,11 @@ function configure_soc_version()
         echo "DeepEP variant: $DEEPEP_VARIANT"
         echo "DeepEP SOC_VERSION: $SOC_VERSION"
         echo "DeepEP ASCEND_COMPUTE_UNIT: ${ASCEND_COMPUTE_UNIT:-<unset>}"
-        if [[ "$DEEPEP_TEST_1C1V" == "ON" ]]; then
-            echo "FusedDeepMoE test launch: 1C1V"
-        fi
     fi
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" || "$BUILD_KERNELS_MODULE" == "ON" ]]; then
         echo "CMake SOC_VERSION: $CMAKE_SOC_VERSION"
+    fi
+    if [[ "$BUILD_KERNELS_MODULE" == "ON" ]]; then
         echo "Wheel SOC_VERSION: $SGL_KERNEL_NPU_BUILD_TARGET"
     fi
 }
@@ -538,7 +553,7 @@ function build_deepep_kernels()
     (
         cd "$kernel_dir"
         chmod +x build.sh
-        DEEPEP_TEST_1C1V="$DEEPEP_TEST_1C1V" ./build.sh
+        ./build.sh
 
         custom_opp_file="$(find ./build_out \
             -maxdepth 1 \
@@ -570,17 +585,12 @@ function build_attentions_kernels()
 function make_deepep_package()
 {
     (
-        local wheel_dir="$OUTPUT_DIR"
-        if [[ "$DEEPEP_TEST_1C1V" == "ON" ]]; then
-            wheel_dir="$OUTPUT_DIR/a5-1c1v"
-            mkdir -p "$wheel_dir"
-        fi
         cd "$PROJECT_ROOT/python/deep_ep"
         cp -v "$OUTPUT_DIR"/lib/* "$PROJECT_ROOT/python/deep_ep/deep_ep/"
         rm -rf build dist
         python3 setup.py clean --all
         python3 setup.py bdist_wheel
-        mv -v dist/deep_ep*.whl "$wheel_dir/"
+        mv -v dist/deep_ep*.whl "$OUTPUT_DIR/"
         rm -rf dist
     )
 }

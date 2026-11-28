@@ -514,7 +514,7 @@ public:
         const bool serialDeepFuse = (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) && serialCombine;
         const uint32_t subBlockIdx = AscendC::GetSubBlockIdx();
         uint32_t target = 1;
-        if (!serialDeepFuse || subBlockIdx == 0) {
+        {
             AscendC::GlobalTensor<ElementC> gmC;
             gmC.SetGlobalBuffer(params.ptrC);
             AscendC::GlobalTensor<ElementGroupList> groupList;
@@ -607,7 +607,7 @@ public:
                                   static_cast<int32_t>(coreIdx), target);
                     target += 1;
                     blockEpilogue(tensorBlockC, tensorBlockD, actualBlockShape, groupIdx,
-                                  totalM + blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N, serialDeepFuse);
+                                  totalM + blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N);
                 }
 
                 totalM += inGroupProblemShape.m();
@@ -622,7 +622,6 @@ public:
             if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
                 if (AscendC::GetSubBlockIdx() == 0) {
                     if (!serialCombine) {
-                        // Only the parallel path exchanges combine events between subblocks.
                         AscendC::CrossCoreSetFlag<0x0, PIPE_MTE3>(MoeDistributeCombineImpl::SEND_SYNC_EVENT_ID);
                         if constexpr ((EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) == 0) {
                             AscendC::CrossCoreSetFlag<0x0, PIPE_MTE3>(MoeDistributeCombineImpl::RECV_SYNC_EVENT_ID);
@@ -671,36 +670,28 @@ public:
         }
 
         if (serialDeepFuse) {
-            // All AIVs on this rank participate.
-            // Routed EP window writes have drained on each active worker.
             Arch::CrossCoreBarrier<0x0, PIPE_MTE3>();
         }
 
         icache_preload(4);
         if (serialDeepFuse) {
             uint64_t profWeightSumCombineStart = 0;
-            if (subBlockIdx == 0) {
-                if (params.profile != nullptr) {
-                    profWeightSumCombineStart = params.profile->Now();
-                }
-                resource.pipe.Init();
-                combiner->TPipeSet(&resource.pipe);
-                combiner->PublishAndWaitCombineSerial();
+            if (params.profile != nullptr) {
+                profWeightSumCombineStart = params.profile->Now();
             }
+            resource.pipe.Init();
+            combiner->TPipeSet(&resource.pipe);
+            combiner->PublishAndWaitCombineSerial();
 
-            // Each sub0 polls only its assigned source ranks. The reduction
-            // can read experts from any source rank.
             Arch::CrossCoreBarrier<0x0, PIPE_MTE3>();
 
-            if (subBlockIdx == 0) {
-                combiner->LocalWindowCopy();
-                combiner->TPipeSet(nullptr);
-                resource.pipe.Destroy();
-                if constexpr ((EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) == 0) {
-                    if (params.profile != nullptr) {
-                        params.profile->Record(FusedDeepMoeProfileStage::WeightSumReducePermute,
-                                               profWeightSumCombineStart, params.profile->Now());
-                    }
+            combiner->LocalWindowCopy();
+            combiner->TPipeSet(nullptr);
+            resource.pipe.Destroy();
+            if constexpr ((EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) == 0) {
+                if (params.profile != nullptr) {
+                    params.profile->Record(FusedDeepMoeProfileStage::WeightSumReducePermute,
+                                            profWeightSumCombineStart, params.profile->Now());
                 }
             }
         } else if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
@@ -762,8 +753,6 @@ public:
             AscendC::PipeBarrier<PIPE_ALL>();
             AscendC::SyncAll<true>();
             AscendC::PipeBarrier<PIPE_ALL>();
-            // Each sub0 has observed its paired AIC's final SOFT_SYNC sentinel.
-            // The AIV rendezvous makes it safe to clear X2 ready across the rank.
             if (subBlockIdx == 0) {
                 CleanRoutedX2ReadyState(params.problemCount, coreIdx, coreNum);
             }

@@ -32,6 +32,7 @@ constexpr uint32_t UB_ALIGN = 32;
 constexpr uint32_t TOKEN_EXTRA_SPACE = 512;
 constexpr uint32_t INT32_COUNT_PER_BLOCK = 8;
 constexpr int64_t REDUCE_SUM_WORK_SIZE = 4096;  // 最大支持64k-fp32累加
+constexpr int32_t SUB_AIV_NUM = 2;
 constexpr int32_t ODD_EVEN_BASE = 2;
 constexpr int32_t BUFFER_NUM = 2;
 constexpr int32_t GATHER_SECOND_NUM = 2;
@@ -249,10 +250,9 @@ public:
         aicNum = aiCoreGroupNum;
         if ASCEND_IS_AIC {
             aicIdx = AscendC::GetBlockIdx();
-            // AIC and AIV must use the same AIV count to address the same status slots.
 #if !defined(DEEPEP_FUSED_MOE_1C1V)
 #if (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510)
-            aivNum = aiCoreGroupNum * ODD_EVEN_BASE;
+            aivNum = aiCoreGroupNum * SUB_AIV_NUM;  // 1C2V
 #else
             aivNum = aiCoreGroupNum;
 #endif
@@ -277,7 +277,6 @@ public:
             return;
         }
 
-        // With an odd block count, send has one more block than recv.
         uint32_t evenBlockNum = (aiCoreGroupNum + 1) / 2;
         uint32_t oddBlockNum = aiCoreGroupNum / 2;
         uint32_t aivPerBlock = aivNum / aiCoreGroupNum;

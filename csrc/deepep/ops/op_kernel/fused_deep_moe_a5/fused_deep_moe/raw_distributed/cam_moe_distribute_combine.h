@@ -61,7 +61,6 @@ public:
     __aicore__ inline void ReducePermute();
     __aicore__ inline void ProcessCombine();
     __aicore__ inline void PublishAndWaitCombineSerial();
-    // All source ranks must be ready before this call.
     __aicore__ inline void LocalWindowCopy();
     __aicore__ inline void ProcessCombineSerial();
 
@@ -783,13 +782,11 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::ProcessComb
     AlltoAllBuffInit();
     SetStatus();
     WaitDispatchSpin();
-    // Each AIV polls its rank range, but reduction can read from every source rank.
     PipeBarrier<PIPE_ALL>();
     SyncAll<true>();
     LocalWindowCopy();
 }
 
-// Poll remote readiness without exchanging subblock events.
 template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::WaitDispatchSpin()
 {
@@ -801,7 +798,7 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::WaitDispatc
         PipeBarrier<PIPE_ALL>();
 
         gatherTmpTensor.SetValue(0, 1);
-        uint32_t mask = 1;  // gatherMask + sum
+        uint32_t mask = 1;
         uint64_t rsvdCnt = 0;
         DataCopyParams intriParams{static_cast<uint16_t>(sendRankNum_), 1,
                                    static_cast<uint16_t>((moeSendNum_ > 512) ? 7 : 15), 0};
