@@ -18,12 +18,12 @@ def _ascendc_impl(
         query,
         key,
         value,
-        beta,
-        initial_state,
-        actual_seq_lengths,
-        scale,
-        g,
-        chunk_state,
+        beta=beta,
+        initial_state=initial_state,
+        actual_seq_lengths=actual_seq_lengths,
+        scale=scale,
+        g=g,
+        chunk_state=chunk_state,
     )
 
 
