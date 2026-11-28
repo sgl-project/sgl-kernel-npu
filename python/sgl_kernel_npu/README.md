@@ -478,3 +478,18 @@ Execute sgl_kernel_npu test scripts, for example
 ```bash
 python3 tests/python/sgl_kernel_npu/test_hello_world.py
 ```
+
+### Native HiSparse operators
+
+For ARCH22, build the native components used by the fused LIM/Copy-SFA runtime
+from the repository root:
+
+```bash
+python3 setup.py --arch-version 2201 --ops fused_lightning_indexer_manage,fused_scatter_copy_sparse_flash_attention_split,fused_shm_allocator,cache_planner --without-third-party
+```
+
+LIM, Copy-SFA and the standalone cache planner use the wheel's CANN operator
+package. The HOST allocator registers CPU memory with the device and supplies
+addresses for Copy-SFA. The Copy-SFA selection includes the combined and
+split Torch entry points. See the [LIM contract](../../csrc/indexer/fused_lightning_indexer_manage/README.md)
+and the [Copy-SFA contract](../../csrc/attention/fused_scatter_copy_sparse_flash_attention/README.md).
