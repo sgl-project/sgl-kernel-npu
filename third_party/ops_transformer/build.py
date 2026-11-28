@@ -24,6 +24,15 @@ def configure(config, jobs):
         raise ValueError("python_bindings must be a boolean")
     values = dict(config, jobs=jobs or 8)
     values["ops"] = ",".join(config["ops"])
+    if "sgl_grouped_matmul_swiglu_quant" in config["ops"]:
+        resources = Path(__file__).with_name("grouped_matmul_swiglu_quant")
+        config["gmm_sources_sha256"] = hashlib.sha256(
+            b"".join(
+                path.read_bytes()
+                for path in sorted(resources.iterdir())
+                if path.is_file()
+            )
+        ).hexdigest()
     config["commands"] = [
         [arg.format(**values) for arg in command] for command in config["commands"]
     ]
@@ -140,6 +149,19 @@ def inspect_vendor(vendor, item):
             raise RuntimeError("No installed AICore/AICPU implementation for " + op)
 
 
+def _rewrite_operator(op, destination, rename):
+    for path in sorted(op.rglob("*"), key=lambda path: len(path.parts), reverse=True):
+        if path.is_file() and (
+            path.suffix in (".cpp", ".h", ".py", ".json", ".ini")
+            or path.name == "CMakeLists.txt"
+        ):
+            path.write_text(rename(path.read_text(encoding="utf-8")), encoding="utf-8")
+        name = rename(path.name)
+        if name != path.name:
+            path.rename(path.with_name(name))
+    op.rename(destination)
+
+
 def _isolate_mhc_pre_sinkhorn(source):
     """Give the bundled V2 its own OPP type and ACLNN symbols."""
     op = source / "mhc/mhc_pre_sinkhorn"
@@ -157,19 +179,55 @@ def _isolate_mhc_pre_sinkhorn(source):
             text = re.sub(original, private, text)
         return text
 
-    for path in sorted(op.rglob("*"), key=lambda path: len(path.parts), reverse=True):
-        if path.is_file() and (
-            path.suffix in (".cpp", ".h", ".py", ".json", ".ini")
-            or path.name == "CMakeLists.txt"
+    _rewrite_operator(op, source / "experimental/mhc/mhc_pre_sinkhorn_v2", rename)
+
+
+def _prepare_grouped_matmul_swiglu_quant(source, directory):
+    resources = Path(__file__).with_name("grouped_matmul_swiglu_quant")
+    run(
+        ["git", "apply", resources / "clipping.patch"],
+        directory / "patch.log",
+        cwd=source,
+    )
+    op = source / "gmm/grouped_matmul_swiglu_quant"
+
+    def rename(text):
+        for pattern, replacement in (
+            (
+                r"grouped_matmul_swiglu_quant(?!_v2|_weight_nz_v2|_weight_nz_v3|_weight_nz_tensor_list)",
+                "sgl_grouped_matmul_swiglu_quant",
+            ),
+            (
+                r"GroupedMatmulSwigluQuant(?!V2|WeightN[Zz]V2|WeightN[Zz]V3|WeightNzTensorList)",
+                "SglGroupedMatmulSwigluQuant",
+            ),
+            (
+                r"GROUPED_MATMUL_SWIGLU_QUANT(?!_V2|_WEIGHT_NZ_V2|_WEIGHT_NZ_V3|_WEIGHT_NZ_TENSOR_LIST)",
+                "SGL_GROUPED_MATMUL_SWIGLU_QUANT",
+            ),
         ):
-            path.write_text(rename(path.read_text(encoding="utf-8")), encoding="utf-8")
-        name = rename(path.name)
-        if name != path.name:
-            path.rename(path.with_name(name))
-    op.rename(source / "experimental/mhc/mhc_pre_sinkhorn_v2")
+            text = re.sub(pattern, replacement, text)
+        return text
+
+    destination = op.with_name("sgl_grouped_matmul_swiglu_quant")
+    _rewrite_operator(op, destination, rename)
+    binding = destination / "torch_extension"
+    (binding / "csrc").mkdir(parents=True)
+    shutil.copy2(
+        resources / "torch_binding.cpp",
+        binding / "csrc/sgl_grouped_matmul_swiglu_quant.cpp",
+    )
+    shutil.copy2(
+        resources / "torch_binding.py", binding / "sgl_grouped_matmul_swiglu_quant.py"
+    )
+    (binding / "__init__.py").write_text(
+        "from .sgl_grouped_matmul_swiglu_quant import SglGroupedMatmulSwigluQuantOpBuilder\n"
+    )
 
 
 def build(item, source, directory):
+    if "sgl_grouped_matmul_swiglu_quant" in item["ops"]:
+        _prepare_grouped_matmul_swiglu_quant(source, directory)
     if "mhc_pre_sinkhorn_v2" in item["ops"]:
         _isolate_mhc_pre_sinkhorn(source)
     for index, command in enumerate(item["commands"]):

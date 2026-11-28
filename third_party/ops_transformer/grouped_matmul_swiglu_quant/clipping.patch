@@ -1,0 +1,172 @@
+diff --git a/gmm/grouped_matmul_swiglu_quant/op_api/aclnn_grouped_matmul_swiglu_quant.cpp b/gmm/grouped_matmul_swiglu_quant/op_api/aclnn_grouped_matmul_swiglu_quant.cpp
+--- a/gmm/grouped_matmul_swiglu_quant/op_api/aclnn_grouped_matmul_swiglu_quant.cpp
++++ b/gmm/grouped_matmul_swiglu_quant/op_api/aclnn_grouped_matmul_swiglu_quant.cpp
+@@ -454,3 +454,3 @@
+     const aclTensor* x, const aclTensor* weight, const aclTensor* bias, const aclTensor* offset,
+-    const aclTensor* weightScale, const aclTensor* xScale, const aclTensor* groupList, aclTensor* output,
++    const aclTensor* weightScale, const aclTensor* xScale, const aclTensor* groupList, double limited, aclTensor* output,
+     aclTensor* outputScale, aclTensor* outputOffset, uint64_t* workspaceSize, aclOpExecutor** executor,
+@@ -498,3 +498,3 @@
+     }
+-    auto ret_0 = l0op::GroupedMatmulSwigluQuant(x, weight, weightScale, xScale, groupList, bias,
++    auto ret_0 = l0op::GroupedMatmulSwigluQuant(x, weight, weightScale, xScale, groupList, static_cast<float>(limited), bias,
+                                                 isEnableWeightAssistanceMatrix, dequantMode, uniqueExecutor.get());
+@@ -521,3 +521,3 @@
+                                                           const aclTensor* weightScale, const aclTensor* xScale,
+-                                                          const aclTensor* groupList, aclTensor* output,
++                                                          const aclTensor* groupList, double limited, aclTensor* output,
+                                                           aclTensor* outputScale, aclTensor* outputOffset,
+@@ -527,6 +527,6 @@
+     OP_CHECK_COMM_INPUT(workspaceSize, executor);
+-    L2_DFX_PHASE_1(aclnnGroupedMatmulSwigluQuant, DFX_IN(x, weight, bias, offset, weightScale, xScale, groupList),
++    L2_DFX_PHASE_1(aclnnGroupedMatmulSwigluQuant, DFX_IN(x, weight, bias, offset, weightScale, xScale, groupList, limited),
+                    DFX_OUT(output, outputScale, outputOffset));
+     // 固定写法，创建OpExecutor
+-    return aclnnGroupedMatmulSwigluQuantGetWorkspaceSizeCommon(x, weight, bias, offset, weightScale, xScale, groupList,
++    return aclnnGroupedMatmulSwigluQuantGetWorkspaceSizeCommon(x, weight, bias, offset, weightScale, xScale, groupList, limited,
+                                                                output, outputScale, outputOffset, workspaceSize,
+@@ -567,3 +567,3 @@
+                                                                   const aclTensor* weightScale, const aclTensor* xScale,
+-                                                                  const aclTensor* groupList, aclTensor* output,
++                                                                  const aclTensor* groupList, double limited, aclTensor* output,
+                                                                   aclTensor* outputScale, aclTensor* outputOffset,
+@@ -574,3 +574,3 @@
+     L2_DFX_PHASE_1(aclnnGroupedMatmulSwigluQuantWeightNZ,
+-                   DFX_IN(x, weight, bias, offset, weightScale, xScale, groupList),
++                   DFX_IN(x, weight, bias, offset, weightScale, xScale, groupList, limited),
+                    DFX_OUT(output, outputScale, outputOffset));
+@@ -602,3 +602,3 @@
+     // 调用公共接口
+-    return aclnnGroupedMatmulSwigluQuantGetWorkspaceSizeCommon(x, weight, bias, offset, weightScale, xScale, groupList,
++    return aclnnGroupedMatmulSwigluQuantGetWorkspaceSizeCommon(x, weight, bias, offset, weightScale, xScale, groupList, limited,
+                                                                output, outputScale, outputOffset, workspaceSize,
+diff --git a/gmm/grouped_matmul_swiglu_quant/op_api/aclnn_grouped_matmul_swiglu_quant.h b/gmm/grouped_matmul_swiglu_quant/op_api/aclnn_grouped_matmul_swiglu_quant.h
+--- a/gmm/grouped_matmul_swiglu_quant/op_api/aclnn_grouped_matmul_swiglu_quant.h
++++ b/gmm/grouped_matmul_swiglu_quant/op_api/aclnn_grouped_matmul_swiglu_quant.h
+@@ -38,3 +38,3 @@
+     const aclTensor* x, const aclTensor* weight, const aclTensor* bias, const aclTensor* offset,
+-    const aclTensor* weightScale, const aclTensor* xScale, const aclTensor* groupList, aclTensor* output,
++    const aclTensor* weightScale, const aclTensor* xScale, const aclTensor* groupList, double limited, aclTensor* output,
+     aclTensor* outputScale, aclTensor* outputOffset, uint64_t* workspaceSize, aclOpExecutor** executor);
+diff --git a/gmm/grouped_matmul_swiglu_quant/op_api/aclnn_grouped_matmul_swiglu_quant_weight_nz.h b/gmm/grouped_matmul_swiglu_quant/op_api/aclnn_grouped_matmul_swiglu_quant_weight_nz.h
+--- a/gmm/grouped_matmul_swiglu_quant/op_api/aclnn_grouped_matmul_swiglu_quant_weight_nz.h
++++ b/gmm/grouped_matmul_swiglu_quant/op_api/aclnn_grouped_matmul_swiglu_quant_weight_nz.h
+@@ -38,3 +38,3 @@
+     const aclTensor* x, const aclTensor* weight, const aclTensor* bias, const aclTensor* offset,
+-    const aclTensor* weightScale, const aclTensor* xScale, const aclTensor* groupList, aclTensor* output,
++    const aclTensor* weightScale, const aclTensor* xScale, const aclTensor* groupList, double limited, aclTensor* output,
+     aclTensor* outputScale, aclTensor* outputOffset, uint64_t* workspaceSize, aclOpExecutor** executor);
+diff --git a/gmm/grouped_matmul_swiglu_quant/op_api/grouped_matmul_swiglu_quant.cpp b/gmm/grouped_matmul_swiglu_quant/op_api/grouped_matmul_swiglu_quant.cpp
+--- a/gmm/grouped_matmul_swiglu_quant/op_api/grouped_matmul_swiglu_quant.cpp
++++ b/gmm/grouped_matmul_swiglu_quant/op_api/grouped_matmul_swiglu_quant.cpp
+@@ -24,6 +24,6 @@
+     const aclTensor* x, const aclTensor* weight, const aclTensor* perChannelScale, const aclTensor* perTokenScale,
+-    const aclTensor* groupList, const aclTensor* weightAssistanceMatrix, bool isEnableWeightAssistanceMatrix,
++    const aclTensor* groupList, float limited, const aclTensor* weightAssistanceMatrix, bool isEnableWeightAssistanceMatrix,
+     int dequantMode, aclOpExecutor* executor)
+ {
+-    L0_DFX(GroupedMatmulSwigluQuant, x, weight, perChannelScale, perTokenScale, weightAssistanceMatrix, groupList,
++    L0_DFX(GroupedMatmulSwigluQuant, x, weight, perChannelScale, perTokenScale, weightAssistanceMatrix, groupList, limited,
+            isEnableWeightAssistanceMatrix, dequantMode);
+@@ -42,3 +42,3 @@
+                            OP_INPUT(x, weight, perChannelScale, perTokenScale, weightAssistanceMatrix, groupList),
+-                           OP_OUTPUT(out, scaleOut), OP_ATTR(isEnableWeightAssistanceMatrix, dequantMode));
++                           OP_OUTPUT(out, scaleOut), OP_ATTR(isEnableWeightAssistanceMatrix, dequantMode, limited));
+     if (ret != ACLNN_SUCCESS) {
+@@ -50,3 +50,3 @@
+         OP_INPUT(x, weight, perChannelScale, perTokenScale, weightAssistanceMatrix, groupList),
+-        OP_OUTPUT(out, scaleOut), OP_ATTR(isEnableWeightAssistanceMatrix, dequantMode));
++        OP_OUTPUT(out, scaleOut), OP_ATTR(isEnableWeightAssistanceMatrix, dequantMode, limited));
+     if (ret != ACLNN_SUCCESS) {
+diff --git a/gmm/grouped_matmul_swiglu_quant/op_api/grouped_matmul_swiglu_quant.h b/gmm/grouped_matmul_swiglu_quant/op_api/grouped_matmul_swiglu_quant.h
+--- a/gmm/grouped_matmul_swiglu_quant/op_api/grouped_matmul_swiglu_quant.h
++++ b/gmm/grouped_matmul_swiglu_quant/op_api/grouped_matmul_swiglu_quant.h
+@@ -17,3 +17,3 @@
+     const aclTensor* x, const aclTensor* weight, const aclTensor* perChannelScale, const aclTensor* perTokenScale,
+-    const aclTensor* groupList, const aclTensor* weightAssistanceMatrix, bool isEnableWeightAssistanceMatrix,
++    const aclTensor* groupList, float limited, const aclTensor* weightAssistanceMatrix, bool isEnableWeightAssistanceMatrix,
+     int dequantMode, aclOpExecutor* executor);
+diff --git a/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_def.cpp b/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_def.cpp
+--- a/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_def.cpp
++++ b/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_def.cpp
+@@ -56,2 +56,3 @@
+         this->Attr("dequant_mode").AttrType(OPTIONAL).Int(0);
++        this->Attr("limited").AttrType(OPTIONAL).Float(0.0f);
+         OpAICoreConfig aicore_config;
+diff --git a/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_tiling.cpp b/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_tiling.cpp
+--- a/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_tiling.cpp
++++ b/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_tiling.cpp
+@@ -175,2 +175,4 @@
++    const float limited = *context->GetAttrs()->GetAttrPointer<float>(2);
++    tilingData.gmmSwigluBaseParams.set_limited(limited);
+     tilingData.gmmSwigluBaseParams.set_groupNum(groupNum);
+     tilingData.gmmSwigluBaseParams.set_coreNum(compileInfoPtr->aicNum_);
+diff --git a/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_tiling.h b/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_tiling.h
+--- a/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_tiling.h
++++ b/gmm/grouped_matmul_swiglu_quant/op_host/grouped_matmul_swiglu_quant_tiling.h
+@@ -35,2 +35,3 @@
+ TILING_DATA_FIELD_DEF(uint32_t, quantGroupNum);
++TILING_DATA_FIELD_DEF(float, limited);
+ END_TILING_DATA_DEF;
+diff --git a/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_kernel.h b/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_kernel.h
+--- a/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_kernel.h
++++ b/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_kernel.h
+@@ -97,2 +97,3 @@
+     GM_ADDR xTensorPtr;
++    float limited = 0.0f;
+     GM_ADDR weightTensorPtr;
+@@ -111,2 +112,3 @@
+     gmmBaseParams = gmmSwigluBaseParamsIn;
++    limited = gmmBaseParams->limited;
+     gmmSwiglu = gmmSwigluIN;
+@@ -481,2 +483,10 @@
+     LocalTensor<float> src1Local = _inMMLocal[loopIdx * gmmSwiglu->tokenLen];
++    if (limited > 0.0f) {
++        Mins(src0Local, src0Local, limited, gmmSwiglu->tokenLen / SWIGLU_REDUCE_FACTOR);
++        PipeBarrier<PIPE_V>();
++        Maxs(src0Local, src0Local, -limited, gmmSwiglu->tokenLen / SWIGLU_REDUCE_FACTOR);
++        PipeBarrier<PIPE_V>();
++        Mins(src1Local, src1Local, limited, gmmSwiglu->tokenLen / SWIGLU_REDUCE_FACTOR);
++        PipeBarrier<PIPE_V>();
++    }
+     SwiGLU<float, false>(workspaceLocal, src0Local, src1Local, beta, gmmSwiglu->tokenLen / SWIGLU_REDUCE_FACTOR);
+diff --git a/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_a8w4_msd_post.h b/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_a8w4_msd_post.h
+--- a/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_a8w4_msd_post.h
++++ b/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_a8w4_msd_post.h
+@@ -180,3 +180,14 @@
++    const float limited = gmmBaseParams->limited;
++    if (limited > 0.0f) {
++        const auto halfTokenLen = gmmSwiglu->tokenLen / SWIGLU_REDUCE_FACTOR;
++        // src0 is up, src1 is gate.
++        Mins(src0Local, src0Local, limited, halfTokenLen);
++        PipeBarrier<PIPE_V>();
++        Maxs(src0Local, src0Local, -limited, halfTokenLen);
++        PipeBarrier<PIPE_V>();
++        Mins(src1Local, src1Local, limited, halfTokenLen);
++        PipeBarrier<PIPE_V>();
++    }
+     SwiGLU<float, false>(workspaceLocal, src0Local, src1Local, beta, gmmSwiglu->tokenLen / SWIGLU_REDUCE_FACTOR);
+     PipeBarrier<PIPE_V>();
+     DataCopyParams repeatParams{1, static_cast<uint16_t>((gmmSwiglu->tokenLen / SWIGLU_REDUCE_FACTOR) / ALIGN_8_ELE), 0,
+diff --git a/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_split_ws.h b/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_split_ws.h
+--- a/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_split_ws.h
++++ b/gmm/grouped_matmul_swiglu_quant/op_kernel/grouped_matmul_swiglu_quant_split_ws.h
+@@ -112,2 +112,3 @@
+     GM_ADDR xTensorPtr;
++    float limited = 0.0f;
+     GM_ADDR weightTensorPtr;
+@@ -129,2 +130,3 @@
+     gmmBaseParams = gmmSwigluBaseParamsIn;
++    limited = gmmBaseParams->limited;
+     gmmSwiglu = gmmSwigluIN;
+@@ -559,2 +561,10 @@
+     LocalTensor<float> src1Local = _inMMLocal[loopIdx * gmmSwiglu->tokenLen];
++    if (limited > 0.0f) {
++        Mins(src0Local, src0Local, limited, gmmSwiglu->tokenLen / SWIGLU_REDUCE_FACTOR);
++        PipeBarrier<PIPE_V>();
++        Maxs(src0Local, src0Local, -limited, gmmSwiglu->tokenLen / SWIGLU_REDUCE_FACTOR);
++        PipeBarrier<PIPE_V>();
++        Mins(src1Local, src1Local, limited, gmmSwiglu->tokenLen / SWIGLU_REDUCE_FACTOR);
++        PipeBarrier<PIPE_V>();
++    }
+     SwiGLU<float, false>(workspaceLocal, src0Local, src1Local, beta, gmmSwiglu->tokenLen / SWIGLU_REDUCE_FACTOR);
