@@ -11,6 +11,12 @@ from utils import require_npu_op
 pytestmark = require_npu_op("fused_lightning_indexer_manage")
 
 
+@pytest.fixture(autouse=True)
+def cpu_reference_device():
+    with torch.device("cpu"):
+        yield
+
+
 def test_native_schema_has_no_scale_inputs():
     schema = torch.ops.npu.fused_lightning_indexer_manage.default._schema
     names = [argument.name for argument in schema.arguments]

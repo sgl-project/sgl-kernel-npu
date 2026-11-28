@@ -4,7 +4,7 @@
 
 | Implementation | arch22 | arch35 |
 | --- | --- | --- |
-| `ascendc` | Unverified | Unsupported |
+| `ascendc` | Verified on Ascend910_9362 | Unsupported |
 
 ## Signature
 
@@ -49,6 +49,7 @@ The return value is `None`. See the [native contract and test command](../../../
 ## ascendc backend
 
 Uses the wheel’s native LIM binding. The correctness suite compares the emitted slot plan with an independent CPU hotset and cache model.
+The CPU model checks selection and residency for testing. The public operator exposes `auto` and `ascendc` for the fused in-place device update.
 
 ## Runnable example
 

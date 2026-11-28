@@ -15,6 +15,12 @@ ROUTES = 4
 LENGTH = 16389
 
 
+@pytest.fixture(autouse=True)
+def cpu_reference_device():
+    with torch.device("cpu"):
+        yield
+
+
 def _lim_case(length=LENGTH):
     device = torch.device("npu", torch.npu.current_device())
     source_capacity = (length + 127) // 128 * 128

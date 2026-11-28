@@ -4,7 +4,7 @@
 
 | 实现 | arch22 | arch35 |
 | --- | --- | --- |
-| `ascendc` | 未验证 | 不支持 |
+| `ascendc` | 已在 Ascend910_9362 验证 | 不支持 |
 
 ## 接口
 
@@ -47,6 +47,7 @@ def fused_lightning_indexer_manage(
 ## ascendc 后端
 
 直接调用 wheel 的 native LIM 绑定。精度测试用独立的 CPU 热点集合和缓存模型核对槽位计划。
+CPU 模型用于核对选择与驻留结果。公开接口通过 `auto` 和 `ascendc` 执行融合的设备原地更新。
 
 ## 可运行示例
 

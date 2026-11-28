@@ -63,7 +63,7 @@ the current stream.
 ## Tests
 
 ```bash
-python -m pytest tests/python/sgl_kernel_npu/test_fused_lightning_indexer_manage.py
+python -m pytest tests/python/operators/indexer/test_fused_lightning_indexer_manage.py
 ```
 
 The tests cover TopK/slot consistency, cold fill, steady misses, request reuse,
