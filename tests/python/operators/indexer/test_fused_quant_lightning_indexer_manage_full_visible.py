@@ -1,16 +1,82 @@
-import importlib.util
-from pathlib import Path
-
 import pytest
 import torch
-
-path = (
-    Path(__file__).resolve().parents[1]
-    / "python/sgl_kernel_npu/sgl_kernel_npu/sparsity_driven_kv_offload/full_visible_planner.py"
+from sgl_kernel_npu.operators.indexer.fused_quant_lightning_indexer_manage_full_visible import (
+    fused_quant_lightning_indexer_manage_full_visible,
 )
-spec = importlib.util.spec_from_file_location("full_visible_planner", path)
-planner = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(planner)
+
+
+@pytest.mark.parametrize("width", [1, 4])
+def test_torch_native_full_visible_residency(width):
+    page = 128
+    top_k = 2048
+    capacity = width * top_k
+    length = capacity + width + 5
+    page_count = (length + page - 1) // page
+    ints = dict(dtype=torch.int32)
+    query = torch.ones((width, 32, 128)).to(torch.float8_e4m3fn)
+    key = torch.ones((page_count, page, 1, 128)).to(torch.float8_e4m3fn)
+    weights = torch.ones((width, 32), dtype=torch.bfloat16)
+    scales = torch.ones((page_count, page, 1))
+    scales.view(-1)[length - width : length] = 2
+    pages = torch.arange(page_count, **ints)[None, :]
+    pool = torch.full((3, page_count * page), -1, **ints)
+    selected = torch.empty((width, top_k), **ints)
+    slots = torch.empty_like(selected)
+    route_counts = torch.empty(width, **ints)
+    copy_sources = torch.empty((1, 32768), **ints)
+    copy_slots = torch.empty_like(copy_sources)
+    copy_count = torch.empty(1, **ints)
+    state = torch.tensor([-2], **ints)
+
+    def run():
+        fused_quant_lightning_indexer_manage_full_visible(
+            query,
+            weights,
+            key,
+            torch.ones_like(weights, dtype=torch.float32),
+            scales,
+            pages,
+            torch.tensor([width], **ints),
+            torch.tensor([length], **ints),
+            torch.tensor([capacity], **ints),
+            state,
+            torch.tensor([1], **ints),
+            pool,
+            selected,
+            slots,
+            route_counts,
+            copy_sources,
+            copy_slots,
+            copy_count,
+            impl="torch_native",
+        )
+        if state.item() != -3:
+            torch.testing.assert_close(pool[1, selected.long()], slots)
+        for route, row in enumerate(selected.tolist()):
+            assert max(row) == length - width + route
+            assert len(set(row)) == top_k
+
+    run()
+    assert copy_count.item() == capacity
+    assert copy_slots[0, :capacity].unique().numel() == capacity
+    assert route_counts.tolist() == [top_k] * width
+
+    state.fill_(-1)
+    run()
+    assert route_counts.count_nonzero() == 0
+    assert copy_count.item() == width
+    assert copy_sources[0, :width].tolist() == list(range(length - width, length))
+
+    incoming = int((pool[1, :length] < 0).nonzero()[0].item())
+    scales.view(-1)[incoming] = 4
+    run()
+    assert incoming in selected[0, : route_counts[0]].tolist()
+    assert copy_count.item() > width
+
+    state.fill_(-3)
+    run()
+    torch.testing.assert_close(selected, slots)
+    assert copy_count.item() == 0
 
 
 def _a5_li_score_keys(query, key, weights, query_scale, key_scale):
@@ -57,95 +123,18 @@ def test_a5_topk_parity_only_accepts_cutoff_ties():
 
 
 @pytest.mark.parametrize("width", [1, 4])
-@pytest.mark.parametrize("device", ["cpu", "npu"])
-def test_fully_visible_plan_tracks_one_union_across_query_routes(width, device):
-    if device == "npu":
-        pytest.importorskip("torch_npu")
-        if not torch.npu.is_available():
-            pytest.skip("No NPU")
-    top_k, context = 2048, 32768
-    capacity = width * top_k
-    batch = 3
-    dtype = torch.int32
-    request_rows = torch.tensor([1, 2, 3], dtype=dtype, device=device)
-    sparse = torch.tensor([True, False, False], device=device)
-    source_map = torch.full((4, context + 1), -1, dtype=dtype, device=device)
-    inverse = torch.full((4, capacity + 1), -1, dtype=dtype, device=device)
-    sources = torch.empty((batch * width, top_k), dtype=dtype, device=device)
-    destinations = torch.empty_like(sources)
-    row_misses = torch.empty(batch * width, dtype=dtype, device=device)
-    miss_sources = torch.empty((batch, 32768), dtype=dtype, device=device)
-    miss_slots = torch.empty_like(miss_sources)
-    counts = torch.empty(batch, dtype=dtype, device=device)
-    pages = {}
-    evicted = False
-
-    for step, warm in enumerate((False, True, True, False)):
-        length = capacity + 17 + step * (top_k // 2)
-        topk = torch.full((batch, width, top_k), -1, dtype=dtype)
-        for route in range(width):
-            start = step * (top_k // 2) + route * (top_k - 205)
-            topk[0, route] = torch.arange(start, start + top_k, dtype=dtype)
-            topk[0, route, -2:] = torch.tensor(
-                [length - width + route, length]
-            )  # Latest visible row and an invisible row.
-            topk[1, route, :2] = torch.tensor([0, route + 1])
-            topk[2, route, 0] = 0  # Graph padding must not select a real row.
-        previous = set(pages.values()) if warm else set()
-        planner.plan_full_visible_cache(
-            topk.to(device),
-            torch.tensor([length, width + 2, 0], dtype=dtype, device=device),
-            request_rows,
-            sparse,
-            torch.tensor([warm, False, False], device=device),
-            source_map,
-            inverse,
-            sources,
-            destinations,
-            row_misses,
-            miss_sources,
-            miss_slots,
-            counts,
-        )
-        union = set(topk[0, :, :-1].flatten().tolist())
-        count, short_count, padding_count = counts.tolist()
-        misses = miss_sources[0, :count].tolist()
-        slots = miss_slots[0, :count].tolist()
-        assert len(set(slots)) == count and all(0 <= slot < capacity for slot in slots)
-        assert len(set(misses)) == count and set(misses) == union - previous
-        assert short_count == padding_count == 0
-        if not warm:
-            pages.clear()
-        evicted |= any(slot in pages for slot in slots)
-        pages.update(zip(slots, misses))
-        for route in range(width):
-            assert sources[route, :-1].tolist() == topk[0, route, :-1].tolist()
-            assert sources[route, -1].item() == -1
-            assert [pages[slot] for slot in destinations[route, :-1].tolist()] == topk[
-                0, route, :-1
-            ].tolist()
-            assert row_misses[route].item() == len(
-                set(topk[0, route, :-1].tolist()) - previous
-            )
-            assert destinations[width + route, :3].tolist() == [0, route + 1, -1]
-        assert destinations[2 * width :].eq(-1).all()
-        assert inverse[0].eq(-1).all()
-        assert inverse[3].eq(-1).all()
-    assert evicted
-
-
-@pytest.mark.parametrize("width", [1, 4])
 @pytest.mark.parametrize(
     # At 140242 tokens, the steady miss scan starts at the final 978 entries.
     # The former 64-element padding requested 92 bytes in one DMA instruction.
     "long_length,graph",
     [(8199, False), (140242, False), (140242, True)],
 )
-def test_a5_fused_lim_matches_native_topk_and_resident_plan(width, long_length, graph):
-    """Check native LI TopK, cold fill, graph replay and resident plans."""
+def test_a5_fused_lim_matches_torch_native_topk_and_resident_plan(
+    width, long_length, graph
+):
+    """Check AscendC TopK, cold fill, graph replay and resident plans."""
     pytest.importorskip("torch_npu")
     import acl
-    import sgl_kernel_npu  # noqa: F401
 
     if not torch.npu.is_available() or acl.rt.get_device_info(0, 601) != (3510, 0):
         pytest.skip("Ascend950 required")
@@ -198,10 +187,6 @@ def test_a5_fused_lim_matches_native_topk_and_resident_plan(width, long_length, 
     q_index_cpu = li_query.to(torch.float8_e4m3fn)
     q_index = q_index_cpu.to(device)
     state = torch.tensor([-3, -2], dtype=dtype, device=device)
-    from sgl_kernel_npu.operators.indexer.fused_quant_lightning_indexer_manage_full_visible import (
-        fused_quant_lightning_indexer_manage_full_visible,
-    )
-
     op = fused_quant_lightning_indexer_manage_full_visible
     args = (
         q_index,
@@ -238,23 +223,26 @@ def test_a5_fused_lim_matches_native_topk_and_resident_plan(width, long_length, 
             q_index_cpu = (-li_query).to(torch.float8_e4m3fn)
             q_index.copy_(q_index_cpu.to(device))
         if step in (0, 3):
-            native_topk = torch.ops.npu.npu_quant_lightning_indexer(
-                query=q_index,
-                key=li_key,
-                weights=weights,
-                query_dequant_scale=query_scale,
-                key_dequant_scale=key_scale,
-                actual_seq_lengths_query=ends,
-                actual_seq_lengths_key=lengths,
-                block_table=dram_pages,
-                layout_query="TND",
-                layout_key="PA_BSND",
-                sparse_count=top_k,
-                sparse_mode=3,
-                query_quant_mode=0,
-                key_quant_mode=0,
+            reference_outputs = [
+                torch.empty_like(item, device="cpu") for item in args[12:]
+            ]
+            op(
+                q_index_cpu,
+                weights_cpu,
+                li_key_cpu.view(-1, page, 1, 128),
+                query_scale_cpu,
+                key_scale_cpu.view(-1, page, 1),
+                dram_pages.cpu(),
+                ends.cpu(),
+                lengths.cpu(),
+                cache_sizes.cpu(),
+                torch.tensor([-3, -2], dtype=dtype),
+                pool_entries.cpu(),
+                torch.full(source_map.shape, -1, dtype=dtype),
+                *reference_outputs,
+                impl="torch_native",
             )
-            native_topk_cpu = native_topk.reshape_as(sources).cpu().tolist()
+            reference_topk_cpu = reference_outputs[0].tolist()
         if graph:
             capture.replay()
         else:
@@ -293,7 +281,9 @@ def test_a5_fused_lim_matches_native_topk_and_resident_plan(width, long_length, 
                 assert min(selected) >= 0 and max(selected) < visible
                 assert all(x == -1 for x in source_cpu[row][k:])
                 label = f"Q{width} step={step} request={request} route={route} visible={visible} graph={graph}"
-                native_ids = [source for source in native_topk_cpu[row] if source >= 0]
+                native_ids = [
+                    source for source in reference_topk_cpu[row] if source >= 0
+                ]
                 native = set(native_ids)
                 assert len(native_ids) == len(native) == k and max(native) < visible, (
                     f"{label}: expected {k} unique causal native IDs, "

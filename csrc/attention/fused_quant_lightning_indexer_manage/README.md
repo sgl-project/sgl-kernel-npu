@@ -1,12 +1,16 @@
 # Fully visible A5 fused quant Lightning Indexer and cache manager
 
-`torch.ops.npu.fused_quant_lightning_indexer_manage_full_visible` runs FP8
+`fused_quant_lightning_indexer_manage_full_visible` runs FP8
 index scoring, per-query causal TopK, and shared request residency management
 in one Ascend950 launch. Its arch35 device code is adapted from
 [vllm-ascend #18383](https://github.com/vllm-project/vllm-ascend/pull/18383)
 at `7d5a4cd9d7e8c4e2e4f0f6415a71f0e80edcff8e`. The selective CANN entry uses
 batch scheduling and the same 216 KiB SIMT local-memory layout as the donor.
+[`UPSTREAM_PROVENANCE.json`](UPSTREAM_PROVENANCE.json) records the donor
+paths and hashes at that revision.
 
+For the public Python API and usage example, see the
+[operator documentation](../../../docs/api/en/operators/indexer/fused_quant_lightning_indexer_manage_full_visible.md).
 Each request has a cumulative query end, a final causal KV length, a source
 block table, a cache size and a resident row ID. The kernel uses the same
 source range for scoring and residency management. Each query clips its
@@ -33,5 +37,5 @@ Build and test the Ascend950 operator independently.
 
 ```bash
 python3 setup.py --arch-version 3510 --ops fused_quant_lightning_indexer_manage_full_visible --without-third-party
-python3 -m pytest -q tests/test_a5_full_visible_planner.py
+python3 -m pytest -q tests/python/operators/indexer/test_fused_quant_lightning_indexer_manage_full_visible.py
 ```

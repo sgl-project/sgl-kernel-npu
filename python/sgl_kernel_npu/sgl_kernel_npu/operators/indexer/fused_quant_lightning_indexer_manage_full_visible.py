@@ -17,6 +17,15 @@ def _ascendc_impl(*args, **kwargs) -> None:
     )
 
 
+@register_impl(_OP, "torch_native", supported_generations=_SUPPORTED_GENERATIONS)
+def _torch_native_impl(*args, **kwargs) -> None:
+    from ...implementation.torch_native.indexer.fused_quant_lightning_indexer_manage_full_visible import (
+        fused_quant_lightning_indexer_manage_full_visible as reference,
+    )
+
+    reference(*args, **kwargs)
+
+
 @register_operator(_OP)
 def fused_quant_lightning_indexer_manage_full_visible(
     query,
@@ -42,7 +51,8 @@ def fused_quant_lightning_indexer_manage_full_visible(
 ) -> None:
     """Compute causal TopK from FP8 scores and update resident slots in place.
 
-    Both auto and ascendc select the native 3510 operator.
+    Both auto and ascendc select the native 3510 operator. The torch_native
+    implementation computes an eager PyTorch reference on CPU.
     See the operator README for the complete tensor contract.
     """
     get_impl_by_name(_OP, impl)(
