@@ -179,3 +179,60 @@ def test_different_pool_extents(vdim, physical):
         False,
         exact_output=True,
     )
+
+
+# Kimi K3.1: 69 layers, TP=16 (6 heads of dim 128), 4 draft tokens.
+@pytest.mark.parametrize("batch", [1, 8, 32], ids=["batch-1", "batch-8", "batch-32"])
+def test_kimi_k31_move_cache(batch):
+    from sgl_kernel_npu.operators.mamba import move_intermediate_cache_kda
+
+    args = generate_move_data(
+        (69, batch + 3, 4, 6, 128, 128, batch), transposed=True, dtype=torch.float32
+    )
+    _check_inplace(move_intermediate_cache_kda, args, False)
+
+
+@pytest.mark.parametrize("batch", [1, 8, 32], ids=["batch-1", "batch-8", "batch-32"])
+def test_kimi_k31_conv_state_rollback(batch):
+    from sgl_kernel_npu.operators.mamba import conv_state_rollback
+
+    args = generate_rollback_data((69, batch + 3, 2304, 4, batch), transposed=False)
+    if batch == 1:
+        # The generator selects step -1 for one request; exercise a real rollback.
+        args[2].zero_()
+    _check_inplace(conv_state_rollback, args, False)
+
+
+@pytest.mark.parametrize(
+    "batch,pattern",
+    [
+        pytest.param(2, "mixed", id="mixed-step-batch-2"),
+        pytest.param(8, "mixed", id="mixed-step-batch-8"),
+        pytest.param(32, "mixed", id="mixed-step-batch-32"),
+        pytest.param(1, "all_skip", id="all-negative-step-batch-1"),
+        pytest.param(8, "all_skip", id="all-negative-step-batch-8"),
+        pytest.param(32, "all_skip", id="all-negative-step-batch-32"),
+    ],
+)
+def test_kimi_k31_move_cache_skipped_steps(batch, pattern):
+    from sgl_kernel_npu.operators.mamba import move_intermediate_cache_kda
+
+    args = generate_move_data(
+        (69, batch + 3, 4, 6, 128, 128, batch), transposed=True, dtype=torch.float32
+    )
+    state, _, destinations, _, steps = args
+    if pattern == "all_skip":
+        steps.fill_(-1)
+    else:
+        # Valid requests cycle through all four steps; alternate requests skip.
+        steps.copy_((torch.arange(batch, device=steps.device) // 2) % 4)
+        steps[1::2] = -1
+    if not get_skip_acc_check():
+        skipped_slots = destinations[steps < 0].to(torch.int64)
+        skipped_before = state.index_select(1, skipped_slots)
+    _check_inplace(move_intermediate_cache_kda, args, False)
+    if not get_skip_acc_check():
+        # Check skipped slots across every layer against their initial values.
+        torch.testing.assert_close(
+            state.index_select(1, skipped_slots), skipped_before, atol=0, rtol=0
+        )
