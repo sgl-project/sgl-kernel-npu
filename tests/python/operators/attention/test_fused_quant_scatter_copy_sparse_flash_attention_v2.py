@@ -8,6 +8,8 @@ from sgl_kernel_npu.operators.attention.fused_quant_scatter_copy_sparse_flash_at
     fused_quant_scatter_copy_sparse_flash_attention_v2,
 )
 
+from tests.python.utils.common import require_test_impl
+
 
 def test_copy_sfa_schedule(tmp_path):
     compiler = shutil.which("c++")
@@ -48,6 +50,7 @@ def test_a5_short_staging_matches_preloaded_attention(device, graph, width, pref
         if not torch.npu.is_available() or acl.rt.get_device_info(0, 601) != (3510, 0):
             pytest.skip("Ascend950 required")
     impl = "ascendc" if device == "npu" else "torch_native"
+    require_test_impl(fused_quant_scatter_copy_sparse_flash_attention_v2, impl)
     page = 128
     rng = torch.Generator().manual_seed(197)
 
@@ -145,6 +148,10 @@ def test_a5_short_staging_matches_preloaded_attention(device, graph, width, pref
 
 
 def test_torch_native_c8_uses_current_rows_and_group_scales():
+    require_test_impl(
+        fused_quant_scatter_copy_sparse_flash_attention_v2, "torch_native"
+    )
+
     def packed(scale):
         latent = torch.ones((1, 512)).to(torch.float8_e4m3fn)
         rope = torch.zeros((1, 64), dtype=torch.bfloat16)
