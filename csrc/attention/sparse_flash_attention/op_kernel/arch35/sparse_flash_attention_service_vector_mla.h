@@ -107,7 +107,8 @@ private:
                                               int64_t token1Idx, const RunInfo &runInfo, ConstInfo &constInfo);
     __aicore__ inline uint32_t CopyInPackedKv(LocalTensor<uint8_t> kvInUb, int64_t startRow, int64_t token0Idx,
                                               int64_t token1Idx, const RunInfo &runInfo, ConstInfo &constInfo);
-    __aicore__ inline void DequantizePackedKv(LocalTensor<Q_T> output, LocalTensor<uint8_t> input, uint32_t rows);
+    __aicore__ inline void DequantizePackedKv(LocalTensor<Q_T> output, LocalTensor<uint8_t> input, uint32_t rows,
+                                              uint32_t rowBytes);
     __aicore__ inline void CalSparseCalSize(const RunInfo &runInfo, ConstInfo &constInfo);
     __aicore__ inline void CopyOutKvUb2Gm(Buffer<BufferType::GM, SyncType::CROSS_CORE_SYNC_BACKWARD> &v0ResGm,
                                           LocalTensor<Q_T> kvOutUb, int64_t dealRow, int64_t s2StartIdx,
@@ -301,14 +302,15 @@ TEMPLATES_DEF_NO_DEFAULT __aicore__ inline uint32_t
 SFAVectorService<TEMPLATE_ARGS>::CopyInPackedKv(LocalTensor<uint8_t> kvInUb, int64_t startRow, int64_t token0Idx,
                                                 int64_t token1Idx, const RunInfo &runInfo, ConstInfo &constInfo)
 {
-    const DataCopyExtParams copy{1, kSfaPackedKvBytes, 0, 0, 0};
-    const DataCopyPadExtParams<uint8_t> pad{true, 0, packedKvStride - kSfaPackedKvBytes, 0};
+    const uint32_t rowBytes = constInfo.packedKvBytes;
+    const uint32_t rightPadding = (32U - rowBytes % 32U) % 32U;
+    const DataCopyExtParams copy{1, rowBytes, 0, 0, 0};
+    const DataCopyPadExtParams<uint8_t> pad{true, 0, static_cast<uint8_t>(rightPadding), 0};
     uint32_t copied = 0;
     int64_t offsets[] = {GetkeyOffset(token0Idx, runInfo, constInfo), GetkeyOffset(token1Idx, runInfo, constInfo)};
     for (int64_t offset : offsets) {
         if (offset >= 0) {
-            DataCopyPad(kvInUb[(startRow + copied) * packedKvStride], packedKvGm[offset * kSfaPackedKvBytes], copy,
-                        pad);
+            DataCopyPad(kvInUb[(startRow + copied) * packedKvStride], packedKvGm[offset * rowBytes], copy, pad);
             ++copied;
         }
     }
@@ -330,7 +332,7 @@ static constexpr MicroAPI::CastTrait castTraitFp8_4 = {MicroAPI::RegLayout::ONE,
 
 template <typename Q_T>
 __simd_vf__ inline void UnpackSfaLatent(__ubuf__ Q_T *output, __ubuf__ uint8_t *input, uint32_t rows,
-                                        uint32_t inputStride)
+                                        uint32_t inputStride, uint32_t scaleOffset, bool hasRope)
 {
     constexpr uint32_t tileSize = kSfaPackedKvQuantBlockSize;
     constexpr uint32_t lanes = 64;
@@ -339,11 +341,13 @@ __simd_vf__ inline void UnpackSfaLatent(__ubuf__ Q_T *output, __ubuf__ uint8_t *
     MicroAPI::RegTensor<float> values;
     MicroAPI::RegTensor<float> scale;
     MicroAPI::RegTensor<Q_T> converted;
+    MicroAPI::RegTensor<Q_T> zero;
+    MicroAPI::Duplicate(zero, static_cast<Q_T>(0.0f));
 
     for (uint32_t row = 0; row < rows; ++row) {
         auto rowIn = input + row * inputStride;
         auto rowOut = output + row * kSfaPackedKvDequantizedDim;
-        auto scales = reinterpret_cast<__ubuf__ float *>(rowIn + kSfaPackedKvScaleOffset);
+        auto scales = reinterpret_cast<__ubuf__ float *>(rowIn + scaleOffset);
         for (uint32_t tile = 0; tile < kSfaPackedKvLatentDim / tileSize; ++tile) {
             auto scaleAddress = scales + tile;
             MicroAPI::LoadAlign<float, MicroAPI::PostLiteral::POST_MODE_UPDATE, MicroAPI::LoadDist::DIST_BRC_B32>(
@@ -360,15 +364,22 @@ __simd_vf__ inline void UnpackSfaLatent(__ubuf__ Q_T *output, __ubuf__ uint8_t *
                                                                             converted, mask);
             }
         }
+        if (!hasRope) {
+            MicroAPI::DataCopy<Q_T, MicroAPI::StoreDist::DIST_PACK_B32>(rowOut + kSfaPackedKvLatentDim, zero, mask);
+        }
     }
 }
 
-TEMPLATES_DEF_NO_DEFAULT __aicore__ inline void
-SFAVectorService<TEMPLATE_ARGS>::DequantizePackedKv(LocalTensor<Q_T> output, LocalTensor<uint8_t> input, uint32_t rows)
+TEMPLATES_DEF_NO_DEFAULT __aicore__ inline void SFAVectorService<TEMPLATE_ARGS>::DequantizePackedKv(
+    LocalTensor<Q_T> output, LocalTensor<uint8_t> input, uint32_t rows, uint32_t rowBytes)
 {
-    // Each selected row becomes 512 BF16 latent values followed by 64 BF16 RoPE values.
+    // Keep the internal 576-wide Cube layout for both packed record formats.
+    const bool hasRope = rowBytes == kSfaPackedKvBytes;
     UnpackSfaLatent<Q_T>((__ubuf__ Q_T *)output.GetPhyAddr(), (__ubuf__ uint8_t *)input.GetPhyAddr(), rows,
-                         packedKvStride);
+                         packedKvStride, rowBytes - kSfaPackedKvScaleBytes, hasRope);
+    if (!hasRope) {
+        return;
+    }
     auto rope = input[kSfaPackedKvLatentDim].template ReinterpretCast<Q_T>();
     Copy(
         output[kSfaPackedKvLatentDim], rope, kSfaPackedKvRopeDim, static_cast<uint8_t>(rows),
@@ -512,7 +523,7 @@ SFAVectorService<TEMPLATE_ARGS>::ProcessSparseKv(Buffer<BufferType::L1, SyncType
         if constexpr (kPackedKv) {
             SetFlag<HardEvent::MTE2_V>(mte2ToV);
             WaitFlag<HardEvent::MTE2_V>(mte2ToV);
-            DequantizePackedKv(stage0OutUb, packedUb, dealRow);
+            DequantizePackedKv(stage0OutUb, packedUb, dealRow, constInfo.packedKvBytes);
             SetFlag<HardEvent::V_MTE3>(packedVToMte3);
             WaitFlag<HardEvent::V_MTE3>(packedVToMte3);
         } else {
@@ -879,9 +890,11 @@ TEMPLATES_DEF_NO_DEFAULT __aicore__ inline void SFAVectorService<TEMPLATE_ARGS>:
     sharedParams.isActualSeqLengthsNull = sparseAttnSharedkvBaseParams.isActualLenDimsNull;
     sharedParams.isActualSeqLengthsKVNull = sparseAttnSharedkvBaseParams.isActualLenDimsKVNull;
     sharedParams.returnSoftmaxLse = sparseAttnSharedkvBaseParams.returnSoftmaxLse;
+    sharedParams.packedKvBytes = sparseAttnSharedkvBaseParams.packedKvBytes;
     // A query can have no selected local keys even when its KV cache is nonempty.
     // Leave zero output and max/sum = 0 (LSE = -inf) for skipped queries.
-    sharedParams.needInit = sharedParams.returnSoftmaxLse && sharedParams.oriMaskMode == 0;
+    sharedParams.needInit =
+        sharedParams.oriMaskMode == 0 && (sharedParams.returnSoftmaxLse || sharedParams.packedKvBytes != 0);
     for (uint32_t bIdx = 0; bIdx < sharedParams.bSize; bIdx++) {
         int64_t s2Size;
         if constexpr (KV_LAYOUT_T == SFA_LAYOUT::TND) {

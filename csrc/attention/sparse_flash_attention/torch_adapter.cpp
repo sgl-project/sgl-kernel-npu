@@ -36,6 +36,8 @@ aclDataType ToAclType(const at::Tensor &tensor)
             return ACL_INT32;
         case at::kByte:
             return ACL_UINT8;
+        case at::kChar:
+            return ACL_INT8;
         default:
             TORCH_CHECK(false, "sparse_flash_attention does not support dtype ", tensor.scalar_type());
             return ACL_FLOAT;
@@ -266,19 +268,27 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> sgl_sparse_flash_attention(
 std::tuple<at::Tensor, at::Tensor, at::Tensor> sgl_kv_quant_sparse_flash_attention(
     const at::Tensor &query, const at::Tensor &query_rope, const at::Tensor &packed_kv,
     const at::Tensor &sparse_indices, const at::Tensor &block_table, const at::Tensor &actual_seq_lengths_query,
-    const at::Tensor &actual_seq_lengths_kv, double scale_value)
+    const at::Tensor &actual_seq_lengths_kv, double scale_value, bool return_softmax_lse)
 {
     TORCH_CHECK(query.scalar_type() == at::kBFloat16 && query.dim() == 3 && query.size(2) == kSfaPackedKvLatentDim,
                 "packed sparse attention requires BF16 query [tokens, heads, ", kSfaPackedKvLatentDim, "]");
     TORCH_CHECK(query_rope.dim() == 3 && query_rope.size(0) == query.size(0) && query_rope.size(1) == query.size(1) &&
-                    query_rope.size(2) == kSfaPackedKvRopeDim,
-                "query_rope must match query with a last dimension of ", kSfaPackedKvRopeDim);
-    TORCH_CHECK(packed_kv.scalar_type() == at::kByte && packed_kv.dim() == 4 && packed_kv.size(2) == 1 &&
-                    packed_kv.size(3) == kSfaPackedKvBytes,
-                "packed KV must be uint8 [pages, page_size, 1, ", kSfaPackedKvBytes, "]");
+                    (query_rope.size(2) == 0 || query_rope.size(2) == kSfaPackedKvRopeDim),
+                "query_rope must match query with a last dimension of 0 or ", kSfaPackedKvRopeDim);
+    TORCH_CHECK(query_rope.scalar_type() == query.scalar_type() && query_rope.device() == query.device(),
+                "query_rope dtype and device must match query");
+    const bool hasRope = query_rope.size(2) != 0;
+    const auto rowBytes = hasRope ? kSfaPackedKvBytes : kSfaPackedKvNoRopeBytes;
+    TORCH_CHECK((packed_kv.scalar_type() == at::kByte || packed_kv.scalar_type() == at::kChar) &&
+                    packed_kv.dim() == 4 && packed_kv.size(2) == 1 && packed_kv.size(3) == rowBytes,
+                "packed KV must be uint8 (E4M3) or int8 [pages, page_size, 1, ", rowBytes, "]");
+    // The Cube consumes separate latent and RoPE tensors. Synthesize only the query-side zeros here.
+    const c10::DeviceGuard deviceGuard(query.device());
+    const auto ropeInput =
+        hasRope ? query_rope : at::zeros({query.size(0), query.size(1), kSfaPackedKvRopeDim}, query.options());
     return sparse_flash_attention_impl(query, packed_kv, packed_kv, sparse_indices, scale_value, block_table,
-                                       actual_seq_lengths_query, actual_seq_lengths_kv, query_rope, c10::nullopt, 1,
-                                       "TND", "PA_BSND", 0, INT64_MAX, INT64_MAX, 2, true, true);
+                                       actual_seq_lengths_query, actual_seq_lengths_kv, ropeInput, c10::nullopt, 1,
+                                       "TND", "PA_BSND", 0, INT64_MAX, INT64_MAX, 2, return_softmax_lse, true);
 }
 
 }  // namespace
@@ -296,7 +306,8 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
     m.def(
         "kv_quant_sparse_flash_attention(Tensor query, Tensor query_rope, Tensor packed_kv, "
         "Tensor sparse_indices, Tensor block_table, Tensor actual_seq_lengths_query, "
-        "Tensor actual_seq_lengths_kv, float scale_value) -> (Tensor, Tensor, Tensor)");
+        "Tensor actual_seq_lengths_kv, float scale_value, *, bool return_softmax_lse=True) "
+        "-> (Tensor, Tensor, Tensor)");
 }
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {

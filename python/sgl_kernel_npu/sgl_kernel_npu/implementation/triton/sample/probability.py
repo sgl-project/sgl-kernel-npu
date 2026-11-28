@@ -185,3 +185,102 @@ def top_p_renorm_prob(
     return filter_and_renorm(
         probs, sorted_probs, sorted_indices, top_ps, cumulative_probs
     )
+
+
+# One program handles a whole row, so the selected prefix must fit one block.
+# Wider bounds (for example max_keep=None over a large vocabulary) use the
+# PyTorch filter path instead.
+_JOINT_BLOCK_LIMIT = 2048
+
+
+@triton.jit
+def _joint_filter_kernel(
+    values,
+    cumulative,
+    top_ks,
+    top_ps,
+    output,
+    W,
+    BLOCK: tl.constexpr,
+):
+    row = tl.program_id(0).to(tl.int64)
+    offsets = tl.arange(0, BLOCK)
+    valid = offsets < W
+    value = tl.load(values + row * W + offsets, valid, other=0.0)
+    prefix = tl.load(cumulative + row * W + offsets, valid, other=0.0)
+    top_k = tl.load(top_ks + row)
+    top_p = tl.load(top_ps + row)
+    # Both filters keep a prefix of the descending row, so the joint mask is
+    # their intersection. Keep the inclusive-cumsum-minus-current rounding.
+    keep = valid & (offsets < top_k) & (prefix - value <= top_p)
+    value = tl.where(keep, value, 0.0)
+    total = tl.maximum(tl.sum(value, axis=0), 1e-20)
+    tl.store(output + row * W + offsets, value / total, valid)
+
+
+def _torch_joint_filter(values, cumulative, top_ks, top_ps):
+    width = values.shape[-1]
+    positions = torch.arange(width, device=values.device).view(1, -1)
+    keep = (positions < top_ks.view(-1, 1)) & (
+        cumulative - values <= top_ps.view(-1, 1)
+    )
+    values = values.masked_fill(~keep, 0.0)
+    return values / values.sum(dim=-1, keepdim=True).clamp_min_(1e-20)
+
+
+def top_k_top_p_renorm_prob(
+    probs: torch.Tensor,
+    top_ks: Union[torch.Tensor, int],
+    top_ps: Union[torch.Tensor, float],
+    max_keep: int = None,
+) -> torch.Tensor:
+    """Apply top-p then top-k and renormalize the joint support once.
+
+    Only max_keep leading columns can survive both filters, so a top-k
+    selection of that width is exact for every row whose top_k does not
+    exceed it. The Triton kernel filters and normalizes the selected prefix;
+    the narrow scatter restores vocabulary order without the full-vocabulary
+    write-back.
+    """
+    # Validate the contract before the empty-batch early return so both
+    # backends reject the same inputs.
+    if max_keep is not None and (
+        isinstance(max_keep, bool) or not isinstance(max_keep, int) or max_keep < 1
+    ):
+        raise ValueError("max_keep must be a positive integer or None")
+    probs = _prepare_probs(probs)
+    rows, vocab = probs.shape
+    # Scalar thresholds expand to stride 0; the kernel loads one value per row,
+    # so materialize unit-stride [batch] tensors first.
+    top_ks = (
+        _as_batch_threshold(top_ks, probs, torch.long, "top_ks")
+        .clamp(min=1, max=vocab)
+        .contiguous()
+    )
+    top_ps = (
+        _as_batch_threshold(top_ps, probs, probs.dtype, "top_ps")
+        .clamp(min=0.0, max=1.0)
+        .contiguous()
+    )
+    if rows == 0:
+        return torch.empty_like(probs)
+    width = vocab if max_keep is None else min(max_keep, vocab)
+    top_ks = top_ks.clamp(max=width)
+
+    values, indices = torch.topk(probs, k=width, dim=-1)
+    cumulative = values.cumsum(dim=-1)
+    if width <= _JOINT_BLOCK_LIMIT:
+        dense = torch.empty_like(values)
+        with torch.npu.device(probs.device):
+            _joint_filter_kernel[(rows,)](
+                values,
+                cumulative,
+                top_ks,
+                top_ps,
+                dense,
+                width,
+                BLOCK=triton.next_power_of_2(width),
+            )
+    else:
+        dense = _torch_joint_filter(values, cumulative, top_ks, top_ps)
+    return torch.zeros_like(probs).scatter_(-1, indices, dense)

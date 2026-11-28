@@ -256,6 +256,7 @@ struct RunInfo {
     bool returnSoftmaxLse
 
 struct ConstInfo {
+    uint32_t packedKvBytes;
     COMMON_CONST_INFO;
     INFER_CONST_INFO;
 };
@@ -263,6 +264,7 @@ struct ConstInfo {
 /* only support b32 or b64 */
 struct CVSharedParams {
     CV_SHARED_PARAMS;
+    uint32_t packedKvBytes;
 };
 }  // namespace regbaseutil
 

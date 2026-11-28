@@ -29,6 +29,7 @@ def kpool_write_tail_and_maybe_compress(
     num_draft_tokens: int,
     effective_n_per_batch: Optional[torch.Tensor] = None,
     *,
+    scale_cache: Optional[torch.Tensor] = None,
     num_programs: Optional[int] = None,
     impl="auto",
 ) -> None:
@@ -39,15 +40,17 @@ def kpool_write_tail_and_maybe_compress(
 
 ## Description
 
-Write a batch of draft keys and scores into request-local tail rings. Compress newly completed pools with channel-wise softmax pooling and write the BF16 results to the cache locations provided in `write_loc`.
+Write a batch of draft keys and scores into request-local tail rings. Compress newly completed pools with channel-wise softmax pooling and write the result to the cache locations provided in `write_loc`. BF16 stores the pooled key; INT8 stores a symmetric per-row quantization of the pooled key and writes the FP16 dequantization scale to `scale_cache`.
 
 Pooling uses FP32 arithmetic and includes positional scores. Effective draft counts determine which pools are complete; all supplied draft rows are still written to the tail for valid batches. Invalid batches are skipped. The cache, tail keys and tail scores are updated in place.
+
+Ordinary FP8 stores E4M3FN keys with one FP32 scale per pooled row after Hadamard128, using `max(absmax, 1e-4) / 448`. The pooled key and Hadamard output are rounded to BF16 before FP8 quantization. FP8 queries apply the same Hadamard128 before quantization. BF16 and INT8 use the original basis for keys and queries, as do all tail keys.
 
 ## Parameters and return value
 
 | Parameter | Type | Shape | Dtype | Default | Description |
 | --- | --- | --- | --- | --- | --- |
-| `index_k_cache` | `torch.Tensor` | Contiguous storage flattenable to `[cache_rows, 128]` | `torch.bfloat16` | Required | Cache updated in place for completed pools. |
+| `index_k_cache` | `torch.Tensor` | Contiguous storage flattenable to `[cache_rows, 128]` | `torch.bfloat16`, `torch.int8`, or `torch.float8_e4m3fn` | Required | Cache updated in place for completed pools. FP8 and INT8 require `scale_cache`. |
 | `key` | `torch.Tensor` | `[B * N, 128]` | `torch.bfloat16` | Required | Draft keys. |
 | `score` | `torch.Tensor` | Same as `key` | `torch.float16`, `torch.bfloat16`, or `torch.float32` | Required | Scores paired with `key`. |
 | `tail_k` | `torch.Tensor` | `[R, pool_size + N, 128]` | `torch.bfloat16` | Required | Tail rings updated in place. |
@@ -60,6 +63,7 @@ Pooling uses FP32 arithmetic and includes positional scores. Effective draft cou
 | `out_cache_loc` | `torch.Tensor` | `[>= B * N]` | `torch.int32` or `torch.int64` | Required | Token cache locations; a zero first entry for a batch skips that whole batch. Read only. |
 | `num_draft_tokens` | `int` | — | — | Required | Static `N`; must be positive and divide `key.shape[0]`. |
 | `effective_n_per_batch` | `torch.Tensor` or `None` | `[>= B]` or — | `torch.int32` or `torch.int64` | `None` | Optional effective draft count used only for pool-completion decisions. |
+| `scale_cache` | `torch.Tensor` or `None` | `[cache_rows]` | `torch.float32` (FP8) or `torch.float16` (INT8) | `None` | Per-row dequantization scales written with FP8/INT8 keys. |
 | `num_programs` | `int` or `None` | — | — | `None` | Optional execution-parallelism hint; must be positive when supplied. |
 | `impl` | `str` | — | — | `"auto"` | Keyword-only; `auto`, `triton`, `torch_native` |
 

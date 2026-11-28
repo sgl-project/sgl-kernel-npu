@@ -140,7 +140,38 @@ def inspect_vendor(vendor, item):
             raise RuntimeError("No installed AICore/AICPU implementation for " + op)
 
 
+def _isolate_mhc_pre_sinkhorn(source):
+    """Give the bundled V2 its own OPP type and ACLNN symbols."""
+    op = source / "mhc/mhc_pre_sinkhorn"
+
+    def rename(text):
+        changes = (
+            (r"(?<!aclnn_)mhc_pre_sinkhorn(?!_backward|_v2)", "mhc_pre_sinkhorn_v2"),
+            (r"(?<!aclnn)MhcPreSinkhorn(?!Backward|V2)", "MhcPreSinkhornV2"),
+            (r"(?<!ACLNN_)MHC_PRE_SINKHORN(?!_BACKWARD|_V2)", "MHC_PRE_SINKHORN_V2"),
+            (r"aclnn_mhc_pre_sinkhorn", "aclnn_sgl_mhc_pre_sinkhorn"),
+            (r"aclnnMhcPreSinkhorn", "aclnnSglMhcPreSinkhorn"),
+            (r"ACLNN_MHC_PRE_SINKHORN", "ACLNN_SGL_MHC_PRE_SINKHORN"),
+        )
+        for original, private in changes:
+            text = re.sub(original, private, text)
+        return text
+
+    for path in sorted(op.rglob("*"), key=lambda path: len(path.parts), reverse=True):
+        if path.is_file() and (
+            path.suffix in (".cpp", ".h", ".py", ".json", ".ini")
+            or path.name == "CMakeLists.txt"
+        ):
+            path.write_text(rename(path.read_text(encoding="utf-8")), encoding="utf-8")
+        name = rename(path.name)
+        if name != path.name:
+            path.rename(path.with_name(name))
+    op.rename(source / "experimental/mhc/mhc_pre_sinkhorn_v2")
+
+
 def build(item, source, directory):
+    if "mhc_pre_sinkhorn_v2" in item["ops"]:
+        _isolate_mhc_pre_sinkhorn(source)
     for index, command in enumerate(item["commands"]):
         run(command, directory / ("build-{}.log".format(index)), cwd=source)
     # The pinned 9.1 build.sh has no --torch_extension option.

@@ -13,8 +13,9 @@ constexpr uint32_t kSfaPackedKvRopeDim = 64;
 constexpr uint32_t kSfaPackedKvQuantBlockSize = 128;
 constexpr uint32_t kSfaPackedKvDequantizedDim = kSfaPackedKvLatentDim + kSfaPackedKvRopeDim;
 constexpr uint32_t kSfaPackedKvScaleOffset = kSfaPackedKvLatentDim + kSfaPackedKvRopeDim * sizeof(uint16_t);
-constexpr uint32_t kSfaPackedKvBytes =
-    kSfaPackedKvScaleOffset + kSfaPackedKvLatentDim / kSfaPackedKvQuantBlockSize * sizeof(float);
+constexpr uint32_t kSfaPackedKvScaleBytes = kSfaPackedKvLatentDim / kSfaPackedKvQuantBlockSize * sizeof(float);
+constexpr uint32_t kSfaPackedKvBytes = kSfaPackedKvScaleOffset + kSfaPackedKvScaleBytes;
+constexpr uint32_t kSfaPackedKvNoRopeBytes = kSfaPackedKvLatentDim + kSfaPackedKvScaleBytes;
 
 // These device-side POD types mirror the serialized layout produced by the
 // host-side BEGIN_TILING_DATA_DEF declarations. Keep their field order in sync.
@@ -39,6 +40,7 @@ struct alignas(8) SparseFlashAttentionBaseParamsMla {
     uint32_t isActualLenDimsNull;
     uint32_t isActualLenDimsKVNull;
     uint32_t dispatchKey;
+    uint32_t packedKvBytes;
 };
 
 struct alignas(8) SparseFlashAttentionSingleCoreParamsMla {
@@ -69,9 +71,9 @@ struct alignas(8) SparseFlashAttentionTilingDataMla {
     SparseFlashAttentionInnerSplitParams innerSplitParams;
 };
 
-static_assert(sizeof(SparseFlashAttentionBaseParamsMla) == 104);
+static_assert(sizeof(SparseFlashAttentionBaseParamsMla) == 112);
 static_assert(sizeof(SparseFlashAttentionSplitKVParamsMla) == 16);
 static_assert(sizeof(SparseFlashAttentionSingleCoreParamsMla) == 8);
-static_assert(sizeof(SparseFlashAttentionTilingDataMla) == 144);
+static_assert(sizeof(SparseFlashAttentionTilingDataMla) == 152);
 
 #endif  // SGL_KERNEL_NPU_SPARSE_FLASH_ATTENTION_TILING_DATA_H

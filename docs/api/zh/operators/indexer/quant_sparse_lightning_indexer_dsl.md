@@ -66,7 +66,7 @@ T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。
 | 参数 | 默认值 | 类型、形状与含义 |
 | --- | --- | --- |
 | `q` | 必填 | UINT8 [T,32,64]，逻辑维度 128 的 MXFP4 查询。 |
-| `k` | 必填 | UINT8 K：TND 为 [K,1,64]，PA_BBND 为 [P,S,1,64]；QSLI PA 使用合并的 [P,S/8,544] 字节。 |
+| `k` | 必填 | UINT8 K：TND 为 [K,1,64]。PA_BBND 支持带独立 scale 的 [P,S,1,64] 或合并的 [P,S/8,544] 记录。 |
 | `w` | 必填 | FP32 [T,32]，查询头的分数权重。 |
 | `descale_q` | 必填 | UINT8/E8M0 [T,32,2,2]，每 32 个逻辑特征一个 scale。 |
 | `candidate_block_indices` | 必填 | INT32 [T,1,2048]，候选逻辑块 ID；有效前缀由 length 指定。 |
@@ -79,7 +79,7 @@ T 为查询行数，B 为请求数，P 为物理页数，S 为每页槽位数。
 | `block_table` | `None` | 可选 INT32 [B,max_blocks]，PA 逻辑页到物理页的映射。 |
 | `output_idx_offset` | `None` | 可选 INT32 [T,1]，加到有效返回 token 索引上的偏移。 |
 | `metadata` | `None` | cannbot_dsl 必需的 INT32 [1024] 设备调度数据；torch_native 不使用该参数。 |
-| `descale_k` | `None` | UINT8/E8M0 [K,1,2,2] 或 [P,S,1,2,2]；QSLI 合并 PA 存储时省略。 |
+| `descale_k` | `None` | UINT8/E8M0。TND 为 [K,1,2,2]，分离 PA 为 [P,S,1,2,2] 或 [P,S,1,4]。K 与 scale 共用页表，各自的页跨度可不同；合并 PA 省略此参数。 |
 | `topk` | 必填 | int，每个查询最多选择的 token 数，范围 [1,8192]。 |
 | `candidate_block_size` | 必填 | int，启用候选块时每块使用 8 个 token。 |
 | `quant_mode` | 必填 | int，当前支持的量化配置使用 1。 |

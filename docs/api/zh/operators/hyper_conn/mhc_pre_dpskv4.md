@@ -5,11 +5,12 @@
 | 实现 | ARCH22 / A3 | ARCH35 / A5 |
 | --- | --- | --- |
 | `cann_ops_transformers_cann920` | 支持 | 支持 |
+| `cann_ops_transformers_cann920_v2` | 支持 | 支持 |
 | `cann_recipes_infer_cann910` | 支持 | 支持 |
 | `cann_recipes_infer_cann920` | 不支持 | 支持 |
 | `torch_native` | 支持 | 支持 |
 
-`cann_recipes_infer_cann920` 还要求已初始化的 CANN SDK 为 9.2.x，用于 DSV4.1 的 `pre_mix` 输入与 pre 输出；该实现只在 arch35 注册，arch22 上显式选择会抛出 `UnsupportedGenerationError`。
+DeepSeek V4.1 路径需要安装包含目标架构融合后端的 CANN 9.2 wheel。
 
 ## 接口
 
@@ -21,7 +22,7 @@ def mhc_pre_dpskv4(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm
     ...
 ```
 
-`auto` 根据初始化的 CANN SDK 选择生产路径：9.1 使用旧绑定，9.2 使用正式绑定；不在执行失败后重试其他后端。DSV4.1 的融合 kernel 需显式选择 `cann_recipes_infer_cann920`。
+传入 `pre_mix` 或设置 `return_pre=True` 时，`auto` 在 A3 和 A5 上都选择 CANN MhcPreSinkhornV2。两项均未指定时，按初始化的 SDK 选择 DeepSeek V4 路径。
 
 ## 说明
 
@@ -29,7 +30,7 @@ def mhc_pre_dpskv4(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm
 
 对展平流进行 RMS 归一化投影，生成 sigmoid pre/post gate 和 Sinkhorn 归一化残差矩阵；`y = Σ_i pre_i × x_i`。y 保留输入 dtype，参考 post/comb 为 FP32。
 
-`pre_mix` 传入时直接作为权重参与 y 累加，不再由投影结果计算；`return_pre=True` 时在 comb 之后追加本轮内部计算的 pre（即使传入了 `pre_mix`）。这两个参数仅 `cann_recipes_infer_cann920` 与 `torch_native` 支持。
+`pre_mix` 传入时直接作为 y 的加权系数。`return_pre=True` 时追加根据当前残差计算的 pre，包括传入 `pre_mix` 的情况。A3 和 A5 的融合后端及 `torch_native` 均支持这两个参数。
 
 ## 参数
 
@@ -43,9 +44,9 @@ def mhc_pre_dpskv4(x, fn, scale, base, hc_mult, sinkhorn_iters, hc_eps, rms_norm
 | sinkhorn_iters | int | 必填 | Positive Sinkhorn iteration count |
 | hc_eps | float | 必填 | Gate and Sinkhorn stability epsilon |
 | rms_norm_eps | float | 必填 | Internal projection RMS epsilon, not the model layernorm |
-| pre_mix | Tensor | None | 仅限关键字；参与 y 累加的 [T,n] FP32 权重，要求 `cann_recipes_infer_cann920` 或 `torch_native` |
+| pre_mix | Tensor | None | 仅限关键字，参与 y 累加的 [T,n] FP32 权重 |
 | return_pre | bool | False | 仅限关键字；为 True 时多返回一个 pre 输出 |
-| impl | str | 'auto' | Registered implementation; auto selects the SDK path; never falls back to torch_native |
+| impl | str | 'auto' | 已注册的实现，或用 `auto` 自动选择生产路径 |
 
 ## 返回值
 
@@ -66,7 +67,11 @@ Source: [cann-recipes-infer; aclnnHcPre](https://gitcode.com/cann/cann-recipes-i
 
 ## cann_recipes_infer_cann920
 
-DSV4.1 融合路径，仅 CANN 9.2.x + A5；`npu_hc_pre_v2` 只随 arch35 构建进入 wheel。调用 wheel 内捆绑的 `torch.ops.sgl_cann_recipes_infer.npu_hc_pre_v2`，支持 `pre_mix` 输入与 pre 输出；绑定缺失时明确报错，不回退其他后端。
+A5 Recipes 后端需要 CANN 9.2.x。它调用 wheel 内的 `torch.ops.sgl_cann_recipes_infer.npu_hc_pre_v2`，支持 `pre_mix` 与 `return_pre`。
+
+## cann_ops_transformers_cann920_v2
+
+A3 和 A5 使用 wheel 内的 MhcPreSinkhornV2 和 HF32。wheel 注册 OPP 类型 `MhcPreSinkhornV2`，并通过 `aclnnSglMhcPreSinkhornV2` 提供 ACLNN 入口，使 DeepSeek V4 和 V4.1 的算子可以同时加载。此后端使用 4 条残差流和 20 次 Sinkhorn 迭代，隐藏维度需按 128 对齐。[CANN 算子约束](https://gitcode.com/cann/ops-transformer/blob/53f5c56996be158b52579d9cdd484b54a38dfb64/mhc/mhc_pre_sinkhorn/docs/aclnnMhcPreSinkhornV2.md)
 
 ## torch_native
 
@@ -79,16 +84,18 @@ import torch
 import torch_npu
 from sgl_kernel_npu.operators.hyper_conn import mhc_pre_dpskv4
 
-x = torch.randn(1, 4, 128, device="npu", dtype=torch.bfloat16)
-fn = torch.randn(24, 512, device="npu", dtype=torch.bfloat16)
+x = torch.randn(1, 4, 5120, device="npu", dtype=torch.bfloat16)
+fn = torch.randn(24, 4 * 5120, device="npu", dtype=torch.float32)
 scale = torch.ones(3, device="npu", dtype=torch.float32)
 base = torch.zeros(24, device="npu", dtype=torch.float32)
 y, post, comb = mhc_pre_dpskv4(x, fn, scale, base, 4, 20, 1e-6, 1e-6, impl="torch_native")
 
-# DSV4.1 融合 kernel：需要 CANN 9.2.0 wheel（含 recipes vendor）。
+# DeepSeek V4.1 使用上一子层的 pre 权重。
+pre_mix = torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=x.device)
 y, post, comb, pre = mhc_pre_dpskv4(
     x, fn, scale, base, 4, 20, 1e-6, 1e-6,
-    return_pre=True, impl="cann_recipes_infer_cann920",
+    pre_mix=pre_mix,
+    return_pre=True,
 )
 ```
 
@@ -99,6 +106,6 @@ python3 -m pytest tests/python/operators/hyper_conn/test_mhc_pre_dpskv4.py \
   --impl auto --impl-ref torch_native --skip-acc-check=false --enable-perf=false -v -s -rs
 ```
 
-`cann_recipes_infer_cann920` 的 DSV4.1 用例只在 CANN 9.2.x + arch35 上执行，其余环境自动跳过；基线用例走 `auto`，由 SDK 版本决定后端。
+安装的 wheel 包含对应架构的融合后端时，执行 DeepSeek V4.1 用例。
 
 [上游算子仓库](https://github.com/Ascend/ops-transformer)
