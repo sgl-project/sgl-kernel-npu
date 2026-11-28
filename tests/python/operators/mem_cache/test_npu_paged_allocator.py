@@ -3,13 +3,22 @@
 import itertools
 import unittest
 
+import pytest
 import torch
-import torch_npu  # noqa: F401
-from sgl_kernel_npu.mem_cache.npu_allocator import alloc_extend_kernel
+
+
+@pytest.fixture(autouse=True)
+def cpu_reference_device():
+    with torch.device("cpu"):
+        yield
 
 
 class TestNpuPagedAllocator(unittest.TestCase):
     def test_mapping_and_specialization(self):
+        from sgl_kernel_npu.implementation.triton.mem_cache.npu_allocator import (
+            alloc_extend_kernel,
+        )
+
         for page_size in (96, 128):
             for dtype in (torch.int32, torch.int64):
                 hashes = set()
