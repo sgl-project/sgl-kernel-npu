@@ -5,7 +5,13 @@ import torch
 
 pytest.importorskip("torch_npu")
 
-from sgl_kernel_npu.sparsity_driven_kv_offload.row_metadata import copy_rows_metadata
+from sgl_kernel_npu.operators.mem_cache.copy_rows_metadata import copy_rows_metadata
+
+
+@pytest.fixture(autouse=True)
+def cpu_reference_device():
+    with torch.device("cpu"):
+        yield
 
 
 def exact(actual, expected):
