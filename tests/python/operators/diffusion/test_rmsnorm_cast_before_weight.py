@@ -3,6 +3,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tests.python.utils.accuracy import check_accuracy
+from tests.python.utils.common import require_test_impl
 from tests.python.utils.performance import check_performance
 from tests.python.utils.standards import AccuracyStandard
 
@@ -70,6 +71,7 @@ def test_rmsnorm_cast_before_weight(shape, dtype, eps):
 def test_rmsnorm_cast_before_weight_rejects_unsupported_shape(shape):
     from sgl_kernel_npu.operators.diffusion import rmsnorm_cast_before_weight
 
+    require_test_impl(rmsnorm_cast_before_weight, "triton")
     x, weight = generate_data(shape, torch.bfloat16)
     with pytest.raises(ValueError):
         rmsnorm_cast_before_weight(x, weight, 1e-6, impl="triton")

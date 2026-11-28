@@ -137,19 +137,23 @@ def test_memfabric_aicpu_h2d(offload_runtime, shape, dtype, layout):
 
 
 @pytest.fixture
-def offload_runtime():
+def offload_runtime(mf_local_device):
     pytest.importorskip("memfabric_hybrid")
     from memfabric_hybrid import offload
     from sgl_kernel_npu.operators.mem_cache.memfabric.host_memory import (
         set_memfabric_pool,
         uninitialize_host_memory,
     )
+    from sgl_kernel_npu.operators.utils.generation import Generation, get_hardware
 
     pool = offload.Offload()
     config = offload.OffloadConfig()
-    config.device_id = torch.npu.current_device()
+    config.device_id = mf_local_device
     config.reserve_size = 8 << 30
     config.alloc_size = 8 << 30
+    if get_hardware().generation == Generation.ARCH35:
+        # A5 local AICPU offload uses URMA for host/device transfers.
+        config.executor = offload.Executor.AICPU
     config.flags = 0
     config.scene = offload.Scene.LOCAL
     status = pool.initialize(config)

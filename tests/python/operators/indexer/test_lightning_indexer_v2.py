@@ -18,6 +18,15 @@ from tests.python.utils.common import (
 from tests.python.utils.performance import check_performance
 
 
+@pytest.fixture(scope="module", autouse=True)
+def require_cann_9_2_0():
+    from sgl_kernel_npu.operators.utils.cann import detect_cann_version
+
+    version = detect_cann_version()
+    if version != "9.2.0":
+        pytest.skip(f"Lightning Indexer V2 requires CANN 9.2.0 (found {version})")
+
+
 def generate_test_data(nq):
     # Model dimensions only; activations are generated rather than captured:
     # https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash/blob/517ef62/config.json

@@ -1,13 +1,22 @@
 """Public RMSNorm operator with the cast-before-weight rounding."""
 
+from ..utils.generation import Generation
 from ..utils.registry import get_impl_by_name, register_impl, register_operator
 
 _triton_fn = None
 _torch_native_fn = None
 
 
-@register_impl("diffusion.rmsnorm_cast_before_weight", "auto")
-@register_impl("diffusion.rmsnorm_cast_before_weight", "triton")
+@register_impl(
+    "diffusion.rmsnorm_cast_before_weight",
+    "auto",
+    supported_generations={Generation.ARCH22},
+)
+@register_impl(
+    "diffusion.rmsnorm_cast_before_weight",
+    "triton",
+    supported_generations={Generation.ARCH22},
+)
 def _triton_impl(x, weight, eps):
     global _triton_fn
     if _triton_fn is None:

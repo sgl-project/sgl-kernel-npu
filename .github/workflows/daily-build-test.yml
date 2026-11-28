@@ -19,7 +19,8 @@ jobs:
     name: ${{ matrix.test_type == 'intranode' && 'Intranode' || 'Low Latency' }} (CANN ${{ matrix.cann_version }}, ${{ matrix.hardware }})
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-800t-16' || 'linux-aarch64-a2-8' }}
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}-ubuntu22.04-py3.12
+      # Kernel CI images are published for A3/A5; A2 uses the CANN base image.
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/${{ matrix.hardware == 'a3' && format('cann/cann:kernel-{0}-a3-ubuntu22.04-py3.12', matrix.cann_version) || format('cann:{0}-910b-ubuntu22.04-py3.12', matrix.cann_version) }}
     timeout-minutes: ${{ matrix.test_type == 'intranode' && 350 || 330 }}
     env:
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
