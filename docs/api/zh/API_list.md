@@ -129,6 +129,11 @@
 | [chain_speculative_sampling](operators/speculative/chain_speculative_sampling.md) | `triton`、`torch_native` |
 | [tree_speculative_sampling_target_only](operators/speculative/tree_speculative_sampling_target_only.md) | `triton`、`torch_native` |
 | [verify_tree_greedy](operators/speculative/verify_tree_greedy.md) | `triton`、`torch_native` |
+| [reconstruct_indices_from_tree_mask](operators/speculative/reconstruct_indices_from_tree_mask.md) | `triton`, `torch_native` |
+| [verify_ngram_tree_greedy](operators/speculative/verify_ngram_tree_greedy.md) | `triton`, `torch_native` |
+| [build_ngram_attention_mask](operators/attention/build_ngram_attention_mask.md) | `triton`, `torch_native` |
+| [move_kv_cache_rows](operators/mem_cache/move_kv_cache_rows.md) | `triton`, `torch_native` |
+| [move_mla_kv_cache](operators/mem_cache/move_mla_kv_cache.md) | `triton`, `torch_native` |
 | [markov_greedy_step_triton](operators/sample/markov_greedy_step_triton.md) | `triton`、`torch_native` |
 | [build_out_tokens_triton](operators/sample/build_out_tokens_triton.md) | `triton`、`torch_native` |
 | [schedule_verify_lens_topk_triton](operators/sample/schedule_verify_lens_topk_triton.md) | `triton`, `torch_native` |

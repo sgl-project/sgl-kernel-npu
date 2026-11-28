@@ -21,6 +21,8 @@ from .memfabric.kv_transfer import (
     transfer_kv_per_layer_kv_split,
     transfer_kv_per_layer_kv_split_pf_lf,
 )
+from .move_kv_cache_rows import move_kv_cache_rows
+from .move_mla_kv_cache import move_mla_kv_cache
 from .reshape_and_cache import reshape_and_cache
 from .scatter_kpool_tail_updates import scatter_kpool_tail_updates
 from .scatter_nd_update import scatter_nd_update_
@@ -48,6 +50,8 @@ __all__ = [
     "kv_compress_epilog",
     "kv_compress_epilog_v2",
     "kv_rmsnorm_rope_cache",
+    "move_kv_cache_rows",
+    "move_mla_kv_cache",
     "reshape_and_cache",
     "scatter_kpool_tail_updates",
     "scatter_nd_update_",
