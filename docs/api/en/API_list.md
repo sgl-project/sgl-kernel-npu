@@ -70,6 +70,7 @@
 | [elu](operators/examples/elu.md) | `ascendc` (ARCH22), `torch_native` |
 | [compressor_v2](operators/attention/compressor_v2.md) | `cann_ops_transformers_cann920`, `torch_native` |
 | [lightning_indexer_v2](operators/indexer/lightning_indexer_v2.md) | `cann_ops_transformers_cann920`, `torch_native` |
+| [fused_prepare_lim_metadata](operators/indexer/fused_prepare_lim_metadata.md) | `triton`, `torch_native` |
 | [lightning_indexer_v2_metadata](operators/indexer/lightning_indexer_v2_metadata.md) | `cann_ops_transformers_cann920` |
 | [sparse_lightning_indexer](operators/indexer/sparse_lightning_indexer.md) | `cann_ops_transformers_cann920`, `torch_native` |
 | [flash_mla](operators/attention/flash_mla.md) | `cann_ops_transformers_cann920`, `torch_native` |
